@@ -1,0 +1,3 @@
+tests/pgsql/regression.diffs
+tests/pgsql/regression.out
+tests/pgsql/results/clickhouse_fdw.out

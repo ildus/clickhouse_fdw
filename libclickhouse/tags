@@ -1,0 +1,231 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_OUTPUT_MODE	u-ctags	/u-ctags or e-ctags/
+!_TAG_PROGRAM_AUTHOR	Universal Ctags Team	//
+!_TAG_PROGRAM_NAME	Universal Ctags	/Derived from Exuberant Ctags/
+!_TAG_PROGRAM_URL	https://ctags.io/	/official site/
+!_TAG_PROGRAM_VERSION	0.0.0	/45968eff/
+$(VERBOSE).SILENT	build/Makefile	/^$(VERBOSE).SILENT:$/;"	t
+ARCHITECTURE_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#   define ARCHITECTURE_ID /;"	d	file:
+ARCHITECTURE_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define ARCHITECTURE_ID /;"	d	file:
+ARCHITECTURE_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define ARCHITECTURE_ID$/;"	d	file:
+BUILD_TESTS	CMakeLists.txt	/^option(BUILD_TESTS "build tests" OFF)$/;"	D
+CH_EOF	include/clickhouse_http.h	/^	CH_EOF = -1$/;"	e	enum:__anonfac554970203
+CH_TAB_SEPARATED	include/clickhouse_http.h	/^	CH_TAB_SEPARATED$/;"	e	enum:__anonfac554970103
+CLICKHOUSE_HTTP_H	include/clickhouse_http.h	/^#define CLICKHOUSE_HTTP_H$/;"	d
+CMAKE_AR	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_AR "\/usr\/sbin\/ar")$/;"	v
+CMAKE_BINARY_DIR	build/Makefile	/^CMAKE_BINARY_DIR = \/home\/ildus\/dev\/clickhouse_http_client\/build$/;"	m
+CMAKE_BUILD_TYPE	CMakeLists.txt	/^    set(CMAKE_BUILD_TYPE "Debug")$/;"	v
+CMAKE_C11_COMPILE_FEATURES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C11_COMPILE_FEATURES "c_std_11;c_static_assert")$/;"	v
+CMAKE_C90_COMPILE_FEATURES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C90_COMPILE_FEATURES "c_std_90;c_function_prototypes")$/;"	v
+CMAKE_C99_COMPILE_FEATURES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C99_COMPILE_FEATURES "c_std_99;c_restrict;c_variadic_macros")$/;"	v
+CMAKE_CL_SHOWINCLUDES_PREFIX	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(CMAKE_CL_SHOWINCLUDES_PREFIX "${CMAKE_C_CL_SHOWINCLUDES_PREFIX}")$/;"	v
+CMAKE_COMMAND	build/Makefile	/^CMAKE_COMMAND = \/usr\/bin\/cmake$/;"	m
+CMAKE_COMPILER_IS_CYGWIN	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_COMPILER_IS_CYGWIN )$/;"	v
+CMAKE_COMPILER_IS_GNUCC	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_COMPILER_IS_GNUCC 1)$/;"	v
+CMAKE_COMPILER_IS_MINGW	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_COMPILER_IS_MINGW )$/;"	v
+CMAKE_CROSSCOMPILING	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_CROSSCOMPILING "FALSE")$/;"	v
+CMAKE_CROSSCOMPILING	build/cmake_install.cmake	/^  set(CMAKE_CROSSCOMPILING "FALSE")$/;"	v
+CMAKE_CXX_INCLUDE_REGEX_COMPLAIN	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_CXX_INCLUDE_REGEX_COMPLAIN ${CMAKE_C_INCLUDE_REGEX_COMPLAIN})$/;"	v
+CMAKE_CXX_INCLUDE_REGEX_SCAN	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_CXX_INCLUDE_REGEX_SCAN ${CMAKE_C_INCLUDE_REGEX_SCAN})$/;"	v
+CMAKE_C_ABI_COMPILED	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_ABI_COMPILED TRUE)$/;"	v
+CMAKE_C_CL_SHOWINCLUDES_PREFIX	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_CL_SHOWINCLUDES_PREFIX "")$/;"	v
+CMAKE_C_COMPILER	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER "\/usr\/sbin\/cc")$/;"	v
+CMAKE_C_COMPILER_ABI	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_ABI "ELF")$/;"	v
+CMAKE_C_COMPILER_AR	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_AR "\/usr\/sbin\/gcc-ar")$/;"	v
+CMAKE_C_COMPILER_ARG1	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_ARG1 "")$/;"	v
+CMAKE_C_COMPILER_ENV_VAR	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_ENV_VAR "CC")$/;"	v
+CMAKE_C_COMPILER_ID	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_ID "GNU")$/;"	v
+CMAKE_C_COMPILER_ID	build/CMakeFiles/clickhouse.dir/DependInfo.cmake	/^set(CMAKE_C_COMPILER_ID "GNU")$/;"	v
+CMAKE_C_COMPILER_ID	build/CMakeFiles/test_clickhouse_http.dir/DependInfo.cmake	/^set(CMAKE_C_COMPILER_ID "GNU")$/;"	v
+CMAKE_C_COMPILER_ID_RUN	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_ID_RUN 1)$/;"	v
+CMAKE_C_COMPILER_LOADED	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_LOADED 1)$/;"	v
+CMAKE_C_COMPILER_RANLIB	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_RANLIB "\/usr\/sbin\/gcc-ranlib")$/;"	v
+CMAKE_C_COMPILER_VERSION	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_VERSION "8.3.0")$/;"	v
+CMAKE_C_COMPILER_VERSION_INTERNAL	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_VERSION_INTERNAL "")$/;"	v
+CMAKE_C_COMPILER_WORKS	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_WORKS TRUE)$/;"	v
+CMAKE_C_COMPILER_WRAPPER	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILER_WRAPPER "")$/;"	v
+CMAKE_C_COMPILE_FEATURES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_COMPILE_FEATURES "c_std_90;c_function_prototypes;c_std_99;c_restrict;c_variadic_macr/;"	v
+CMAKE_C_IGNORE_EXTENSIONS	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_IGNORE_EXTENSIONS h;H;o;O;obj;OBJ;def;DEF;rc;RC)$/;"	v
+CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES "\/usr\/lib\/gcc\/x86_64-pc-linux-gnu\/8.3.0\/include;\//;"	v
+CMAKE_C_IMPLICIT_LINK_DIRECTORIES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_IMPLICIT_LINK_DIRECTORIES "\/usr\/lib\/gcc\/x86_64-pc-linux-gnu\/8.3.0;\/usr\/lib;\//;"	v
+CMAKE_C_IMPLICIT_LINK_FRAMEWORK_DIRECTORIES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_IMPLICIT_LINK_FRAMEWORK_DIRECTORIES "")$/;"	v
+CMAKE_C_IMPLICIT_LINK_LIBRARIES	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_IMPLICIT_LINK_LIBRARIES "gcc;gcc_s;c;gcc;gcc_s")$/;"	v
+CMAKE_C_INCLUDE_REGEX_COMPLAIN	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_C_INCLUDE_REGEX_COMPLAIN "^$")$/;"	v
+CMAKE_C_INCLUDE_REGEX_SCAN	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_C_INCLUDE_REGEX_SCAN "^.*$")$/;"	v
+CMAKE_C_LIBRARY_ARCHITECTURE	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_LIBRARY_ARCHITECTURE "")$/;"	v
+CMAKE_C_LINKER_PREFERENCE	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_LINKER_PREFERENCE 10)$/;"	v
+CMAKE_C_PLATFORM_ID	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_PLATFORM_ID "Linux")$/;"	v
+CMAKE_C_SIMULATE_ID	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_SIMULATE_ID "")$/;"	v
+CMAKE_C_SIMULATE_VERSION	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_SIMULATE_VERSION "")$/;"	v
+CMAKE_C_SIZEOF_DATA_PTR	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_SIZEOF_DATA_PTR "8")$/;"	v
+CMAKE_C_SOURCE_FILE_EXTENSIONS	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_SOURCE_FILE_EXTENSIONS c;m)$/;"	v
+CMAKE_C_STANDARD_COMPUTED_DEFAULT	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_C_STANDARD_COMPUTED_DEFAULT "11")$/;"	v
+CMAKE_C_TARGET_INCLUDE_PATH	build/CMakeFiles/clickhouse.dir/DependInfo.cmake	/^set(CMAKE_C_TARGET_INCLUDE_PATH$/;"	v
+CMAKE_C_TARGET_INCLUDE_PATH	build/CMakeFiles/test_clickhouse_http.dir/DependInfo.cmake	/^set(CMAKE_C_TARGET_INCLUDE_PATH$/;"	v
+CMAKE_DEPENDS_CHECK_C	build/CMakeFiles/clickhouse.dir/DependInfo.cmake	/^set(CMAKE_DEPENDS_CHECK_C$/;"	v
+CMAKE_DEPENDS_CHECK_C	build/CMakeFiles/test_clickhouse_http.dir/DependInfo.cmake	/^set(CMAKE_DEPENDS_CHECK_C$/;"	v
+CMAKE_DEPENDS_GENERATOR	build/CMakeFiles/Makefile.cmake	/^set(CMAKE_DEPENDS_GENERATOR "Unix Makefiles")$/;"	v
+CMAKE_DEPENDS_LANGUAGES	build/CMakeFiles/clickhouse.dir/DependInfo.cmake	/^set(CMAKE_DEPENDS_LANGUAGES$/;"	v
+CMAKE_DEPENDS_LANGUAGES	build/CMakeFiles/test_clickhouse_http.dir/DependInfo.cmake	/^set(CMAKE_DEPENDS_LANGUAGES$/;"	v
+CMAKE_DEPEND_INFO_FILES	build/CMakeFiles/Makefile.cmake	/^set(CMAKE_DEPEND_INFO_FILES$/;"	v
+CMAKE_FORCE_UNIX_PATHS	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_FORCE_UNIX_PATHS 1)$/;"	v
+CMAKE_Fortran_TARGET_MODULE_DIR	build/CMakeFiles/clickhouse.dir/DependInfo.cmake	/^set(CMAKE_Fortran_TARGET_MODULE_DIR "")$/;"	v
+CMAKE_Fortran_TARGET_MODULE_DIR	build/CMakeFiles/test_clickhouse_http.dir/DependInfo.cmake	/^set(CMAKE_Fortran_TARGET_MODULE_DIR "")$/;"	v
+CMAKE_HOST_SYSTEM	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_HOST_SYSTEM "Linux-5.0.9-arch1-1-ARCH")$/;"	v
+CMAKE_HOST_SYSTEM_NAME	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_HOST_SYSTEM_NAME "Linux")$/;"	v
+CMAKE_HOST_SYSTEM_PROCESSOR	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_HOST_SYSTEM_PROCESSOR "x86_64")$/;"	v
+CMAKE_HOST_SYSTEM_VERSION	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_HOST_SYSTEM_VERSION "5.0.9-arch1-1-ARCH")$/;"	v
+CMAKE_INSTALL_COMPONENT	build/cmake_install.cmake	/^    set(CMAKE_INSTALL_COMPONENT "${COMPONENT}")$/;"	v
+CMAKE_INSTALL_COMPONENT	build/cmake_install.cmake	/^    set(CMAKE_INSTALL_COMPONENT)$/;"	v
+CMAKE_INSTALL_CONFIG_NAME	build/cmake_install.cmake	/^    set(CMAKE_INSTALL_CONFIG_NAME "Debug")$/;"	v
+CMAKE_INSTALL_MANIFEST	build/cmake_install.cmake	/^  set(CMAKE_INSTALL_MANIFEST "install_manifest.txt")$/;"	v
+CMAKE_INSTALL_MANIFEST	build/cmake_install.cmake	/^  set(CMAKE_INSTALL_MANIFEST "install_manifest_${CMAKE_INSTALL_COMPONENT}.txt")$/;"	v
+CMAKE_INSTALL_PREFIX	build/cmake_install.cmake	/^  set(CMAKE_INSTALL_PREFIX "\/usr\/local")$/;"	v
+CMAKE_INSTALL_SO_NO_EXE	build/cmake_install.cmake	/^  set(CMAKE_INSTALL_SO_NO_EXE "0")$/;"	v
+CMAKE_INTERNAL_PLATFORM_ABI	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(CMAKE_INTERNAL_PLATFORM_ABI "${CMAKE_C_COMPILER_ABI}")$/;"	v
+CMAKE_LIBRARY_ARCHITECTURE	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(CMAKE_LIBRARY_ARCHITECTURE "")$/;"	v
+CMAKE_LINKER	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_LINKER "\/usr\/sbin\/ld")$/;"	v
+CMAKE_MAKEFILE_DEPENDS	build/CMakeFiles/Makefile.cmake	/^set(CMAKE_MAKEFILE_DEPENDS$/;"	v
+CMAKE_MAKEFILE_OUTPUTS	build/CMakeFiles/Makefile.cmake	/^set(CMAKE_MAKEFILE_OUTPUTS$/;"	v
+CMAKE_MAKEFILE_PRODUCTS	build/CMakeFiles/Makefile.cmake	/^set(CMAKE_MAKEFILE_PRODUCTS$/;"	v
+CMAKE_MT	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_MT "")$/;"	v
+CMAKE_RANLIB	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^set(CMAKE_RANLIB "\/usr\/sbin\/ranlib")$/;"	v
+CMAKE_RELATIVE_PATH_TOP_BINARY	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_RELATIVE_PATH_TOP_BINARY "\/home\/ildus\/dev\/clickhouse_http_client\/build")$/;"	v
+CMAKE_RELATIVE_PATH_TOP_SOURCE	build/CMakeFiles/CMakeDirectoryInformation.cmake	/^set(CMAKE_RELATIVE_PATH_TOP_SOURCE "\/home\/ildus\/dev\/clickhouse_http_client")$/;"	v
+CMAKE_SIZEOF_VOID_P	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(CMAKE_SIZEOF_VOID_P "${CMAKE_C_SIZEOF_DATA_PTR}")$/;"	v
+CMAKE_SOURCE_DIR	build/Makefile	/^CMAKE_SOURCE_DIR = \/home\/ildus\/dev\/clickhouse_http_client$/;"	m
+CMAKE_SYSTEM	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_SYSTEM "Linux-5.0.9-arch1-1-ARCH")$/;"	v
+CMAKE_SYSTEM_LOADED	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_SYSTEM_LOADED 1)$/;"	v
+CMAKE_SYSTEM_NAME	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_SYSTEM_NAME "Linux")$/;"	v
+CMAKE_SYSTEM_PROCESSOR	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_SYSTEM_PROCESSOR "x86_64")$/;"	v
+CMAKE_SYSTEM_VERSION	build/CMakeFiles/3.14.3/CMakeSystem.cmake	/^set(CMAKE_SYSTEM_VERSION "5.0.9-arch1-1-ARCH")$/;"	v
+CMAKE_TARGET_LINKED_INFO_FILES	build/CMakeFiles/clickhouse.dir/DependInfo.cmake	/^set(CMAKE_TARGET_LINKED_INFO_FILES$/;"	v
+CMAKE_TARGET_LINKED_INFO_FILES	build/CMakeFiles/test_clickhouse_http.dir/DependInfo.cmake	/^set(CMAKE_TARGET_LINKED_INFO_FILES$/;"	v
+COMPILER_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define COMPILER_ID /;"	d	file:
+COMPILER_VERSION_INTERNAL	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define COMPILER_VERSION_INTERNAL /;"	d	file:
+COMPILER_VERSION_MAJOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^  # define COMPILER_VERSION_MAJOR /;"	d	file:
+COMPILER_VERSION_MAJOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define COMPILER_VERSION_MAJOR /;"	d	file:
+COMPILER_VERSION_MAJOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define COMPILER_VERSION_MAJOR /;"	d	file:
+COMPILER_VERSION_MINOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^  # define COMPILER_VERSION_MINOR /;"	d	file:
+COMPILER_VERSION_MINOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define COMPILER_VERSION_MINOR /;"	d	file:
+COMPILER_VERSION_MINOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define COMPILER_VERSION_MINOR /;"	d	file:
+COMPILER_VERSION_PATCH	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^  # define COMPILER_VERSION_PATCH /;"	d	file:
+COMPILER_VERSION_PATCH	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#   define COMPILER_VERSION_PATCH /;"	d	file:
+COMPILER_VERSION_PATCH	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define COMPILER_VERSION_PATCH /;"	d	file:
+COMPILER_VERSION_PATCH	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define COMPILER_VERSION_PATCH /;"	d	file:
+COMPILER_VERSION_TWEAK	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define COMPILER_VERSION_TWEAK /;"	d	file:
+COMPILER_VERSION_TWEAK	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define COMPILER_VERSION_TWEAK /;"	d	file:
+CYGWIN	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(CYGWIN 1)$/;"	v
+C_DIALECT	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define C_DIALECT /;"	d	file:
+C_DIALECT	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define C_DIALECT$/;"	d	file:
+C_DIALECT	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define C_DIALECT /;"	d	file:
+DEC	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#define DEC(/;"	d	file:
+EQUALS	build/Makefile	/^EQUALS = =$/;"	m
+HEX	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#define HEX(/;"	d	file:
+ID_VOID_MAIN	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define ID_VOID_MAIN$/;"	d	file:
+MINGW	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(MINGW 1)$/;"	v
+PLATFORM_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define PLATFORM_ID /;"	d	file:
+PLATFORM_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define PLATFORM_ID$/;"	d	file:
+PLATFORM_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define PLATFORM_ID /;"	d	file:
+PLATFORM_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define PLATFORM_ID$/;"	d	file:
+RM	build/Makefile	/^RM = \/usr\/bin\/cmake -E remove -f$/;"	m
+SHELL	build/Makefile	/^SHELL = \/bin\/sh$/;"	m
+SIMULATE_ID	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define SIMULATE_ID /;"	d	file:
+SIMULATE_VERSION_MAJOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define SIMULATE_VERSION_MAJOR /;"	d	file:
+SIMULATE_VERSION_MINOR	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#  define SIMULATE_VERSION_MINOR /;"	d	file:
+STRINGIFY	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#define STRINGIFY(/;"	d	file:
+STRINGIFY_HELPER	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^#define STRINGIFY_HELPER(/;"	d	file:
+SUFFIXES	build/Makefile	/^SUFFIXES =$/;"	m
+UNIX	build/CMakeFiles/3.14.3/CMakeCCompiler.cmake	/^  set(UNIX 1)$/;"	v
+__anonfac554970103	include/clickhouse_http.h	/^{$/;"	g
+__anonfac554970203	include/clickhouse_http.h	/^{$/;"	g
+__anonfac554970308	include/clickhouse_http.h	/^typedef struct {$/;"	s
+all	build/Makefile	/^all: cmake_check_build_system$/;"	t
+buflen	include/clickhouse_http.h	/^	int		buflen;$/;"	m	struct:__anonfac554970308	typeref:typename:int
+ch_http_close	src/clickhouse_http.c	/^void ch_http_close(ch_http_connection_t *conn)$/;"	f	typeref:typename:void
+ch_http_connection	src/clickhouse_http.c	/^ch_http_connection_t *ch_http_connection(char *connstring)$/;"	f	typeref:typename:ch_http_connection_t *
+ch_http_connection_t	include/clickhouse_http.h	/^typedef struct ch_http_connection_t ch_http_connection_t;$/;"	t	typeref:struct:ch_http_connection_t
+ch_http_connection_t	src/clickhouse_internal.h	/^typedef struct ch_http_connection_t$/;"	s
+ch_http_connection_t	src/clickhouse_internal.h	/^} ch_http_connection_t;$/;"	t	typeref:struct:ch_http_connection_t
+ch_http_format_t	include/clickhouse_http.h	/^} ch_http_format_t;$/;"	t	typeref:enum:__anonfac554970103
+ch_http_init	src/clickhouse_http.c	/^void ch_http_init(int verbose)$/;"	f	typeref:typename:void
+ch_http_last_error	src/clickhouse_http.c	/^char *ch_http_last_error(void)$/;"	f	typeref:typename:char *
+ch_http_read_state	include/clickhouse_http.h	/^} ch_http_read_state;$/;"	t	typeref:struct:__anonfac554970308
+ch_http_read_tab_separated	src/clickhouse_parser.c	/^int ch_http_read_tab_separated(ch_http_read_state *state, char *data, int maxpos)$/;"	f	typeref:typename:int
+ch_http_response_t	include/clickhouse_http.h	/^typedef struct ch_http_response_t$/;"	s
+ch_http_response_t	include/clickhouse_http.h	/^} ch_http_response_t;$/;"	t	typeref:struct:ch_http_response_t
+ch_http_simple_query	src/clickhouse_http.c	/^ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query)$/;"	f	typeref:typename:ch_http_response_t *
+ch_read_status	include/clickhouse_http.h	/^} ch_read_status;$/;"	t	typeref:enum:__anonfac554970203
+clean	build/Makefile	/^clean:$/;"	t
+clean/fast	build/Makefile	/^clean\/fast: clean$/;"	t
+clickhouse	CMakeLists.txt	/^add_library(clickhouse ${src})$/;"	t
+clickhouse	build/Makefile	/^clickhouse: cmake_check_build_system$/;"	t
+clickhouse/fast	build/Makefile	/^clickhouse\/fast:$/;"	t
+cmake_check_build_system	build/Makefile	/^cmake_check_build_system:$/;"	t
+cmake_force	build/Makefile	/^cmake_force:$/;"	t
+const	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define const$/;"	d	file:
+curl	src/clickhouse_internal.h	/^	CURL			   *curl;$/;"	m	struct:ch_http_connection_t	typeref:typename:CURL *
+curl_error_buffer	src/clickhouse_http.c	/^static char curl_error_buffer[CURL_ERROR_SIZE];$/;"	v	typeref:typename:char[]	file:
+curl_error_happened	src/clickhouse_http.c	/^static bool curl_error_happened = false;$/;"	v	typeref:typename:bool	file:
+curl_verbose	src/clickhouse_http.c	/^static int	curl_verbose = 0;$/;"	v	typeref:typename:int	file:
+curpos	include/clickhouse_http.h	/^	int		curpos;$/;"	m	struct:__anonfac554970308	typeref:typename:int
+data	include/clickhouse_http.h	/^	char			   *data;$/;"	m	struct:ch_http_response_t	typeref:typename:char *
+datasize	include/clickhouse_http.h	/^	size_t				datasize;$/;"	m	struct:ch_http_response_t	typeref:typename:size_t
+default_target	build/Makefile	/^default_target: all$/;"	t
+depend	build/Makefile	/^depend:$/;"	t
+edit_cache	build/Makefile	/^edit_cache:$/;"	t
+edit_cache/fast	build/Makefile	/^edit_cache\/fast: edit_cache$/;"	t
+features	build/CMakeFiles/feature_tests.c	/^  const char features[] = {"\\n"$/;"	v	typeref:typename:const char[]
+format	include/clickhouse_http.h	/^	ch_http_format_t	format;$/;"	m	struct:ch_http_response_t	typeref:typename:ch_http_format_t
+format	src/clickhouse_internal.h	/^	ch_http_format_t	format;$/;"	m	struct:ch_http_connection_t	typeref:typename:ch_http_format_t
+help	build/Makefile	/^help:$/;"	t
+http_status	include/clickhouse_http.h	/^	long				http_status;$/;"	m	struct:ch_http_response_t	typeref:typename:long
+info_arch	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const* info_arch = "INFO" ":" "arch[" ARCHITECTURE_ID "]";$/;"	v	typeref:typename:char const *
+info_compiler	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const* info_compiler = "INFO" ":" "compiler[" COMPILER_ID "]";$/;"	v	typeref:typename:char const *
+info_cray	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const *info_cray = "INFO" ":" "compiler_wrapper[CrayPrgEnv]";$/;"	v	typeref:typename:char const *
+info_language_dialect_default	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^const char* info_language_dialect_default =$/;"	v	typeref:typename:const char *
+info_platform	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const* info_platform = "INFO" ":" "platform[" PLATFORM_ID "]";$/;"	v	typeref:typename:char const *
+info_simulate	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const* info_simulate = "INFO" ":" "simulate[" SIMULATE_ID "]";$/;"	v	typeref:typename:char const *
+info_simulate_version	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const info_simulate_version[] = {$/;"	v	typeref:typename:char const[]
+info_version	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const info_version[] = {$/;"	v	typeref:typename:char const[]
+info_version_internal	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const info_version_internal[] = {$/;"	v	typeref:typename:char const[]
+libclickhouse	CMakeLists.txt	/^project(libclickhouse VERSION 1.0.0 LANGUAGES C)$/;"	p
+main	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^int main(argc, argv) int argc; char *argv[];$/;"	f
+main	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^void main() {}$/;"	f	typeref:typename:void
+main	build/CMakeFiles/feature_tests.c	/^int main(int argc, char** argv) { (void)argv; return features[argc]; }$/;"	f	typeref:typename:int
+main	src/test_clickhouse_http.c	/^int main(void) {$/;"	f	typeref:typename:int
+preinstall	build/Makefile	/^preinstall: all$/;"	t
+preinstall/fast	build/Makefile	/^preinstall\/fast:$/;"	t
+qnxnto	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^char const* qnxnto = "INFO" ":" "qnxnto[]";$/;"	v	typeref:typename:char const *
+rebuild_cache	build/Makefile	/^rebuild_cache:$/;"	t
+rebuild_cache/fast	build/Makefile	/^rebuild_cache\/fast: rebuild_cache$/;"	t
+src	CMakeLists.txt	/^set(src$/;"	v
+src/clickhouse_http.c.i	build/Makefile	/^src\/clickhouse_http.c.i:$/;"	t
+src/clickhouse_http.c.o	build/Makefile	/^src\/clickhouse_http.c.o:$/;"	t
+src/clickhouse_http.c.s	build/Makefile	/^src\/clickhouse_http.c.s:$/;"	t
+src/clickhouse_http.i	build/Makefile	/^src\/clickhouse_http.i: src\/clickhouse_http.c.i$/;"	t
+src/clickhouse_http.o	build/Makefile	/^src\/clickhouse_http.o: src\/clickhouse_http.c.o$/;"	t
+src/clickhouse_http.s	build/Makefile	/^src\/clickhouse_http.s: src\/clickhouse_http.c.s$/;"	t
+src/clickhouse_parser.c.i	build/Makefile	/^src\/clickhouse_parser.c.i:$/;"	t
+src/clickhouse_parser.c.o	build/Makefile	/^src\/clickhouse_parser.c.o:$/;"	t
+src/clickhouse_parser.c.s	build/Makefile	/^src\/clickhouse_parser.c.s:$/;"	t
+src/clickhouse_parser.i	build/Makefile	/^src\/clickhouse_parser.i: src\/clickhouse_parser.c.i$/;"	t
+src/clickhouse_parser.o	build/Makefile	/^src\/clickhouse_parser.o: src\/clickhouse_parser.c.o$/;"	t
+src/clickhouse_parser.s	build/Makefile	/^src\/clickhouse_parser.s: src\/clickhouse_parser.c.s$/;"	t
+src/test_clickhouse_http.c.i	build/Makefile	/^src\/test_clickhouse_http.c.i:$/;"	t
+src/test_clickhouse_http.c.o	build/Makefile	/^src\/test_clickhouse_http.c.o:$/;"	t
+src/test_clickhouse_http.c.s	build/Makefile	/^src\/test_clickhouse_http.c.s:$/;"	t
+src/test_clickhouse_http.i	build/Makefile	/^src\/test_clickhouse_http.i: src\/test_clickhouse_http.c.i$/;"	t
+src/test_clickhouse_http.o	build/Makefile	/^src\/test_clickhouse_http.o: src\/test_clickhouse_http.c.o$/;"	t
+src/test_clickhouse_http.s	build/Makefile	/^src\/test_clickhouse_http.s: src\/test_clickhouse_http.c.s$/;"	t
+test	build/Makefile	/^test:$/;"	t
+test/fast	build/Makefile	/^test\/fast: test$/;"	t
+test_clickhouse_http	build/Makefile	/^test_clickhouse_http: cmake_check_build_system$/;"	t
+test_clickhouse_http/fast	build/Makefile	/^test_clickhouse_http\/fast:$/;"	t
+test_complex_query	src/test_clickhouse_http.c	/^static void test_complex_query(void **s) {$/;"	f	typeref:typename:void	file:
+test_simple_query	src/test_clickhouse_http.c	/^static void test_simple_query(void **s) {$/;"	f	typeref:typename:void	file:
+url	src/clickhouse_internal.h	/^	CURLU			   *url;$/;"	m	struct:ch_http_connection_t	typeref:typename:CURLU *
+val	include/clickhouse_http.h	/^	char   *val;$/;"	m	struct:__anonfac554970308	typeref:typename:char *
+volatile	build/CMakeFiles/3.14.3/CompilerIdC/CMakeCCompilerId.c	/^# define volatile$/;"	d	file:
+write_data	src/clickhouse_http.c	/^size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp)$/;"	f	typeref:typename:size_t
