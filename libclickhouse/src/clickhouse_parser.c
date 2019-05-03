@@ -8,25 +8,27 @@
 #include <clickhouse_http.h>
 #include <clickhouse_internal.h>
 
-int ch_http_read_tab_separated(ch_http_read_state *state, char *data, int maxpos)
+void ch_http_read_state_init(ch_http_read_state *state, char *data, size_t datalen)
 {
-	int pos = state->curpos,
-		len = 0;
+	state->data = data;
+	state->maxpos = datalen - 1;
+	state->buflen = 1024;
+	state->val = malloc(state->buflen);
+}
 
-	if (state->curpos == CH_EOF)
-	{
-		state->val = NULL;
-		return state->curpos;
-	}
+void ch_http_read_state_free(ch_http_read_state *state)
+{
+	free(state->val);
+}
 
-	if (state->val == NULL)
-	{
-		pos = state->curpos = 0;
-		state->buflen = 1024;
-		state->val = malloc(state->buflen);
-	}
+int ch_http_read_next(ch_http_read_state *state)
+{
+	size_t pos = state->curpos,
+		   len = 0;
+	char  *data = state->data;
 
-	while (pos < maxpos && data[pos] != '\t' && data[pos] != '\n')
+	state->val[0] = '\0';
+	while (pos < state->maxpos && data[pos] != '\t' && data[pos] != '\n')
 	{
 		state->val[len++] = data[pos++];
 		if (len == state->buflen)
@@ -35,10 +37,13 @@ int ch_http_read_tab_separated(ch_http_read_state *state, char *data, int maxpos
 			state->val = realloc(state->val, state->buflen);
 		}
 	}
-	while (pos < maxpos && (data[pos] == '\t' || data[pos] == '\n' || data[pos] == '\r'))
-		pos++;
 
 	state->val[len] = '\0';
-	state->curpos = pos < maxpos ? pos : -1;
-	return state->curpos;
+	state->curpos = pos + 1;
+
+	if (data[pos] == '\t')
+		return CH_CONT;
+
+	assert(data[pos] == '\n');
+	return pos < state->maxpos ? CH_EOL : CH_EOF;
 }
