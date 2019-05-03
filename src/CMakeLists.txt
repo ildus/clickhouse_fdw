@@ -7,13 +7,15 @@ set (src
 	clickhousedb_fdw.c
 	clickhousedb_option.c
 	clickhousedb_shipable.c
+	clickhousedb_shipable.c
+	libclickhouse_link.c
 )
 
 add_library(clickhouse_fdw SHARED ${src})
 target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS})
 target_link_libraries(clickhouse_fdw PRIVATE ${PGSQL_LDFLAGS})
-target_link_libraries(clickhouse_fdw PRIVATE clickhouse_odbc)
-add_dependencies(clickhouse_fdw clickhouse_odbc)
+target_link_libraries(clickhouse_fdw PRIVATE clickhouse_odbc clickhouse)
+add_dependencies(clickhouse_fdw clickhouse_odbc clickhouse)
 
 set_target_properties (clickhouse_fdw PROPERTIES
   OUTPUT_NAME "clickhouse_fdw"

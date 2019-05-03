@@ -160,6 +160,31 @@ extern const char *get_jointype_name(JoinType jointype);
 extern bool is_builtin(Oid objectId);
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo);
 
+/*
+ * Connection cache hash table entry
+ */
+typedef struct ConnCacheKey
+{
+	Oid			userid;
+	bool    read;
+} ConnCacheKey;
+
+typedef struct ConnCacheEntry
+{
+	ConnCacheKey key;			/* hash key (must be first) */
+	Conn	   *conn;			/* connection to foreign server, or NULL */
+	/* Remaining fields are invalid when conn is NULL: */
+	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
+                                 * one level of subxact open, etc */
+	bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
+	bool		have_error;		/* have any subxacts aborted in this xact? */
+	bool		changing_xact_state;	/* xact state change in process */
+	bool		invalidated;	/* true if reconnect is pending */
+	bool    read;   /* Separet entry for read/write */
+	uint32		server_hashvalue;	/* hash value of foreign server OID */
+	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+} ConnCacheEntry;
+
 /* libclickhouse_link.c */
 typedef void *ch_connection;
 typedef ch_connection (*connect_method)(ForeignServer *server, UserMapping *user);

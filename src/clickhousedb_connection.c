@@ -28,30 +28,6 @@
 
 
 #include "clickhousedb_fdw.h"
-/*
- * Connection cache hash table entry
- */
-typedef struct ConnCacheKey
-{
-	Oid			userid;
-	bool    read;
-} ConnCacheKey;
-
-typedef struct ConnCacheEntry
-{
-	ConnCacheKey key;			/* hash key (must be first) */
-	Conn	   *conn;			/* connection to foreign server, or NULL */
-	/* Remaining fields are invalid when conn is NULL: */
-	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
-                                 * one level of subxact open, etc */
-	bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
-	bool		have_error;		/* have any subxacts aborted in this xact? */
-	bool		changing_xact_state;	/* xact state change in process */
-	bool		invalidated;	/* true if reconnect is pending */
-	bool    read;   /* Separet entry for read/write */
-	uint32		server_hashvalue;	/* hash value of foreign server OID */
-	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
-} ConnCacheEntry;
 
 /*
  * Connection cache (initialized on first use)
@@ -159,7 +135,7 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 	{
 		elog(DEBUG3, "closing connection %p for option changes to take effect",
 		     entry->conn);
-		disconnect_pg_server(entry);
+		clickhouse_gate->disconnect(entry);
 	}
 
 	/*
@@ -199,127 +175,11 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 		     entry->conn, server->servername, user->umid, user->userid);
 	}
 
-	/*
-	 * Start a new transaction or subtransaction if needed.
-	 */
-	begin_remote_xact(entry);
-
 	/* Remember if caller will prepare statements */
 	entry->have_prep_stmt |= will_prep_stmt;
 
 	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 	return entry->conn;
-}
-
-/*
- * Connect to remote server using specified server and user mapping properties.
- */
-static Conn *
-connect_pg_server(ForeignServer *server, UserMapping *user)
-{
-	Conn	   *volatile conn = NULL;
-	char       *driver = psprintf("%s/%s", pkglib_path, "libclickhouse_odbc.so");
-	char       *host = "127.0.0.1";
-	int        port = 8123;
-	char       *username = "";
-	char       *password = "";
-	char       *dbname = "default";
-	char       error[512];
-
-	ExtractConnectionOptions(server->options, &driver, &host, &port, &dbname,
-	                         &username, &password);
-	ExtractConnectionOptions(user->options, &driver, &host, &port, &dbname,
-	                         &username, &password);
-
-	/* verify connection parameters and make connection */
-	check_conn_params(password, user);
-
-	conn = odbc_connect(driver, host, port, dbname, username, password, error);
-	if (conn == NULL)
-		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("could not connect to server \"%s\"",
-		                server->servername),
-		         errdetail_internal("%s", pchomp(error))));
-
-	/* Prepare new session for use */
-	configure_remote_session(conn);
-
-	return conn;
-}
-
-/*
- * Disconnect any open connection for a connection cache entry.
- */
-static void
-disconnect_pg_server(ConnCacheEntry *entry)
-{
-	if (entry->conn != NULL)
-	{
-		entry->conn = NULL;
-	}
-}
-
-/*
- * For non-superusers, insist that the connstr specify a password.  This
- * prevents a password from being picked up from .pgpass, a service file,
- * the environment, etc.  We don't want the postgres user's passwords
- * to be accessible to non-superusers.  (See also dblink_connstr_check in
- * contrib/dblink.)
- */
-static void
-check_conn_params(const char *password, UserMapping *user)
-{
-	/* no check required if superuser */
-	if (superuser_arg(user->userid))
-	{
-		return;
-	}
-
-	if (password[0] == '\0')
-		ereport(ERROR,
-		        (errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
-		         errmsg("password is required"),
-		         errdetail("Non-superusers must provide a password in the user mapping.")));
-}
-
-/*
- * Issue SET commands to make sure remote session is configured properly.
- *
- * We do this just once at connection, assuming nothing will change the
- * values later.  Since we'll never send volatile function calls to the
- * remote, there shouldn't be any way to break this assumption from our end.
- * It's possible to think of ways to break it at the remote end, eg making
- * a foreign table point to a view that includes a set_config call ---
- * but once you admit the possibility of a malicious view definition,
- * there are any number of ways to break things.
- */
-static void
-configure_remote_session(Conn *conn)
-{
-}
-
-/*
- * Convenience subroutine to issue a non-data-returning SQL command to remote
- */
-static void
-do_sql_command(Conn *conn, const char *sql)
-{
-	if (!odbc_prepare(conn, (char *)sql))
-	{
-		chfdw_report_error(ERROR, conn, false, sql);
-	}
-
-	if (!odbc_execute(conn))
-	{
-		chfdw_report_error(ERROR, conn, false, sql);
-	}
-}
-
-static void
-begin_remote_xact(ConnCacheEntry *entry)
-{
-
 }
 
 /*
@@ -364,31 +224,6 @@ unsigned int
 GetPrepStmtNumber(Conn *conn)
 {
 	return ++prep_stmt_number;
-}
-
-/*
- * Submit a query and wait for the result.
- *
- * This function is interruptible by signals.
- *
- * Caller is responsible for the error handling on the result.
- */
-void
-chfdw_exec_query(Conn *conn, const char *query)
-{
-	/*
-	 * Submit a query.  Since we don't use non-blocking mode, this also can
-	 * block.  But its risk is relatively small, so we ignore that for now.
-	 */
-	if (!odbc_prepare(conn, (char *)query))
-	{
-		chfdw_report_error(ERROR, conn, false, query);
-	}
-
-	if (!odbc_execute(conn))
-	{
-		chfdw_report_error(ERROR, conn, false, query);
-	}
 }
 
 /*
@@ -501,7 +336,7 @@ pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 	}
 
 	/* make sure this entry is inactive */
-	disconnect_pg_server(entry);
+	clickhouse_gate->disconnect(entry);
 
 	/* find server name to be shown in the message below */
 	tup = SearchSysCache1(USERMAPPINGOID,

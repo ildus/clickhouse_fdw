@@ -24,7 +24,11 @@ ch_http_connection_t *ch_http_connection(char *connstring)
 	curl_error_happened = false;
 	ch_http_connection_t *conn = malloc(sizeof(ch_http_connection_t));
 	if (conn == NULL)
+	{
+		curl_error_happened = true;
+		snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
 		return NULL;
+	}
 
 	conn->curl = curl_easy_init();
 	if (!conn->curl)
