@@ -33,24 +33,24 @@
  */
 typedef struct ConnCacheKey
 {
-        Oid			userid;
-        bool    read;
+	Oid			userid;
+	bool    read;
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
 {
-        ConnCacheKey key;			/* hash key (must be first) */
-        Conn	   *conn;			/* connection to foreign server, or NULL */
-        /* Remaining fields are invalid when conn is NULL: */
-        int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
+	ConnCacheKey key;			/* hash key (must be first) */
+	Conn	   *conn;			/* connection to foreign server, or NULL */
+	/* Remaining fields are invalid when conn is NULL: */
+	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
                                  * one level of subxact open, etc */
-        bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
-        bool		have_error;		/* have any subxacts aborted in this xact? */
-        bool		changing_xact_state;	/* xact state change in process */
-        bool		invalidated;	/* true if reconnect is pending */
-        bool    read;   /* Separet entry for read/write */
-        uint32		server_hashvalue;	/* hash value of foreign server OID */
-        uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+	bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
+	bool		have_error;		/* have any subxacts aborted in this xact? */
+	bool		changing_xact_state;	/* xact state change in process */
+	bool		invalidated;	/* true if reconnect is pending */
+	bool    read;   /* Separet entry for read/write */
+	uint32		server_hashvalue;	/* hash value of foreign server OID */
+	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
 } ConnCacheEntry;
 
 /*
@@ -97,118 +97,118 @@ static bool pgfdw_exec_cleanup_query(Conn *conn, const char *query,
 Conn *
 GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 {
-        bool		found;
-        ConnCacheEntry *entry;
-        ConnCacheKey key;
+	bool		found;
+	ConnCacheEntry *entry;
+	ConnCacheKey key;
 
-        elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
-        /* First time through, initialize connection cache hashtable */
-        if (ConnectionHash == NULL)
-        {
-                HASHCTL		ctl;
+	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
+	/* First time through, initialize connection cache hashtable */
+	if (ConnectionHash == NULL)
+	{
+		HASHCTL		ctl;
 
-                MemSet(&ctl, 0, sizeof(ctl));
-                ctl.keysize = sizeof(ConnCacheKey);
-                ctl.entrysize = sizeof(ConnCacheEntry);
-                /* allocate ConnectionHash in the cache context */
-                ctl.hcxt = CacheMemoryContext;
-                ConnectionHash = hash_create("clickhousedb_fdw connections", 8,
-                                             &ctl,
-                                             HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(ConnCacheKey);
+		ctl.entrysize = sizeof(ConnCacheEntry);
+		/* allocate ConnectionHash in the cache context */
+		ctl.hcxt = CacheMemoryContext;
+		ConnectionHash = hash_create("clickhousedb_fdw connections", 8,
+		                             &ctl,
+		                             HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
-                /*
-                 * Register some callback functions that manage connection cleanup.
-                 * This should be done just once in each backend.
-                 */
-                RegisterXactCallback(pgfdw_xact_callback, NULL);
-                RegisterSubXactCallback(pgfdw_subxact_callback, NULL);
-                CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
-                                              pgfdw_inval_callback, (Datum) 0);
-                CacheRegisterSyscacheCallback(USERMAPPINGOID,
-                                              pgfdw_inval_callback, (Datum) 0);
-        }
+		/*
+		 * Register some callback functions that manage connection cleanup.
+		 * This should be done just once in each backend.
+		 */
+		RegisterXactCallback(pgfdw_xact_callback, NULL);
+		RegisterSubXactCallback(pgfdw_subxact_callback, NULL);
+		CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
+		                              pgfdw_inval_callback, (Datum) 0);
+		CacheRegisterSyscacheCallback(USERMAPPINGOID,
+		                              pgfdw_inval_callback, (Datum) 0);
+	}
 
-        /* Set flag that we did GetConnection during the current transaction */
-        xact_got_connection = true;
+	/* Set flag that we did GetConnection during the current transaction */
+	xact_got_connection = true;
 
-        /* Create hash key for the entry.  Assume no pad bytes in key struct */
-        key.userid = user->umid;
-        key.read = read;
+	/* Create hash key for the entry.  Assume no pad bytes in key struct */
+	key.userid = user->umid;
+	key.read = read;
 
-        /*
-         * Find or create cached entry for requested connection.
-         */
-        entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
-        if (!found)
-        {
-                /*
-                 * We need only clear "conn" here; remaining fields will be filled
-                 * later when "conn" is set.
-                 */
-                entry->conn = NULL;
-        }
+	/*
+	 * Find or create cached entry for requested connection.
+	 */
+	entry = hash_search(ConnectionHash, &key, HASH_ENTER, &found);
+	if (!found)
+	{
+		/*
+		 * We need only clear "conn" here; remaining fields will be filled
+		 * later when "conn" is set.
+		 */
+		entry->conn = NULL;
+	}
 
-        /* Reject further use of connections which failed abort cleanup. */
-        pgfdw_reject_incomplete_xact_state_change(entry);
+	/* Reject further use of connections which failed abort cleanup. */
+	pgfdw_reject_incomplete_xact_state_change(entry);
 
-        /*
-         * If the connection needs to be remade due to invalidation, disconnect as
-         * soon as we're out of all transactions.
-         */
-        if (entry->conn != NULL && entry->invalidated && entry->xact_depth == 0)
-        {
-                elog(DEBUG3, "closing connection %p for option changes to take effect",
-                     entry->conn);
-                disconnect_pg_server(entry);
-        }
+	/*
+	 * If the connection needs to be remade due to invalidation, disconnect as
+	 * soon as we're out of all transactions.
+	 */
+	if (entry->conn != NULL && entry->invalidated && entry->xact_depth == 0)
+	{
+		elog(DEBUG3, "closing connection %p for option changes to take effect",
+		     entry->conn);
+		disconnect_pg_server(entry);
+	}
 
-        /*
-         * We don't check the health of cached connection here, because it would
-         * require some overhead.  Broken connection will be detected when the
-         * connection is actually used.
-         */
+	/*
+	 * We don't check the health of cached connection here, because it would
+	 * require some overhead.  Broken connection will be detected when the
+	 * connection is actually used.
+	 */
 
-        /*
-         * If cache entry doesn't have a connection, we have to establish a new
-         * connection.  (If connect_pg_server throws an error, the cache entry
-         * will remain in a valid empty state, ie conn == NULL.)
-         */
-        if (entry->conn == NULL)
-        {
-                ForeignServer *server = GetForeignServer(user->serverid);
+	/*
+	 * If cache entry doesn't have a connection, we have to establish a new
+	 * connection.  (If connect_pg_server throws an error, the cache entry
+	 * will remain in a valid empty state, ie conn == NULL.)
+	 */
+	if (entry->conn == NULL)
+	{
+		ForeignServer *server = GetForeignServer(user->serverid);
 
-                /* Reset all transient state fields, to be sure all are clean */
-                entry->xact_depth = 0;
-                entry->have_prep_stmt = false;
-                entry->have_error = false;
-                entry->changing_xact_state = false;
-                entry->invalidated = false;
-                entry->read = read;
-                entry->server_hashvalue =
-                        GetSysCacheHashValue1(FOREIGNSERVEROID,
-                                              ObjectIdGetDatum(server->serverid));
-                entry->mapping_hashvalue =
-                        GetSysCacheHashValue1(USERMAPPINGOID,
-                                              ObjectIdGetDatum(user->umid));
+		/* Reset all transient state fields, to be sure all are clean */
+		entry->xact_depth = 0;
+		entry->have_prep_stmt = false;
+		entry->have_error = false;
+		entry->changing_xact_state = false;
+		entry->invalidated = false;
+		entry->read = read;
+		entry->server_hashvalue =
+		    GetSysCacheHashValue1(FOREIGNSERVEROID,
+		                          ObjectIdGetDatum(server->serverid));
+		entry->mapping_hashvalue =
+		    GetSysCacheHashValue1(USERMAPPINGOID,
+		                          ObjectIdGetDatum(user->umid));
 
-                /* Now try to make the connection */
-                entry->conn = clickhouse_gate->connect(server, user);
+		/* Now try to make the connection */
+		entry->conn = clickhouse_gate->connect(server, user);
 
-                elog(DEBUG3,
-                     "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
-                     entry->conn, server->servername, user->umid, user->userid);
-        }
+		elog(DEBUG3,
+		     "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
+		     entry->conn, server->servername, user->umid, user->userid);
+	}
 
-        /*
-         * Start a new transaction or subtransaction if needed.
-         */
-        begin_remote_xact(entry);
+	/*
+	 * Start a new transaction or subtransaction if needed.
+	 */
+	begin_remote_xact(entry);
 
-        /* Remember if caller will prepare statements */
-        entry->have_prep_stmt |= will_prep_stmt;
+	/* Remember if caller will prepare statements */
+	entry->have_prep_stmt |= will_prep_stmt;
 
-        elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
-        return entry->conn;
+	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
+	return entry->conn;
 }
 
 /*
@@ -217,35 +217,35 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 static Conn *
 connect_pg_server(ForeignServer *server, UserMapping *user)
 {
-        Conn	   *volatile conn = NULL;
-        char       *driver = psprintf("%s/%s", pkglib_path, "libclickhouse_odbc.so");
-        char       *host = "127.0.0.1";
-        int        port = 8123;
-        char       *username = "";
-        char       *password = "";
-        char       *dbname = "default";
-        char       error[512];
+	Conn	   *volatile conn = NULL;
+	char       *driver = psprintf("%s/%s", pkglib_path, "libclickhouse_odbc.so");
+	char       *host = "127.0.0.1";
+	int        port = 8123;
+	char       *username = "";
+	char       *password = "";
+	char       *dbname = "default";
+	char       error[512];
 
-        ExtractConnectionOptions(server->options, &driver, &host, &port, &dbname,
-                                 &username, &password);
-        ExtractConnectionOptions(user->options, &driver, &host, &port, &dbname,
-                                 &username, &password);
+	ExtractConnectionOptions(server->options, &driver, &host, &port, &dbname,
+	                         &username, &password);
+	ExtractConnectionOptions(user->options, &driver, &host, &port, &dbname,
+	                         &username, &password);
 
-        /* verify connection parameters and make connection */
-        check_conn_params(password, user);
+	/* verify connection parameters and make connection */
+	check_conn_params(password, user);
 
-        conn = odbc_connect(driver, host, port, dbname, username, password, error);
-        if (conn == NULL)
-                ereport(ERROR,
-                        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-                         errmsg("could not connect to server \"%s\"",
-                                server->servername),
-                         errdetail_internal("%s", pchomp(error))));
+	conn = odbc_connect(driver, host, port, dbname, username, password, error);
+	if (conn == NULL)
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+		         errmsg("could not connect to server \"%s\"",
+		                server->servername),
+		         errdetail_internal("%s", pchomp(error))));
 
-        /* Prepare new session for use */
-        configure_remote_session(conn);
+	/* Prepare new session for use */
+	configure_remote_session(conn);
 
-        return conn;
+	return conn;
 }
 
 /*
@@ -254,10 +254,10 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
 static void
 disconnect_pg_server(ConnCacheEntry *entry)
 {
-        if (entry->conn != NULL)
-        {
-                entry->conn = NULL;
-        }
+	if (entry->conn != NULL)
+	{
+		entry->conn = NULL;
+	}
 }
 
 /*
@@ -270,17 +270,17 @@ disconnect_pg_server(ConnCacheEntry *entry)
 static void
 check_conn_params(const char *password, UserMapping *user)
 {
-        /* no check required if superuser */
-        if (superuser_arg(user->userid))
-        {
-                return;
-        }
+	/* no check required if superuser */
+	if (superuser_arg(user->userid))
+	{
+		return;
+	}
 
-        if (password[0] == '\0')
-                ereport(ERROR,
-                        (errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
-                         errmsg("password is required"),
-                         errdetail("Non-superusers must provide a password in the user mapping.")));
+	if (password[0] == '\0')
+		ereport(ERROR,
+		        (errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
+		         errmsg("password is required"),
+		         errdetail("Non-superusers must provide a password in the user mapping.")));
 }
 
 /*
@@ -305,15 +305,15 @@ configure_remote_session(Conn *conn)
 static void
 do_sql_command(Conn *conn, const char *sql)
 {
-        if (!odbc_prepare(conn, (char *)sql))
-        {
-                chfdw_report_error(ERROR, conn, false, sql);
-        }
+	if (!odbc_prepare(conn, (char *)sql))
+	{
+		chfdw_report_error(ERROR, conn, false, sql);
+	}
 
-        if (!odbc_execute(conn))
-        {
-                chfdw_report_error(ERROR, conn, false, sql);
-        }
+	if (!odbc_execute(conn))
+	{
+		chfdw_report_error(ERROR, conn, false, sql);
+	}
 }
 
 static void
@@ -328,11 +328,11 @@ begin_remote_xact(ConnCacheEntry *entry)
 void
 ReleaseConnection(Conn *conn)
 {
-        /*
-         * Currently, we don't actually track connection references because all
-         * cleanup is managed on a transaction or subtransaction basis instead. So
-         * there's nothing to do here.
-         */
+	/*
+	 * Currently, we don't actually track connection references because all
+	 * cleanup is managed on a transaction or subtransaction basis instead. So
+	 * there's nothing to do here.
+	 */
 }
 
 /*
@@ -349,7 +349,7 @@ ReleaseConnection(Conn *conn)
 unsigned int
 GetCursorNumber(Conn *conn)
 {
-        return ++cursor_number;
+	return ++cursor_number;
 }
 
 /*
@@ -363,7 +363,7 @@ GetCursorNumber(Conn *conn)
 unsigned int
 GetPrepStmtNumber(Conn *conn)
 {
-        return ++prep_stmt_number;
+	return ++prep_stmt_number;
 }
 
 /*
@@ -376,19 +376,19 @@ GetPrepStmtNumber(Conn *conn)
 void
 chfdw_exec_query(Conn *conn, const char *query)
 {
-        /*
-         * Submit a query.  Since we don't use non-blocking mode, this also can
-         * block.  But its risk is relatively small, so we ignore that for now.
-         */
-        if (!odbc_prepare(conn, (char *)query))
-        {
-                chfdw_report_error(ERROR, conn, false, query);
-        }
+	/*
+	 * Submit a query.  Since we don't use non-blocking mode, this also can
+	 * block.  But its risk is relatively small, so we ignore that for now.
+	 */
+	if (!odbc_prepare(conn, (char *)query))
+	{
+		chfdw_report_error(ERROR, conn, false, query);
+	}
 
-        if (!odbc_execute(conn))
-        {
-                chfdw_report_error(ERROR, conn, false, query);
-        }
+	if (!odbc_execute(conn))
+	{
+		chfdw_report_error(ERROR, conn, false, query);
+	}
 }
 
 /*
@@ -408,11 +408,11 @@ void
 chfdw_report_error(int elevel, Conn *conn,
                    bool clear, const char *sql)
 {
-        char *message_primary = pchomp(conn->error);
-        ereport(ERROR,
-                (errcode(ERRCODE_CONNECTION_EXCEPTION),
-                 errmsg("%s\nquery: %s",
-                        message_primary, sql)));
+	char *message_primary = pchomp(conn->error);
+	ereport(ERROR,
+	        (errcode(ERRCODE_CONNECTION_EXCEPTION),
+	         errmsg("%s\nquery: %s",
+	                message_primary, sql)));
 }
 
 /*
@@ -450,31 +450,31 @@ pgfdw_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
 static void
 pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
 {
-        HASH_SEQ_STATUS scan;
-        ConnCacheEntry *entry;
+	HASH_SEQ_STATUS scan;
+	ConnCacheEntry *entry;
 
-        Assert(cacheid == FOREIGNSERVEROID || cacheid == USERMAPPINGOID);
+	Assert(cacheid == FOREIGNSERVEROID || cacheid == USERMAPPINGOID);
 
-        /* ConnectionHash must exist already, if we're registered */
-        hash_seq_init(&scan, ConnectionHash);
-        while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
-        {
-                /* Ignore invalid entries */
-                if (entry->conn == NULL)
-                {
-                        continue;
-                }
+	/* ConnectionHash must exist already, if we're registered */
+	hash_seq_init(&scan, ConnectionHash);
+	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
+	{
+		/* Ignore invalid entries */
+		if (entry->conn == NULL)
+		{
+			continue;
+		}
 
-                /* hashvalue == 0 means a cache reset, must clear all state */
-                if (hashvalue == 0 ||
-                                (cacheid == FOREIGNSERVEROID &&
-                                 entry->server_hashvalue == hashvalue) ||
-                                (cacheid == USERMAPPINGOID &&
-                                 entry->mapping_hashvalue == hashvalue))
-                {
-                        entry->invalidated = true;
-                }
-        }
+		/* hashvalue == 0 means a cache reset, must clear all state */
+		if (hashvalue == 0 ||
+		        (cacheid == FOREIGNSERVEROID &&
+		         entry->server_hashvalue == hashvalue) ||
+		        (cacheid == USERMAPPINGOID &&
+		         entry->mapping_hashvalue == hashvalue))
+		{
+			entry->invalidated = true;
+		}
+	}
 }
 
 /*
@@ -490,34 +490,34 @@ pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
 static void
 pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 {
-        HeapTuple	tup;
-        Form_pg_user_mapping umform;
-        ForeignServer *server;
+	HeapTuple	tup;
+	Form_pg_user_mapping umform;
+	ForeignServer *server;
 
-        /* nothing to do for inactive entries and entries of sane state */
-        if (entry->conn == NULL || !entry->changing_xact_state)
-        {
-                return;
-        }
+	/* nothing to do for inactive entries and entries of sane state */
+	if (entry->conn == NULL || !entry->changing_xact_state)
+	{
+		return;
+	}
 
-        /* make sure this entry is inactive */
-        disconnect_pg_server(entry);
+	/* make sure this entry is inactive */
+	disconnect_pg_server(entry);
 
-        /* find server name to be shown in the message below */
-        tup = SearchSysCache1(USERMAPPINGOID,
-                              ObjectIdGetDatum(entry->key.userid));
-        if (!HeapTupleIsValid(tup))
-        {
-                elog(ERROR, "cache lookup failed for user mapping %u", entry->key.userid);
-        }
-        umform = (Form_pg_user_mapping) GETSTRUCT(tup);
-        server = GetForeignServer(umform->umserver);
-        ReleaseSysCache(tup);
+	/* find server name to be shown in the message below */
+	tup = SearchSysCache1(USERMAPPINGOID,
+	                      ObjectIdGetDatum(entry->key.userid));
+	if (!HeapTupleIsValid(tup))
+	{
+		elog(ERROR, "cache lookup failed for user mapping %u", entry->key.userid);
+	}
+	umform = (Form_pg_user_mapping) GETSTRUCT(tup);
+	server = GetForeignServer(umform->umserver);
+	ReleaseSysCache(tup);
 
-        ereport(ERROR,
-                (errcode(ERRCODE_CONNECTION_EXCEPTION),
-                 errmsg("connection to server \"%s\" was lost",
-                        server->servername)));
+	ereport(ERROR,
+	        (errcode(ERRCODE_CONNECTION_EXCEPTION),
+	         errmsg("connection to server \"%s\" was lost",
+	                server->servername)));
 }
 
 /*
@@ -528,7 +528,7 @@ pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 static bool
 pgfdw_cancel_query(Conn *conn)
 {
-        return true;
+	return true;
 }
 
 /*
@@ -541,6 +541,6 @@ pgfdw_cancel_query(Conn *conn)
 static bool
 pgfdw_exec_cleanup_query(Conn *conn, const char *query, bool ignore_errors)
 {
-        return true;
+	return true;
 }
 

@@ -30,10 +30,10 @@
  */
 typedef struct ChFdwOption
 {
-        const char *keyword;
-        Oid			optcontext;		/* OID of catalog in which option may appear */
-        bool		is_ch_opt;	  /* true if it's used in clickhouseclient */
-        char    dispchar[10];
+	const char *keyword;
+	Oid			optcontext;		/* OID of catalog in which option may appear */
+	bool		is_ch_opt;	  /* true if it's used in clickhouseclient */
+	char    dispchar[10];
 } ChFdwOption;
 
 /*
@@ -48,13 +48,13 @@ static ChFdwOption *clickhousedb_fdw_options;
  */
 static const ChFdwOption ch_options[] =
 {
-        {"host", 0, false},
-        {"hostaddr", 0, false},
-        {"port", 0, false},
-        {"dbname", 0, false},
-        {"user", 0, false},
-        {"password", 0, false},
-        {NULL}
+	{"host", 0, false},
+	{"hostaddr", 0, false},
+	{"port", 0, false},
+	{"dbname", 0, false},
+	{"user", 0, false},
+	{"password", 0, false},
+	{NULL}
 };
 
 /*
@@ -75,47 +75,47 @@ PG_FUNCTION_INFO_V1(clickhousedb_fdw_validator);
 Datum
 clickhousedb_fdw_validator(PG_FUNCTION_ARGS)
 {
-        List	   *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
-        Oid			catalog = PG_GETARG_OID(1);
-        ListCell   *cell;
+	List	   *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+	Oid			catalog = PG_GETARG_OID(1);
+	ListCell   *cell;
 
-        /* Build our options lists if we didn't yet. */
-        InitChFdwOptions();
+	/* Build our options lists if we didn't yet. */
+	InitChFdwOptions();
 
-        /*
-         * Check that only options supported by clickhousedb_fdw, and allowed for the
-         * current object type, are given.
-         */
-        foreach (cell, options_list)
-        {
-                DefElem    *def = (DefElem *) lfirst(cell);
+	/*
+	 * Check that only options supported by clickhousedb_fdw, and allowed for the
+	 * current object type, are given.
+	 */
+	foreach (cell, options_list)
+	{
+		DefElem    *def = (DefElem *) lfirst(cell);
 
-                if (!is_valid_option(def->defname, catalog))
-                {
-                        /*
-                         * Unknown option specified, complain about it. Provide a hint
-                         * with list of valid options for the object.
-                         */
-                        ChFdwOption *opt;
-                        StringInfoData buf;
+		if (!is_valid_option(def->defname, catalog))
+		{
+			/*
+			 * Unknown option specified, complain about it. Provide a hint
+			 * with list of valid options for the object.
+			 */
+			ChFdwOption *opt;
+			StringInfoData buf;
 
-                        initStringInfo(&buf);
-                        for (opt = clickhousedb_fdw_options; opt->keyword; opt++)
-                        {
-                                if (catalog == opt->optcontext)
-                                        appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
-                                                         opt->keyword);
-                        }
+			initStringInfo(&buf);
+			for (opt = clickhousedb_fdw_options; opt->keyword; opt++)
+			{
+				if (catalog == opt->optcontext)
+					appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
+					                 opt->keyword);
+			}
 
-                        ereport(ERROR,
-                                (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
-                                 errmsg("invalid option \"%s\"", def->defname),
-                                 errhint("Valid options in this context are: %s",
-                                         buf.data)));
-                }
-        }
+			ereport(ERROR,
+			        (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+			         errmsg("invalid option \"%s\"", def->defname),
+			         errhint("Valid options in this context are: %s",
+			                 buf.data)));
+		}
+	}
 
-        PG_RETURN_VOID();
+	PG_RETURN_VOID();
 }
 
 /*
@@ -124,74 +124,74 @@ clickhousedb_fdw_validator(PG_FUNCTION_ARGS)
 static void
 InitChFdwOptions(void)
 {
-        int			num_ch_opts;
-        const ChFdwOption *lopt;
-        ChFdwOption *popt;
+	int			num_ch_opts;
+	const ChFdwOption *lopt;
+	ChFdwOption *popt;
 
-        /* non-clickhouseclient FDW-specific FDW options */
-        static const ChFdwOption non_ch_options[] =
-        {
-                {"table_name", ForeignTableRelationId, false},
-                {"driver", ForeignServerRelationId, false},
-                {NULL, InvalidOid, false}
-        };
+	/* non-clickhouseclient FDW-specific FDW options */
+	static const ChFdwOption non_ch_options[] =
+	{
+		{"table_name", ForeignTableRelationId, false},
+		{"driver", ForeignServerRelationId, false},
+		{NULL, InvalidOid, false}
+	};
 
-        /* Prevent redundant initialization. */
-        if (clickhousedb_fdw_options)
-        {
-                return;
-        }
+	/* Prevent redundant initialization. */
+	if (clickhousedb_fdw_options)
+	{
+		return;
+	}
 
 
-        /* Count how many clickhouseclient options are available. */
-        num_ch_opts = 0;
-        for (lopt = ch_options; lopt->keyword; lopt++)
-        {
-                num_ch_opts++;
-        }
+	/* Count how many clickhouseclient options are available. */
+	num_ch_opts = 0;
+	for (lopt = ch_options; lopt->keyword; lopt++)
+	{
+		num_ch_opts++;
+	}
 
-        /*
-         * We use plain malloc here to allocate clickhousedb_fdw_options because it
-         * lives as long as the backend process does.  Besides, keeping
-         * ch_options in memory allows us to avoid copying every keyword
-         * string.
-         */
-        clickhousedb_fdw_options = (ChFdwOption *) malloc(sizeof(
-                                           ChFdwOption) * num_ch_opts + sizeof(non_ch_options));
-        if (clickhousedb_fdw_options == NULL)
-                ereport(ERROR,
-                        (errcode(ERRCODE_FDW_OUT_OF_MEMORY),
-                         errmsg("out of memory")));
+	/*
+	 * We use plain malloc here to allocate clickhousedb_fdw_options because it
+	 * lives as long as the backend process does.  Besides, keeping
+	 * ch_options in memory allows us to avoid copying every keyword
+	 * string.
+	 */
+	clickhousedb_fdw_options = (ChFdwOption *) malloc(sizeof(
+	                               ChFdwOption) * num_ch_opts + sizeof(non_ch_options));
+	if (clickhousedb_fdw_options == NULL)
+		ereport(ERROR,
+		        (errcode(ERRCODE_FDW_OUT_OF_MEMORY),
+		         errmsg("out of memory")));
 
-        popt = clickhousedb_fdw_options;
-        for (lopt = ch_options; lopt->keyword; lopt++)
-        {
-                /* We don't have to copy keyword string, as described above. */
-                popt->keyword = lopt->keyword;
+	popt = clickhousedb_fdw_options;
+	for (lopt = ch_options; lopt->keyword; lopt++)
+	{
+		/* We don't have to copy keyword string, as described above. */
+		popt->keyword = lopt->keyword;
 
-                /*
-                 * "user" and any secret options are allowed only on user mappings.
-                 * Everything else is a server option.
-                 */
-                if (strcmp(lopt->keyword, "user") == 0 ||
-                                strcmp(lopt->keyword, "password") == 0 ||
-                                strchr(lopt->dispchar, '*'))
-                {
-                        popt->optcontext = UserMappingRelationId;
-                }
-                else
-                {
-                        popt->optcontext = ForeignServerRelationId;
-                }
-                popt->is_ch_opt = true;
+		/*
+		 * "user" and any secret options are allowed only on user mappings.
+		 * Everything else is a server option.
+		 */
+		if (strcmp(lopt->keyword, "user") == 0 ||
+		        strcmp(lopt->keyword, "password") == 0 ||
+		        strchr(lopt->dispchar, '*'))
+		{
+			popt->optcontext = UserMappingRelationId;
+		}
+		else
+		{
+			popt->optcontext = ForeignServerRelationId;
+		}
+		popt->is_ch_opt = true;
 
-                popt++;
-        }
+		popt++;
+	}
 
-        /* Append FDW-specific options and dummy terminator. */
-        memcpy(popt, non_ch_options, sizeof(non_ch_options));
-        popt->is_ch_opt = true;
-        popt++;
+	/* Append FDW-specific options and dummy terminator. */
+	memcpy(popt, non_ch_options, sizeof(non_ch_options));
+	popt->is_ch_opt = true;
+	popt++;
 }
 
 /*
@@ -201,19 +201,19 @@ InitChFdwOptions(void)
 static bool
 is_valid_option(const char *keyword, Oid context)
 {
-        ChFdwOption *opt;
+	ChFdwOption *opt;
 
-        Assert(clickhousedb_fdw_options);	/* must be initialized already */
+	Assert(clickhousedb_fdw_options);	/* must be initialized already */
 
-        for (opt = clickhousedb_fdw_options; opt->keyword; opt++)
-        {
-                if (context == opt->optcontext && strcmp(opt->keyword, keyword) == 0)
-                {
-                        return true;
-                }
-        }
+	for (opt = clickhousedb_fdw_options; opt->keyword; opt++)
+	{
+		if (context == opt->optcontext && strcmp(opt->keyword, keyword) == 0)
+		{
+			return true;
+		}
+	}
 
-        return false;
+	return false;
 }
 
 /*
@@ -222,19 +222,19 @@ is_valid_option(const char *keyword, Oid context)
 static bool
 is_ch_option(const char *keyword)
 {
-        ChFdwOption *opt;
+	ChFdwOption *opt;
 
-        Assert(clickhousedb_fdw_options);	/* must be initialized already */
+	Assert(clickhousedb_fdw_options);	/* must be initialized already */
 
-        for (opt = clickhousedb_fdw_options; opt->keyword; opt++)
-        {
-                if (opt->is_ch_opt && strcmp(opt->keyword, keyword) == 0)
-                {
-                        return true;
-                }
-        }
+	for (opt = clickhousedb_fdw_options; opt->keyword; opt++)
+	{
+		if (opt->is_ch_opt && strcmp(opt->keyword, keyword) == 0)
+		{
+			return true;
+		}
+	}
 
-        return false;
+	return false;
 }
 
 /*
@@ -246,42 +246,46 @@ void
 ExtractConnectionOptions(List *defelems, char **driver,  char **host, int *port,
                          char **dbname, char **username, char **password)
 {
-        ListCell   *lc;
+	ListCell   *lc;
 
-        /* Build our options lists if we didn't yet. */
-        InitChFdwOptions();
+	/* Build our options lists if we didn't yet. */
+	InitChFdwOptions();
 
-        foreach (lc, defelems)
-        {
-                DefElem    *d = (DefElem *) lfirst(lc);
+	foreach (lc, defelems)
+	{
+		DefElem    *d = (DefElem *) lfirst(lc);
 
-                DefElem *def = (DefElem *) lfirst(lc);
+		DefElem *def = (DefElem *) lfirst(lc);
 
-                if (strcmp(def->defname, "driver") == 0)
-                {
-                        *driver = defGetString(def);
-                }
+		if (strcmp(def->defname, "driver") == 0)
+		{
+			*driver = defGetString(def);
+		}
 
-                if (is_ch_option(d->defname))
-                {
-                        if (strcmp(def->defname, "host") == 0)
-                        {
-                                *host = defGetString(def);
-                        } else if (strcmp(def->defname, "port") == 0)
-                        {
-                                *port = atoi(defGetString(def));
-                        } else if (strcmp(def->defname, "user") == 0)
-                        {
-                                *username = defGetString(def);
-                        } else if (strcmp(def->defname, "password") == 0)
-                        {
-                                *password = defGetString(def);
-                        } else if (strcmp(def->defname, "dbname") == 0)
-                        {
-                                *dbname = defGetString(def);
-                        }
-                }
-        }
+		if (is_ch_option(d->defname))
+		{
+			if (strcmp(def->defname, "host") == 0)
+			{
+				*host = defGetString(def);
+			}
+			else if (strcmp(def->defname, "port") == 0)
+			{
+				*port = atoi(defGetString(def));
+			}
+			else if (strcmp(def->defname, "user") == 0)
+			{
+				*username = defGetString(def);
+			}
+			else if (strcmp(def->defname, "password") == 0)
+			{
+				*password = defGetString(def);
+			}
+			else if (strcmp(def->defname, "dbname") == 0)
+			{
+				*dbname = defGetString(def);
+			}
+		}
+	}
 }
 
 /*
@@ -293,38 +297,38 @@ ExtractConnectionOptions(List *defelems, char **driver,  char **host, int *port,
 List *
 ExtractExtensionList(const char *extensionsString, bool warnOnMissing)
 {
-        List	   *extensionOids = NIL;
-        List	   *extlist;
-        ListCell   *lc;
+	List	   *extensionOids = NIL;
+	List	   *extlist;
+	ListCell   *lc;
 
-        /* SplitIdentifierString scribbles on its input, so pstrdup first */
-        if (!SplitIdentifierString(pstrdup(extensionsString), ',', &extlist))
-        {
-                /* syntax error in name list */
-                ereport(ERROR,
-                        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                         errmsg("parameter \"%s\" must be a list of extension names",
-                                "extensions")));
-        }
+	/* SplitIdentifierString scribbles on its input, so pstrdup first */
+	if (!SplitIdentifierString(pstrdup(extensionsString), ',', &extlist))
+	{
+		/* syntax error in name list */
+		ereport(ERROR,
+		        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		         errmsg("parameter \"%s\" must be a list of extension names",
+		                "extensions")));
+	}
 
-        foreach (lc, extlist)
-        {
-                const char *extension_name = (const char *) lfirst(lc);
-                Oid			extension_oid = get_extension_oid(extension_name, true);
+	foreach (lc, extlist)
+	{
+		const char *extension_name = (const char *) lfirst(lc);
+		Oid			extension_oid = get_extension_oid(extension_name, true);
 
-                if (OidIsValid(extension_oid))
-                {
-                        extensionOids = lappend_oid(extensionOids, extension_oid);
-                }
-                else if (warnOnMissing)
-                {
-                        ereport(WARNING,
-                                (errcode(ERRCODE_UNDEFINED_OBJECT),
-                                 errmsg("extension \"%s\" is not installed",
-                                        extension_name)));
-                }
-        }
+		if (OidIsValid(extension_oid))
+		{
+			extensionOids = lappend_oid(extensionOids, extension_oid);
+		}
+		else if (warnOnMissing)
+		{
+			ereport(WARNING,
+			        (errcode(ERRCODE_UNDEFINED_OBJECT),
+			         errmsg("extension \"%s\" is not installed",
+			                extension_name)));
+		}
+	}
 
-        list_free(extlist);
-        return extensionOids;
+	list_free(extlist);
+	return extensionOids;
 }
