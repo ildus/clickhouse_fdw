@@ -126,7 +126,12 @@ void ch_http_close(ch_http_connection_t *conn)
 char *ch_http_last_error(void)
 {
 	if (curl_error_happened)
-		return strdup(curl_error_buffer);
+		return curl_error_buffer;
 
 	return NULL;
+}
+
+void ch_http_response_free(ch_http_response_t *resp)
+{
+	free(resp);
 }

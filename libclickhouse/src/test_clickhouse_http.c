@@ -15,7 +15,7 @@ static void test_simple_query(void **s) {
 
 	ch_http_init(1);
 	ch_http_connection_t	*conn = ch_http_connection("http://localhost:8123");
-	ch_http_response_t		*res = ch_http_simple_query(conn, "SELECT 1,2,3");
+	ch_http_response_t		*res = ch_http_simple_query(conn, "SELECT 1,2,3,NULL");
 
 	assert_ptr_not_equal(conn, NULL);
 	assert_ptr_not_equal(res, NULL);

@@ -7,11 +7,15 @@
 static ch_connection http_connect(ForeignServer *server, UserMapping *user);
 static void http_disconnect(ConnCacheEntry *entry);
 static void http_simple_query(ch_connection conn, const char *query);
+static void http_cursor_free(ch_http_response_t *resp);
+static char **http_fetch_row(void *resp, size_t attcount);
 
 static libclickhouse_methods http_methods = {
 	.connect=http_connect,
 	.disconnect=http_disconnect,
-	.simple_query=http_simple_query
+	.simple_query=http_simple_query,
+	.response_free=http_cursor_free,
+	.fetch_row=http_fetch_row
 };
 
 libclickhouse_methods	*clickhouse_gate = &http_methods;
@@ -75,13 +79,10 @@ http_connect(ForeignServer *server, UserMapping *user)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("could not connect to server \"%s\"",
-		                server->servername),
-		         errdetail_internal("%s", pchomp(error))));
+		         errmsg("could not connect to server: %s", error)));
 	}
 
 	pfree(connstring);
-
 	return (ch_connection) conn;
 }
 
@@ -93,4 +94,63 @@ http_disconnect(ConnCacheEntry *entry)
 {
 	if (entry->conn != NULL)
 		ch_http_close((ch_http_connection_t *) entry->conn);
+}
+
+static ch_cursor *
+http_simple_query(ch_connection conn, const char *query)
+{
+	ch_cursor	*cursor;
+	ch_http_response_t *resp = ch_http_simple_query(conn, query);
+	if (resp == NULL)
+	{
+		char *error = ch_http_last_error();
+		if (error == NULL)
+			error = "undefined";
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+		         errmsg("clickhouse communication error: %s", error)));
+	}
+
+	if (resp->http_status != 200)
+	{
+		char *error = pnstrdup(resp->data, resp->datasize);
+		ch_http_response_free(resp);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+		         errmsg("clickhouse error: %s", error)));
+	}
+
+	cursor = palloc(sizeof(ch_cursor));
+	cursor->query_response = resp;
+	cursor->read_state = palloc0(sizeof(ch_http_read_state), 1);
+	ch_http_read_state_init(&cursor->read_state, resp->data, resp->datasize);
+
+	return cursor;
+}
+
+static void
+http_cursor_free(ch_cursor *cursor)
+{
+	ch_http_read_state_free(cursor->read_state);
+	pfree(cursor->read_state);
+	ch_http_response_free(cursor->query_response);
+	pfree(cursor);
+}
+
+static char **
+http_fetch_row(ch_cursor *cursor, size_t attcount)
+{
+	int rc = CH_CONT;
+	ch_http_response_t *resp = cursor->query_response;
+	char **values = malloc(attcount * sizeof(char *));
+
+	for (int i=0; i < attcount; i++)
+	{
+		Assert(rc == CH_CONT);
+		rc = ch_http_read_next((ch_http_read_state *) resp->read_state);
+		values[i] = state->val ? pstrdup(state->val): NULL;
+	}
+	Assert(rc == CH_EOL || rc == CH_EOF);
 }

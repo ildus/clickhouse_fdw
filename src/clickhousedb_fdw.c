@@ -122,7 +122,7 @@ typedef struct ChFdwScanState
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
-	bool executed;
+	void	   *ch_response;	/* result of query from clickhouse */
 
 	/* for storing result tuples */
 	HeapTuple  tuples;			/* array of currently-retrieved tuples */
@@ -1123,21 +1123,17 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 
 	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
-	if (!fsstate->executed)
+	if (fsstate->ch_response == NULL)
 	{
-		if (odbc_prepare(fsstate->conn, fsstate->query) < 0)
-			chfdw_report_error(ERROR, fsstate->conn, false, fsstate->query);
+		fsstate->ch_response = clickhouse_gate->simple_query(fsstate->conn,
+				fsstate->query, fsstate->ch_response);
 
-		if (odbc_execute(fsstate->conn) < 0)
-			chfdw_report_error(ERROR, fsstate->conn, false, fsstate->query);
-
-		fsstate->executed = true;
+		if (!success)
+			elog(ERROR, "%s", clickhouse_gate->format_error(fsstate->ch_response));
 	}
 
 	if (!fetch_more_data(node))
-	{
 		return ExecClearTuple(slot);
-	}
 
 	/*
 	 * Return the next tuple.
@@ -1754,10 +1750,6 @@ static void
 prepare_foreign_modify(TupleTableSlot *slot, CHFdwModifyState *fmstate)
 {
 	fmstate->p_name = "clickhousedb_fdw";
-	if (odbc_prepare(fmstate->conn, fmstate->query) < 0)
-	{
-		chfdw_report_error(ERROR, fmstate->conn, false, fmstate->query);
-	}
 }
 
 /*
@@ -3134,6 +3126,9 @@ make_tuple_from_result_row(Conn *conn,
 	error_context_stack = &errcallback;
 
 	j = 0;
+
+	/* Parse clickhouse result */
+	row_values = clickhouse_gate->fetch_row(fsstate->cur_attno
 	/*
 	 * i indexes columns in the relation, j indexes columns in the PGresult.
 	 */
