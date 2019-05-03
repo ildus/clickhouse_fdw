@@ -267,24 +267,16 @@ ExtractConnectionOptions(List *defelems, char **driver,  char **host, int *port,
                         if (strcmp(def->defname, "host") == 0)
                         {
                                 *host = defGetString(def);
-                        }
-
-                        if (strcmp(def->defname, "port") == 0)
+                        } else if (strcmp(def->defname, "port") == 0)
                         {
                                 *port = atoi(defGetString(def));
-                        }
-
-                        if (strcmp(def->defname, "user") == 0)
+                        } else if (strcmp(def->defname, "user") == 0)
                         {
                                 *username = defGetString(def);
-                        }
-
-                        if (strcmp(def->defname, "password") == 0)
+                        } else if (strcmp(def->defname, "password") == 0)
                         {
                                 *password = defGetString(def);
-                        }
-
-                        if (strcmp(def->defname, "dbname") == 0)
+                        } else if (strcmp(def->defname, "dbname") == 0)
                         {
                                 *dbname = defGetString(def);
                         }

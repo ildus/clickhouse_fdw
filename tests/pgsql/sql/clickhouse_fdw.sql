@@ -1,7 +1,7 @@
 CREATE EXTENSION clickhouse_fdw;
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhousedb_fdw OPTIONS(dbname 'regression', driver '/usr/lib/libclickhouseodbc.so');
-CREATE SERVER loopback FOREIGN DATA WRAPPER clickhousedb_fdw OPTIONS(dbname 'regression', driver '/usr/lib/libclickhouseodbc.so');
-CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhousedb_fdw OPTIONS(dbname 'regression', driver '/usr/lib/libclickhouseodbc.so');
+CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE USER MAPPING FOR public SERVER testserver1 OPTIONS (user 'value', password 'value');
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback2;
@@ -176,5 +176,5 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  --
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
 
-DROP   EXTENSION IF EXISTS clickhousedb_fdw CASCADE;
+DROP   EXTENSION IF EXISTS clickhouse_fdw CASCADE;
 \! clickhouse-client -q "DROP DATABASE regression";

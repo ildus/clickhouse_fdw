@@ -192,7 +192,7 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
                                               ObjectIdGetDatum(user->umid));
 
                 /* Now try to make the connection */
-                entry->conn = connect_pg_server(server, user);
+                entry->conn = clickhouse_gate->connect(server, user);
 
                 elog(DEBUG3,
                      "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
@@ -218,7 +218,7 @@ static Conn *
 connect_pg_server(ForeignServer *server, UserMapping *user)
 {
         Conn	   *volatile conn = NULL;
-        char       *driver = "/usr/lib/libclickhouseodbc.so";
+        char       *driver = psprintf("%s/%s", pkglib_path, "libclickhouse_odbc.so");
         char       *host = "127.0.0.1";
         int        port = 8123;
         char       *username = "";

@@ -9,10 +9,20 @@ set (src
 	clickhousedb_shipable.c
 )
 
-add_library (clickhouse_fdw SHARED ${src})
+add_library(clickhouse_fdw SHARED ${src})
 target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS})
-target_link_libraries(clickhouse_fdw PRIVATE ${PGSQL_LDFLAGS} clickhouse_odbc)
+target_link_libraries(clickhouse_fdw PRIVATE ${PGSQL_LDFLAGS})
+target_link_libraries(clickhouse_fdw PRIVATE clickhouse_odbc)
 add_dependencies(clickhouse_fdw clickhouse_odbc)
+
+set_target_properties (clickhouse_fdw PROPERTIES
+  OUTPUT_NAME "clickhouse_fdw"
+  PREFIX ""
+)
+set_target_properties(clickhouse_fdw PROPERTIES
+	BUILD_WITH_INSTALL_RPATH TRUE
+	INSTALL_RPATH ${PGSQL_PKGLIBDIR}
+)
 
 include_directories (
 	PRIVATE
@@ -32,7 +42,7 @@ set (install_files
 # install
 #------------------------------------------------------------------------------
 install (
-	TARGETS clickhouse_fdw clickhouse_odbc
+	TARGETS clickhouse_odbc clickhouse_fdw
 	DESTINATION ${PGSQL_PKGLIBDIR}
 )
 

@@ -1,5 +1,4 @@
-# clickhousedb_fdw extension
 comment = 'foreign-data wrapper for remote ClickHouse servers'
 default_version = '1.0'
-module_pathname = '$libdir/clickhousedb_fdw'
+module_pathname = '$libdir/clickhouse_fdw'
 relocatable = true

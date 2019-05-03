@@ -160,4 +160,20 @@ extern const char *get_jointype_name(JoinType jointype);
 extern bool is_builtin(Oid objectId);
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo);
 
+/* libclickhouse_link.c */
+typedef void *ch_connection;
+typedef ch_connection (*connect_method)(ForeignServer *server, UserMapping *user);
+typedef void (*disconnect_method)(ConnCacheEntry *entry);
+typedef void (*check_conn_method)(const char *password, UserMapping *user);
+typedef void (*simple_query_method)(ch_connection conn, const char *query);
+
+typedef struct {
+	connect_method		connect;
+	disconnect_method	disconnect;
+	check_conn_method	check_conn_params;
+	simple_query_method	simple_query;
+} libclickhouse_methods;
+
+extern libclickhouse_methods *clickhouse_gate;
+
 #endif							/* POSTGRES_FDW_H */
