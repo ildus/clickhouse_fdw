@@ -28,12 +28,12 @@ extern "C" {
 #endif
 
 typedef struct Conn
-{				
-		SQLHANDLE henv;
-    SQLHANDLE conn;
-		SQLHANDLE stmt;
-		char *query;
-		char      error[512];
+{
+	SQLHANDLE henv;
+	SQLHANDLE conn;
+	SQLHANDLE stmt;
+	char *query;
+	char      error[512];
 } Conn;
 
 int odbc_init();

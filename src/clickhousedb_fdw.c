@@ -1126,13 +1126,11 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	if (!fsstate->executed)
 	{
 		if (odbc_prepare(fsstate->conn, fsstate->query) < 0)
-		{
 			chfdw_report_error(ERROR, fsstate->conn, false, fsstate->query);
-		}
+
 		if (odbc_execute(fsstate->conn) < 0)
-		{
 			chfdw_report_error(ERROR, fsstate->conn, false, fsstate->query);
-		}
+
 		fsstate->executed = true;
 	}
 
