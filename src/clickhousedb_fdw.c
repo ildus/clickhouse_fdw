@@ -1153,7 +1153,7 @@ make_tuple_from_result_row(Relation rel,
 	j = 0;
 
 	/* Parse clickhouse result */
-	row_values = clickhouse_gate->fetch_row(res_cursor, tupdesc->natts);
+	row_values = clickhouse_gate->fetch_row(res_cursor, list_length(retrieved_attrs));
 	if (row_values == NULL)
 		goto cleanup;
 
@@ -1161,11 +1161,12 @@ make_tuple_from_result_row(Relation rel,
 	 * i indexes columns in the relation, j indexes columns in the PGresult.
 	 */
 
-	for (int i = 0; i < tupdesc->natts; i++)
+	foreach(lc, retrieved_attrs)
 	{
-		char   *valstr = row_values[i];
+		int		i = lfirst_int(lc);
+		char   *valstr = row_values[j];
 
-		Oid pgtype = TupleDescAttr(tupdesc, i)->atttypid;
+		Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
 
 		if (valstr != NULL)
 		{
@@ -1199,12 +1200,13 @@ make_tuple_from_result_row(Relation rel,
 		errpos.cur_attno = i + 1;
 
 		/* Apply the input function even to nulls, to support domains */
-		nulls[i] = (valstr == NULL);
-		values[i] = InputFunctionCall(&attinmeta->attinfuncs[i],
+		nulls[i - 1] = (valstr == NULL);
+		values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
 									  valstr,
-									  attinmeta->attioparams[i],
-									  attinmeta->atttypmods[i]);
+									  attinmeta->attioparams[i - 1],
+									  attinmeta->atttypmods[i - 1]);
 		errpos.cur_attno = 0;
+		j++;
 	}
 
 	/* Uninstall error context callback. */
