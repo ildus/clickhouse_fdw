@@ -146,7 +146,8 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 	ch_http_response_t *resp = cursor->query_response;
 	ch_http_read_state *state = cursor->read_state;
 
-	if (state->done)
+	/* all rows or empty table */
+	if (state->done || state->data == NULL)
 		return NULL;
 
 	char **values = palloc(attcount * sizeof(char *));
@@ -164,5 +165,5 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 	if (rc != CH_EOL && rc != CH_EOF)
 		elog(ERROR, "attcount doesn't match with the clickhouse result");
 
-	return NULL;
+	return values;
 }

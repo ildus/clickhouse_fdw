@@ -1279,8 +1279,13 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 
 	/* make query if needed */
 	if (fsstate->ch_cursor == NULL)
+	{
+		EState	*estate = node->ss.ps.state;
+		MemoryContext	old = MemoryContextSwitchTo(estate->es_query_cxt);
 		fsstate->ch_cursor = clickhouse_gate->simple_query(fsstate->conn,
 				fsstate->query);
+		MemoryContextSwitchTo(old);
+	}
 
 	if ((tup = fetch_tuple(node)) == NULL)
 		return ExecClearTuple(slot);
