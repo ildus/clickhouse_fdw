@@ -62,7 +62,7 @@ http_connect(ForeignServer *server, UserMapping *user)
 	check_conn_params(password, user);
 
 	Assert(strcmp(driver, "http") == 0);
-	connstring = psprintf("http://%s:%s", host, port);
+	connstring = psprintf("http://%s:%d", host, port);
 	if (username && password)
 	{
 		char *newconnstring = psprintf("%s?user=%s&password=%s", connstring,

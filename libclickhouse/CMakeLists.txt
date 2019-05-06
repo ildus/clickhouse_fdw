@@ -6,7 +6,7 @@ set(src
 	src/clickhouse_parser.c
 )
 
-add_library(clickhouse ${src})
+add_library(clickhouse SHARED ${src})
 set_property(TARGET clickhouse PROPERTY POSITION_INDEPENDENT_CODE 1)
 target_compile_features(clickhouse PRIVATE c_std_11)
 option(BUILD_TESTS "build tests" OFF)
