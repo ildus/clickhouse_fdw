@@ -14,6 +14,7 @@ void ch_http_read_state_init(ch_http_read_state *state, char *data, size_t datal
 	state->maxpos = datalen - 1;
 	state->buflen = 1024;
 	state->val = malloc(state->buflen);
+	state->done = false;
 }
 
 void ch_http_read_state_free(ch_http_read_state *state)
@@ -45,5 +46,8 @@ int ch_http_read_next(ch_http_read_state *state)
 		return CH_CONT;
 
 	assert(data[pos] == '\n');
-	return pos < state->maxpos ? CH_EOL : CH_EOF;
+	int res = pos < state->maxpos ? CH_EOL : CH_EOF;
+	state->done = (res == CH_EOF);
+
+	return res;
 }

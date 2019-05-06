@@ -122,10 +122,10 @@ typedef struct ChFdwScanState
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
-	void	   *ch_response;	/* result of query from clickhouse */
+	void	   *ch_cursor;	/* result of query from clickhouse */
 
-	/* for storing result tuples */
-	HeapTuple  tuples;			/* array of currently-retrieved tuples */
+	/* for storing result tuple */
+	HeapTuple  tuple;			/* array of currently-retrieved tuples */
 
 	/* working memory contexts */
 	MemoryContext batch_cxt;	/* context holding current batch of tuples */
@@ -285,7 +285,6 @@ static void estimate_path_cost_size(PlannerInfo *root,
 static bool ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
                                       EquivalenceClass *ec, EquivalenceMember *em,
                                       void *arg);
-static bool fetch_more_data(ForeignScanState *node);
 static CHFdwModifyState *create_foreign_modify(EState *estate,
         RangeTblEntry *rte,
         ResultRelInfo *resultRelInfo,
@@ -317,14 +316,6 @@ static int postgresAcquireSampleRowsFunc(Relation relation, int elevel,
         double *totaldeadrows);
 static void analyze_row_processor(Conn *conn, int row,
                                   CHFdwAnalyzeState *astate);
-static HeapTuple make_tuple_from_result_row(Conn *conn,
-        int row,
-        Relation rel,
-        AttInMetadata *attinmeta,
-        List *retrieved_attrs,
-        ForeignScanState *fsstate,
-        MemoryContext temp_context,
-        char *query);
 static void conversion_error_callback(void *arg);
 static bool foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel,
                             JoinType jointype, RelOptInfo *outerrel, RelOptInfo *innerrel,
@@ -371,7 +362,6 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 {
 	FdwRoutine *routine = makeNode(FdwRoutine);
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/* Functions for scanning foreign tables */
 	routine->GetForeignRelSize = clickhouseGetForeignRelSize;
 	routine->GetForeignPaths = clickhouseGetForeignPaths;
@@ -403,7 +393,6 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 	/* Support functions for upper relation push-down */
 	routine->GetForeignUpperPaths = clickhouseGetForeignUpperPaths;
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 	PG_RETURN_POINTER(routine);
 }
 
@@ -425,7 +414,6 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	char *refname;
 	char *relname;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/*
 	 * We use CHFdwRelationInfo to pass various information to subsequent
 	 * functions.
@@ -520,7 +508,6 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	fpinfo->lower_subquery_rels = NULL;
 	/* Set the relation index. */
 	fpinfo->relation_index = baserel->relid;
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -550,7 +537,6 @@ get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	ListCell   *lc;
 	Relids		relids;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/*
 	 * First, consider whether any active EC is potentially useful for a merge
 	 * join against this relation.
@@ -636,7 +622,6 @@ get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
 			                     restrictinfo->left_ec);
 	}
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 	return useful_eclass_list;
 }
 
@@ -658,7 +643,6 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	EquivalenceClass *query_ec = NULL;
 	ListCell   *lc;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/*
 	 * Pushing the query_pathkeys to the remote server is always worth
 	 * considering, because it might let us avoid a local sort.
@@ -758,7 +742,6 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 		                               list_make1(pathkey));
 	}
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 	return useful_pathkeys_list;
 }
 
@@ -774,7 +757,6 @@ clickhouseGetForeignPaths(PlannerInfo *root,
 	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *) baserel->fdw_private;
 	ForeignPath *path;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/*
 	 * Create simplest ForeignScan path node and add it to baserel.  This path
 	 * corresponds to SeqScan path of regular tables (though depending on what
@@ -795,8 +777,6 @@ clickhouseGetForeignPaths(PlannerInfo *root,
 
 	/* Add paths with pathkeys */
 	add_paths_with_pathkeys_for_rel(root, baserel, NULL);
-
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -823,8 +803,6 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	List	   *retrieved_attrs;
 	StringInfoData sql;
 	ListCell   *lc;
-
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	if (IS_SIMPLE_REL(foreignrel))
 	{
@@ -999,7 +977,6 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	                        fdw_scan_tlist,
 	                        fdw_recheck_quals,
 	                        outer_plan);
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1019,7 +996,6 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	int			rtindex;
 	int			numParams;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -1107,7 +1083,186 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 		                     &fsstate->param_flinfo,
 		                     &fsstate->param_exprs,
 		                     &fsstate->param_values);
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
+}
+
+/*
+ * Create a tuple from the specified row of the PGresult.
+ *
+ * rel is the local representation of the foreign table, attinmeta is
+ * conversion data for the rel's tupdesc, and retrieved_attrs is an
+ * integer list of the table column numbers present in the PGresult.
+ * temp_context is a working context that can be reset after each tuple.
+ */
+static HeapTuple
+make_tuple_from_result_row(Relation rel,
+                           AttInMetadata *attinmeta,
+                           List *retrieved_attrs,
+                           ForeignScanState *fsstate,
+                           MemoryContext temp_context,
+                           char *query,
+						   ch_cursor *res_cursor)
+{
+	HeapTuple	tuple = NULL;
+	TupleDesc	tupdesc;
+	Datum	   *values;
+	bool	   *nulls;
+	ItemPointer ctid = NULL;
+	Oid			oid = InvalidOid;
+	ConversionLocation errpos;
+	ErrorContextCallback errcallback;
+	MemoryContext oldcontext;
+	ListCell   *lc;
+	int			j;
+	int     r;
+	char      **row_values;
+
+	/*
+	 * Do the following work in a temp context that we reset after each tuple.
+	 * This cleans up not only the data we have direct access to, but any
+	 * cruft the I/O functions might leak.
+	 */
+	oldcontext = MemoryContextSwitchTo(temp_context);
+
+	if (rel)
+	{
+		tupdesc = RelationGetDescr(rel);
+	}
+	else
+	{
+		Assert(fsstate);
+		tupdesc = fsstate->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
+	}
+
+	values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
+	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
+
+	/* Initialize to nulls for any columns not present in result */
+	memset(nulls, true, tupdesc->natts * sizeof(bool));
+
+	/*
+	 * Set up and install callback to report where conversion error occurs.
+	 */
+	errpos.rel = rel;
+	errpos.cur_attno = 0;
+	errpos.fsstate = fsstate;
+	errcallback.callback = conversion_error_callback;
+	errcallback.arg = (void *) &errpos;
+	errcallback.previous = error_context_stack;
+	error_context_stack = &errcallback;
+
+	j = 0;
+
+	/* Parse clickhouse result */
+	row_values = clickhouse_gate->fetch_row(res_cursor, tupdesc->natts);
+	if (row_values == NULL)
+		goto cleanup;
+
+	/*
+	 * i indexes columns in the relation, j indexes columns in the PGresult.
+	 */
+
+	for (int i = 0; i < tupdesc->natts; i++)
+	{
+		char   *valstr = row_values[i];
+
+		Oid pgtype = TupleDescAttr(tupdesc, i)->atttypid;
+
+		if (valstr != NULL)
+		{
+			switch (pgtype)
+			{
+				case INT2OID:
+				case INT4OID:
+				case INT8OID:
+				case BOOLOID:
+				case FLOAT4OID:
+				case FLOAT8OID:
+				case NUMERICOID:
+				case BPCHAROID:
+				case VARCHAROID:
+				case TEXTOID:
+				case JSONOID:
+				case NAMEOID:
+				case DATEOID:
+				case TIMEOID:
+				case TIMESTAMPOID:
+					break;
+				default:
+				{
+					ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+									errmsg("cannot convert clickhouse value to postgres value"),
+									errhint("Constant value data type: %u", pgtype)));
+					break;
+				}
+			}
+		}
+		errpos.cur_attno = i + 1;
+
+		/* Apply the input function even to nulls, to support domains */
+		nulls[i] = (valstr == NULL);
+		values[i] = InputFunctionCall(&attinmeta->attinfuncs[i],
+									  valstr,
+									  attinmeta->attioparams[i],
+									  attinmeta->atttypmods[i]);
+		errpos.cur_attno = 0;
+	}
+
+	/* Uninstall error context callback. */
+	error_context_stack = errcallback.previous;
+
+	MemoryContextSwitchTo(oldcontext);
+
+	tuple = heap_form_tuple(tupdesc, values, nulls);
+
+	/*
+	 * If we have a CTID to return, install it in both t_self and t_ctid.
+	 * t_self is the normal place, but if the tuple is converted to a
+	 * composite Datum, t_self will be lost; setting t_ctid allows CTID to be
+	 * preserved during EvalPlanQual re-evaluations (see ROW_MARK_COPY code).
+	 */
+	if (ctid)
+		tuple->t_self = tuple->t_data->t_ctid = *ctid;
+
+	/*
+	 * Stomp on the xmin, xmax, and cmin fields from the tuple created by
+	 * heap_form_tuple.  heap_form_tuple actually creates the tuple with
+	 * DatumTupleFields, not HeapTupleFields, but the executor expects
+	 * HeapTupleFields and will happily extract system columns on that
+	 * assumption.  If we don't do this then, for example, the tuple length
+	 * ends up in the xmin field, which isn't what we want.
+	 */
+	HeapTupleHeaderSetXmax(tuple->t_data, InvalidTransactionId);
+	HeapTupleHeaderSetXmin(tuple->t_data, InvalidTransactionId);
+	HeapTupleHeaderSetCmin(tuple->t_data, InvalidTransactionId);
+
+	/*
+	 * If we have an OID to return, install it.
+	 */
+	if (OidIsValid(oid))
+	{
+		HeapTupleSetOid(tuple, oid);
+	}
+
+cleanup:
+	/* Clean up */
+	MemoryContextReset(temp_context);
+
+	return tuple;
+}
+
+static inline HeapTuple
+fetch_tuple(ForeignScanState *node)
+{
+	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
+	Conn *conn = fsstate->conn;
+
+	return make_tuple_from_result_row(fsstate->rel,
+	                  fsstate->attinmeta,
+	                  fsstate->retrieved_attrs,
+	                  node,
+	                  fsstate->temp_cxt,
+	                  fsstate->query,
+					  fsstate->ch_cursor);
 }
 
 /*
@@ -1118,32 +1273,22 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 static TupleTableSlot *
 clickhouseIterateForeignScan(ForeignScanState *node)
 {
+	HeapTuple		tup;
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
+	/* make query if needed */
+	if (fsstate->ch_cursor == NULL)
+		fsstate->ch_cursor = clickhouse_gate->simple_query(fsstate->conn,
+				fsstate->query);
 
-	if (fsstate->ch_response == NULL)
-	{
-		fsstate->ch_response = clickhouse_gate->simple_query(fsstate->conn,
-				fsstate->query, fsstate->ch_response);
-
-		if (!success)
-			elog(ERROR, "%s", clickhouse_gate->format_error(fsstate->ch_response));
-	}
-
-	if (!fetch_more_data(node))
+	if ((tup = fetch_tuple(node)) == NULL)
 		return ExecClearTuple(slot);
 
 	/*
 	 * Return the next tuple.
 	 */
-	ExecStoreTuple(fsstate->tuples,
-	               slot,
-	               InvalidBuffer,
-	               false);
-
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
+	ExecStoreTuple(tup, slot, InvalidBuffer, false);
 	return slot;
 }
 
@@ -1155,9 +1300,11 @@ static void
 clickhouseReScanForeignScan(ForeignScanState *node)
 {
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
-	fsstate->tuples = NULL;
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
+	if (fsstate->ch_cursor != NULL)
+	{
+		clickhouse_gate->cursor_free(fsstate->ch_cursor);
+		fsstate->ch_cursor = NULL;
+	}
 }
 
 /*
@@ -1169,19 +1316,14 @@ clickhouseEndForeignScan(ForeignScanState *node)
 {
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
-
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fsstate == NULL)
-	{
 		return;
-	}
 
 	/* Release remote connection */
 	ReleaseConnection(fsstate->conn);
-	fsstate->conn = NULL;
-
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
+	if (fsstate->ch_cursor)
+		clickhouse_gate->cursor_free(fsstate->ch_cursor);
 
 	/* MemoryContexts will be deleted automatically. */
 }
@@ -1205,7 +1347,6 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	List	   *retrieved_attrs = NIL;
 	bool		doNothing = false;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	initStringInfo(&sql);
 
@@ -1247,7 +1388,6 @@ clickhousePlanForeignModify(PlannerInfo *root,
 
 	heap_close(rel, NoLock);
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 
 	/*
 	 * Build the fdw_private list that will be available to the executor.
@@ -1275,7 +1415,6 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	List	   *target_attrs = NULL;
 	RangeTblEntry *rte;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  resultRelInfo->ri_FdwState
@@ -1309,7 +1448,6 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 
 	resultRelInfo->ri_FdwState = fmstate;
 	fmstate->conn->query = NULL;
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1323,7 +1461,6 @@ clickhouseExecForeignInsert(EState *estate,
                             TupleTableSlot *planSlot)
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	convert_prep_stmt_params(fmstate, NULL, slot);
 
@@ -1336,7 +1473,6 @@ clickhouseExecForeignInsert(EState *estate,
 
 	MemoryContextReset(fmstate->temp_cxt);
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 
 	return slot;
 }
@@ -1350,7 +1486,6 @@ clickhouseEndForeignModify(EState *estate,
                            ResultRelInfo *resultRelInfo)
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	/* If fmstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fmstate == NULL)
@@ -1360,7 +1495,6 @@ clickhouseEndForeignModify(EState *estate,
 
 	/* Destroy the execution state */
 	finish_foreign_modify(fmstate);
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 ForeignServer *
@@ -1455,7 +1589,6 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 
 	fmstate->conn->query = sql.data;
 	resultRelInfo->ri_FdwState = fmstate;
-	elog(DEBUG2, "< %s:%d    %s", __FUNCTION__, __LINE__, fmstate->conn->query);
 }
 
 /*
@@ -1467,13 +1600,11 @@ clickhouseEndForeignInsert(EState *estate,
                            ResultRelInfo *resultRelInfo)
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	Assert(fmstate != NULL);
 
 	/* Destroy the execution state */
 	finish_foreign_modify(fmstate);
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1487,7 +1618,6 @@ clickhouseRecheckForeignScan(ForeignScanState *node, TupleTableSlot *slot)
 	PlanState  *outerPlan = outerPlanState(node);
 	TupleTableSlot *result;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	/* For base foreign relations, it suffices to set fdw_recheck_quals */
 	if (scanrelid > 0)
@@ -1507,7 +1637,6 @@ clickhouseRecheckForeignScan(ForeignScanState *node, TupleTableSlot *slot)
 	/* Store result in the given slot */
 	ExecCopySlot(slot, result);
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 
 	return true;
 }
@@ -1523,7 +1652,6 @@ clickhouseExplainForeignScan(ForeignScanState *node, ExplainState *es)
 	char	   *sql;
 	char	   *relations;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
 
 	/*
@@ -1544,7 +1672,6 @@ clickhouseExplainForeignScan(ForeignScanState *node, ExplainState *es)
 		sql = strVal(list_nth(fdw_private, FdwScanPrivateSelectSql));
 		ExplainPropertyText("Remote SQL", sql, es);
 	}
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1567,7 +1694,6 @@ estimate_path_cost_size(PlannerInfo *root,
                         double *p_rows, int *p_width,
                         Cost *p_startup_cost, Cost *p_total_cost)
 {
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 
 	*p_rows = 1000;
 	*p_width = 50;
@@ -1582,7 +1708,6 @@ estimate_path_cost_size(PlannerInfo *root,
 		*p_startup_cost = 1000.0;
 		*p_total_cost = 100.0;
 	}
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1618,24 +1743,6 @@ ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
 	/* This is the new target to process. */
 	state->current = expr;
 	return true;
-}
-
-static bool
-fetch_more_data(ForeignScanState *node)
-{
-	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-	Conn *conn = fsstate->conn;
-
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
-	fsstate->tuples = make_tuple_from_result_row(conn, 0,
-	                  fsstate->rel,
-	                  fsstate->attinmeta,
-	                  fsstate->retrieved_attrs,
-	                  node,
-	                  fsstate->temp_cxt,
-	                  fsstate->query);
-	elog(DEBUG2, "< %s:%d:%s", __FUNCTION__, __LINE__, fsstate->query);
-	return fsstate->tuples ? true : false;
 }
 
 /*
@@ -1768,8 +1875,6 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 	StringInfoData sql;
 	bool first = true;
 
-	elog(DEBUG2, "> %s:%d   %s:%p", __FUNCTION__, __LINE__, fmstate->conn->query,
-	     fmstate->conn->query);
 	initStringInfo(&sql);
 
 	if (fmstate->conn->query == NULL)
@@ -2023,7 +2128,6 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 
 	MemoryContextSwitchTo(oldcontext);
 
-	elog(DEBUG2, "< %s:%d\n query:%s", __FUNCTION__, __LINE__, fmstate->query);
 	return NULL;
 }
 
@@ -2184,7 +2288,6 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	ListCell   *lc;
 	List	   *joinclauses;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/*
 	 * We support pushing down INNER, LEFT, RIGHT and FULL OUTER joins.
 	 * Constructing queries representing SEMI and ANTI joins is hard, hence
@@ -2694,9 +2797,6 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 
 	/* Consider pathkeys for the join relation */
 	add_paths_with_pathkeys_for_rel(root, joinrel, epq_path);
-
-	/* XXX Consider parameterized paths for the join relation */
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -2717,7 +2817,6 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	int			i;
 	List	   *tlist = NIL;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/* We currently don't support pushing Grouping Sets. */
 	if (query->groupingSets)
 	{
@@ -3047,199 +3146,6 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	add_path(grouped_rel, (Path *) grouppath);
 }
 
-/*
- * Create a tuple from the specified row of the PGresult.
- *
- * rel is the local representation of the foreign table, attinmeta is
- * conversion data for the rel's tupdesc, and retrieved_attrs is an
- * integer list of the table column numbers present in the PGresult.
- * temp_context is a working context that can be reset after each tuple.
- */
-static HeapTuple
-make_tuple_from_result_row(Conn *conn,
-                           int row,
-                           Relation rel,
-                           AttInMetadata *attinmeta,
-                           List *retrieved_attrs,
-                           ForeignScanState *fsstate,
-                           MemoryContext temp_context,
-                           char *query)
-{
-	HeapTuple	tuple;
-	TupleDesc	tupdesc;
-	Datum	   *values;
-	bool	   *nulls;
-	ItemPointer ctid = NULL;
-	Oid			oid = InvalidOid;
-	ConversionLocation errpos;
-	ErrorContextCallback errcallback;
-	MemoryContext oldcontext;
-	ListCell   *lc;
-	int			j;
-	int     r;
-
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
-	/*
-	 * Do the following work in a temp context that we reset after each tuple.
-	 * This cleans up not only the data we have direct access to, but any
-	 * cruft the I/O functions might leak.
-	 */
-	oldcontext = MemoryContextSwitchTo(temp_context);
-
-	if (rel)
-	{
-		tupdesc = RelationGetDescr(rel);
-	}
-	else
-	{
-		Assert(fsstate);
-		tupdesc = fsstate->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
-	}
-
-	values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
-	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
-
-	/* Initialize to nulls for any columns not present in result */
-	memset(nulls, true, tupdesc->natts * sizeof(bool));
-
-	r = odbc_fetch(conn);
-	if (r < 0)
-	{
-		chfdw_report_error(ERROR, conn, false, query);
-	}
-	if (r == 0)
-	{
-		elog(DEBUG2, "No more data");
-		MemoryContextSwitchTo(oldcontext);
-		return NULL;
-	}
-
-	/*
-	 * Set up and install callback to report where conversion error occurs.
-	 */
-	errpos.rel = rel;
-	errpos.cur_attno = 0;
-	errpos.fsstate = fsstate;
-	errcallback.callback = conversion_error_callback;
-	errcallback.arg = (void *) &errpos;
-	errcallback.previous = error_context_stack;
-	error_context_stack = &errcallback;
-
-	j = 0;
-
-	/* Parse clickhouse result */
-	row_values = clickhouse_gate->fetch_row(fsstate->cur_attno
-	/*
-	 * i indexes columns in the relation, j indexes columns in the PGresult.
-	 */
-	foreach (lc, retrieved_attrs)
-	{
-		int			i = lfirst_int(lc);
-		char	  *valstr;
-		int     len = 256;
-		char    *str = (char *)palloc(
-		                   256); /* Hard limit for the string, need to be fixed. */
-		bool    is_null = false;
-
-		Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-
-		switch (pgtype)
-		{
-		case INT2OID:
-		case INT4OID:
-		case INT8OID:
-		case BOOLOID:
-		case FLOAT4OID:
-		case FLOAT8OID:
-		case NUMERICOID:
-		case BPCHAROID:
-		case VARCHAROID:
-		case TEXTOID:
-		case JSONOID:
-		case NAMEOID:
-			valstr = (char *)odbc_get_string(conn, j + 1, str, len, &is_null);
-			if (valstr == NULL && !is_null)
-			{
-				chfdw_report_error(ERROR, conn, false, query);
-			}
-			break;
-		case DATEOID:
-		case TIMEOID:
-		case TIMESTAMPOID:
-			valstr = (char *)odbc_get_string(conn, j + 1, str, len, &is_null);
-			if (valstr == NULL && !is_null)
-			{
-				chfdw_report_error(ERROR, conn, false, query);
-			}
-			break;
-		default:
-		{
-			ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-			                errmsg("cannot convert clickhouse value to postgres value"),
-			                errhint("Constant value data type: %u", pgtype)));
-			break;
-		}
-		}
-		errpos.cur_attno = i;
-		if (i > 0)
-		{
-			/* ordinary column */
-			Assert(i <= tupdesc->natts);
-			nulls[i - 1] = (valstr == NULL);
-			/* Apply the input function even to nulls, to support domains */
-			values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
-			                                  valstr,
-			                                  attinmeta->attioparams[i - 1],
-			                                  attinmeta->atttypmods[i - 1]);
-		}
-		errpos.cur_attno = 0;
-		j++;
-	}
-
-	/* Uninstall error context callback. */
-	error_context_stack = errcallback.previous;
-
-	MemoryContextSwitchTo(oldcontext);
-
-	tuple = heap_form_tuple(tupdesc, values, nulls);
-
-	/*
-	 * If we have a CTID to return, install it in both t_self and t_ctid.
-	 * t_self is the normal place, but if the tuple is converted to a
-	 * composite Datum, t_self will be lost; setting t_ctid allows CTID to be
-	 * preserved during EvalPlanQual re-evaluations (see ROW_MARK_COPY code).
-	 */
-	if (ctid)
-	{
-		tuple->t_self = tuple->t_data->t_ctid = *ctid;
-	}
-
-	/*
-	 * Stomp on the xmin, xmax, and cmin fields from the tuple created by
-	 * heap_form_tuple.  heap_form_tuple actually creates the tuple with
-	 * DatumTupleFields, not HeapTupleFields, but the executor expects
-	 * HeapTupleFields and will happily extract system columns on that
-	 * assumption.  If we don't do this then, for example, the tuple length
-	 * ends up in the xmin field, which isn't what we want.
-	 */
-	HeapTupleHeaderSetXmax(tuple->t_data, InvalidTransactionId);
-	HeapTupleHeaderSetXmin(tuple->t_data, InvalidTransactionId);
-	HeapTupleHeaderSetCmin(tuple->t_data, InvalidTransactionId);
-
-	/*
-	 * If we have an OID to return, install it.
-	 */
-	if (OidIsValid(oid))
-	{
-		HeapTupleSetOid(tuple, oid);
-	}
-
-	/* Clean up */
-	MemoryContextReset(temp_context);
-
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
-	return tuple;
-}
 
 /*
  * Callback function which is called when error occurs during column value

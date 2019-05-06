@@ -28,6 +28,7 @@ typedef struct {
 	size_t	curpos;
 	size_t	maxpos;
 	char   *val;
+	bool	done;
 } ch_http_read_state;
 
 void ch_http_init(int verbose);

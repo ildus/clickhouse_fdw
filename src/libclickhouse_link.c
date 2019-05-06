@@ -6,15 +6,15 @@
 
 static ch_connection http_connect(ForeignServer *server, UserMapping *user);
 static void http_disconnect(ConnCacheEntry *entry);
-static void http_simple_query(ch_connection conn, const char *query);
-static void http_cursor_free(ch_http_response_t *resp);
-static char **http_fetch_row(void *resp, size_t attcount);
+static ch_cursor *http_simple_query(ch_connection conn, const char *query);
+static void http_cursor_free(ch_cursor *);
+static char **http_fetch_row(ch_cursor *cursor, size_t attcount);
 
 static libclickhouse_methods http_methods = {
 	.connect=http_connect,
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
-	.response_free=http_cursor_free,
+	.cursor_free=http_cursor_free,
 	.fetch_row=http_fetch_row
 };
 
@@ -124,8 +124,8 @@ http_simple_query(ch_connection conn, const char *query)
 
 	cursor = palloc(sizeof(ch_cursor));
 	cursor->query_response = resp;
-	cursor->read_state = palloc0(sizeof(ch_http_read_state), 1);
-	ch_http_read_state_init(&cursor->read_state, resp->data, resp->datasize);
+	cursor->read_state = palloc0(sizeof(ch_http_read_state));
+	ch_http_read_state_init(cursor->read_state, resp->data, resp->datasize);
 
 	return cursor;
 }
@@ -144,13 +144,25 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 {
 	int rc = CH_CONT;
 	ch_http_response_t *resp = cursor->query_response;
-	char **values = malloc(attcount * sizeof(char *));
+	ch_http_read_state *state = cursor->read_state;
+
+	if (state->done)
+		return NULL;
+
+	char **values = palloc(attcount * sizeof(char *));
 
 	for (int i=0; i < attcount; i++)
 	{
+		if (rc != CH_CONT)
+			elog(ERROR, "result columns less then specified: %d from %d", i, attcount);
+
 		Assert(rc == CH_CONT);
-		rc = ch_http_read_next((ch_http_read_state *) resp->read_state);
+		rc = ch_http_read_next(state);
 		values[i] = state->val ? pstrdup(state->val): NULL;
 	}
-	Assert(rc == CH_EOL || rc == CH_EOF);
+
+	if (rc != CH_EOL && rc != CH_EOF)
+		elog(ERROR, "attcount doesn't match with the clickhouse result");
+
+	return NULL;
 }
