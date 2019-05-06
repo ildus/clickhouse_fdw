@@ -54,6 +54,64 @@ static bool pgfdw_cancel_query(ch_connection conn);
 static bool pgfdw_exec_cleanup_query(ch_connection conn, const char *query,
                                      bool ignore_errors);
 
+/*
+ * For non-superusers, insist that the connstr specify a password.  This
+ * prevents a password from being picked up from .pgpass, a service file,
+ * the environment, etc.  We don't want the postgres user's passwords
+ * to be accessible to non-superusers.  (See also dblink_connstr_check in
+ * contrib/dblink.)
+ */
+static void
+check_conn_params(const char *password, UserMapping *user)
+{
+	/* no check required if superuser */
+	if (superuser_arg(user->userid))
+	{
+		return;
+	}
+
+	if (password == NULL)
+		ereport(ERROR,
+		        (errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
+		         errmsg("password is required"),
+		         errdetail("Non-superusers must provide a password in the user mapping.")));
+}
+
+static ch_connection
+clickhouse_connect(ForeignServer *server, UserMapping *user)
+{
+	char       *host = "127.0.0.1";
+	int        port = 8123;
+	char       *username = NULL;
+	char       *password = NULL;
+	char       *dbname = "default";
+	char	   *connstring;
+	char	   *driver = "http";
+
+	ExtractConnectionOptions(server->options, &driver, &host, &port, &dbname,
+							 &username, &password);
+	ExtractConnectionOptions(user->options, &driver, &host, &port, &dbname,
+							 &username, &password);
+
+	check_conn_params(password, user);
+
+	if (strcmp(driver, "http") == 0)
+	{
+		connstring = psprintf("http://%s:%d", host, port);
+
+		if (username && password)
+		{
+			char *newconnstring = psprintf("%s?user=%s&password=%s", connstring,
+										   username, password);
+			pfree(connstring);
+			connstring = newconnstring;
+		}
+	}
+	else
+		elog(ERROR, "only http driver is supported by now");
+
+	return clickhouse_gate->connect(connstring);
+}
 
 ch_connection
 GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
@@ -119,7 +177,8 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 	{
 		elog(DEBUG3, "closing connection %p for option changes to take effect",
 		     entry->conn);
-		clickhouse_gate->disconnect(entry);
+		clickhouse_gate->disconnect(entry->conn);
+		entry->conn = NULL;
 	}
 
 	/*
@@ -152,7 +211,7 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 		                          ObjectIdGetDatum(user->umid));
 
 		/* Now try to make the connection */
-		entry->conn = clickhouse_gate->connect(server, user);
+		entry->conn = clickhouse_connect(server, user);
 
 		elog(DEBUG3,
 		     "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
@@ -264,7 +323,8 @@ pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 	}
 
 	/* make sure this entry is inactive */
-	clickhouse_gate->disconnect(entry);
+	clickhouse_gate->disconnect(entry->conn);
+	entry->conn = NULL;
 
 	/* find server name to be shown in the message below */
 	tup = SearchSysCache1(USERMAPPINGOID,

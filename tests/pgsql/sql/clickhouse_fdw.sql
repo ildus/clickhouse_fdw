@@ -2,16 +2,18 @@ CREATE EXTENSION clickhouse_fdw;
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE ROLE user1 SUPERUSER;
+SET ROLE user1;
 CREATE USER MAPPING FOR public SERVER testserver1 OPTIONS (user 'value', password 'value');
-CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
-CREATE USER MAPPING FOR CURRENT_USER SERVER loopback2;
+CREATE USER MAPPING FOR user1 SERVER loopback;
+CREATE USER MAPPING FOR user1 SERVER loopback2;
 
-\! clickhouse-client -q "DROP DATABASE IF EXISTS regression";
-\! clickhouse-client -q "CREATE DATABASE regression";
-\! clickhouse-client -q "CREATE TABLE regression.t1 ( c1 Int, c2 Int, c3 String, c4 DateTime, c5 DateTime, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
-\! clickhouse-client -q "CREATE TABLE regression.t2 ( c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
-\! clickhouse-client -q "CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
-\! clickhouse-client -q "CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
+SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
+SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t1 (c1 Int, c2 Int, c3 String, c4 DateTime, c5 DateTime, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
 
 CREATE FOREIGN TABLE ft1 (
 	c0 int,
@@ -96,12 +98,12 @@ ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 
-ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
+ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
-ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);
+ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
 
@@ -176,5 +178,7 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  --
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
 
-DROP   EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-\! clickhouse-client -q "DROP DATABASE regression";
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
+RESET ROLE;
+DROP ROLE user1;

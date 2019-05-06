@@ -1,16 +1,48 @@
 CREATE EXTENSION clickhouse_fdw;
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver '/usr/lib/libclickhouseodbc.so');
-CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver '/usr/lib/libclickhouseodbc.so');
-CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver '/usr/lib/libclickhouseodbc.so');
+CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE ROLE user1 SUPERUSER;
+SET ROLE user1;
 CREATE USER MAPPING FOR public SERVER testserver1 OPTIONS (user 'value', password 'value');
-CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
-CREATE USER MAPPING FOR CURRENT_USER SERVER loopback2;
-\! clickhouse-client -q "DROP DATABASE IF EXISTS regression";
-\! clickhouse-client -q "CREATE DATABASE regression";
-\! clickhouse-client -q "CREATE TABLE regression.t1 ( c1 Int, c2 Int, c3 String, c4 DateTime, c5 DateTime, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
-\! clickhouse-client -q "CREATE TABLE regression.t2 ( c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
-\! clickhouse-client -q "CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
-\! clickhouse-client -q "CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);"
+CREATE USER MAPPING FOR user1 SERVER loopback;
+CREATE USER MAPPING FOR user1 SERVER loopback2;
+SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t1 (c1 Int, c2 Int, c3 String, c4 DateTime, c5 DateTime, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 CREATE FOREIGN TABLE ft1 (
 	c0 int,
 	c1 int NOT NULL,
@@ -57,10 +89,8 @@ INSERT INTO ft1
 	       id % 10,
 	       'foo'
 	FROM generate_series(1, 1000) id;
-ERROR:  HY000:HTTP status code: 400
-Received error:
-Code: 41, e.displayText() = DB::Exception: Cannot parse datetime 1990-01-01: (at row 1)
-query: INSERT INTO regression.t1(c1, c2, c3, c4, c5, c6, c7, c8) VALUES (1, 1, '00001', '1990-01-01', '1990-01-01', '1', '1         ', 'foo')
+ERROR:  CH:Code: 41, e.displayText() = DB::Exception: Cannot parse datetime 1990-01-01: (at row 1)
+
 INSERT INTO ft2
 	SELECT id,
 	       'AAA' || to_char(id, 'FM000')
@@ -97,18 +127,12 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 
 ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  HY000:HTTP status code: 404
-Received error:
-Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
-query: SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
-ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
+ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
+ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  HY000:HTTP status code: 404
-Received error:
-Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
-query: SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
+ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
-ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);
+ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
  c3 | c4 
 ----+----
@@ -400,18 +424,25 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be
    Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM regression.t1 WHERE ((c8 = 'foo'))
 (3 rows)
 
-DROP   EXTENSION IF EXISTS clickhouse_fdw CASCADE;
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
 NOTICE:  drop cascades to 12 other objects
 DETAIL:  drop cascades to server testserver1
 drop cascades to user mapping for public on server testserver1
 drop cascades to server loopback
-drop cascades to user mapping for vagrant on server loopback
+drop cascades to user mapping for user1 on server loopback
 drop cascades to foreign table ft1
 drop cascades to foreign table ft2
 drop cascades to foreign table ft3
 drop cascades to foreign table ft4
 drop cascades to foreign table ft5
 drop cascades to server loopback2
-drop cascades to user mapping for vagrant on server loopback2
+drop cascades to user mapping for user1 on server loopback2
 drop cascades to foreign table ft6
-\! clickhouse-client -q "DROP DATABASE regression";
+RESET ROLE;
+DROP ROLE user1;

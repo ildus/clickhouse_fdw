@@ -210,6 +210,7 @@ typedef struct
  * SQL functions
  */
 PG_FUNCTION_INFO_V1(clickhousedb_fdw_handler);
+PG_FUNCTION_INFO_V1(clickhousedb_raw_query);
 extern PGDLLEXPORT void _PG_init(void);
 
 /*
@@ -390,6 +391,25 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 	routine->GetForeignUpperPaths = clickhouseGetForeignUpperPaths;
 
 	PG_RETURN_POINTER(routine);
+}
+
+/* Make one query and close the connection */
+Datum
+clickhousedb_raw_query(PG_FUNCTION_ARGS)
+{
+	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
+		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
+
+	ch_connection	conn = clickhouse_gate->connect(connstring);
+	ch_cursor	   *cursor = clickhouse_gate->simple_query(conn, query);
+	text		   *res = clickhouse_gate->fetch_raw_data(cursor);
+	clickhouse_gate->cursor_free(cursor);
+	clickhouse_gate->disconnect(conn);
+
+	if (res)
+		PG_RETURN_TEXT_P(res);
+
+	PG_RETURN_NULL();
 }
 
 /*
