@@ -62,5 +62,4 @@ endif()
 # source dir
 #------------------------------------------------------------------------------
 add_subdirectory (libclickhouse)
-add_subdirectory (odbc)
 add_subdirectory (src)

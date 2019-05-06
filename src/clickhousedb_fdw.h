@@ -11,8 +11,6 @@
 #ifndef POSTGRES_FDW_H
 #define POSTGRES_FDW_H
 
-#include <clickhouse-client.h>
-
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
 #include "nodes/relation.h"
@@ -172,8 +170,8 @@ typedef struct ConnCacheKey
 
 typedef struct ConnCacheEntry
 {
-	ConnCacheKey key;			/* hash key (must be first) */
-	Conn	   *conn;			/* connection to foreign server, or NULL */
+	ConnCacheKey	key;			/* hash key (must be first) */
+	ch_connection	conn;			/* connection to foreign server, or NULL */
 	/* Remaining fields are invalid when conn is NULL: */
 	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
                                  * one level of subxact open, etc */

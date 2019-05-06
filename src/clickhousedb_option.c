@@ -12,7 +12,6 @@
  */
 #include "postgres.h"
 
-#include "clickhouse-client.h"
 #include "clickhousedb_fdw.h"
 
 #include "access/reloptions.h"

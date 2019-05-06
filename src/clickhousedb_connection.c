@@ -62,7 +62,6 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 	ConnCacheEntry *entry;
 	ConnCacheKey key;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/* First time through, initialize connection cache hashtable */
 	if (ConnectionHash == NULL)
 	{
@@ -163,7 +162,6 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 	/* Remember if caller will prepare statements */
 	entry->have_prep_stmt |= will_prep_stmt;
 
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 	return entry->conn;
 }
 

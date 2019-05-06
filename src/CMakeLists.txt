@@ -13,9 +13,8 @@ set (src
 
 add_library(clickhouse_fdw SHARED ${src})
 target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS})
-target_link_libraries(clickhouse_fdw PRIVATE ${PGSQL_LDFLAGS})
-target_link_libraries(clickhouse_fdw PRIVATE clickhouse_odbc clickhouse)
-add_dependencies(clickhouse_fdw clickhouse_odbc clickhouse)
+target_link_libraries(clickhouse_fdw PRIVATE clickhouse ${PGSQL_LDFLAGS})
+add_dependencies(clickhouse_fdw clickhouse)
 
 set_target_properties (clickhouse_fdw PROPERTIES
   OUTPUT_NAME "clickhouse_fdw"
@@ -44,7 +43,7 @@ set (install_files
 # install
 #------------------------------------------------------------------------------
 install (
-	TARGETS clickhouse_odbc clickhouse_fdw clickhouse
+	TARGETS clickhouse_fdw clickhouse
 	DESTINATION ${PGSQL_PKGLIBDIR}
 )
 

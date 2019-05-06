@@ -13,9 +13,6 @@
 /* PosrgreSQL main header file */
 #include "postgres.h"
 
-/* Clickhouse client library header file */
-#include "clickhouse-client.h"
-
 /* Clikhouse FDW main header file */
 #include "clickhousedb_fdw.h"
 
@@ -1929,7 +1926,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 					appendStringInfo(&sql, ", ");
 				}
 				first = false;
-				appendStringInfo(&sql, "%" PRId64, (int64)value);
+				appendStringInfo(&sql, "%ll", (int64) value);
 				break;
 			}
 			case FLOAT4OID:
