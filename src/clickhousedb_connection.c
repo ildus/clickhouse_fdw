@@ -12,7 +12,6 @@
  */
 
 #include "postgres.h"
-#include "clickhouse-client.h"
 
 #include "access/htup_details.h"
 #include "catalog/pg_user_mapping.h"
@@ -42,11 +41,7 @@ static unsigned int prep_stmt_number = 0;
 static bool xact_got_connection = false;
 
 /* prototypes of private functions */
-static Conn *connect_pg_server(ForeignServer *server, UserMapping *user);
-static void disconnect_pg_server(ConnCacheEntry *entry);
 static void check_conn_params(const char *password, UserMapping *user);
-static void configure_remote_session(Conn *conn);
-static void do_sql_command(Conn *conn, const char *sql);
 static void begin_remote_xact(ConnCacheEntry *entry);
 static void pgfdw_xact_callback(XactEvent event, void *arg);
 static void pgfdw_subxact_callback(SubXactEvent event,
@@ -55,22 +50,12 @@ static void pgfdw_subxact_callback(SubXactEvent event,
                                    void *arg);
 static void pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
 static void pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry);
-static bool pgfdw_cancel_query(Conn *conn);
-static bool pgfdw_exec_cleanup_query(Conn *conn, const char *query,
+static bool pgfdw_cancel_query(ch_connection conn);
+static bool pgfdw_exec_cleanup_query(ch_connection conn, const char *query,
                                      bool ignore_errors);
 
 
-/*
- * Get a Conn* which can be used to execute queries on the remote PostgreSQL
- * server with the user's authorization.  A new connection is established
- * if we don't already have a suitable one, and a transaction is opened at
- * the right subtransaction nesting depth if we didn't do that already.
- *
- * will_prep_stmt must be true if caller intends to create any prepared
- * statements.  Since those don't go away automatically at transaction end
- * (not even on error), we need this flag to cue manual cleanup.
- */
-Conn *
+ch_connection
 GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 {
 	bool		found;
@@ -186,68 +171,13 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
  * Release connection reference count created by calling GetConnection.
  */
 void
-ReleaseConnection(Conn *conn)
+ReleaseConnection(ch_connection conn)
 {
 	/*
 	 * Currently, we don't actually track connection references because all
 	 * cleanup is managed on a transaction or subtransaction basis instead. So
 	 * there's nothing to do here.
 	 */
-}
-
-/*
- * Assign a "unique" number for a cursor.
- *
- * These really only need to be unique per connection within a transaction.
- * For the moment we ignore the per-connection point and assign them across
- * all connections in the transaction, but we ask for the connection to be
- * supplied in case we want to refine that.
- *
- * Note that even if wraparound happens in a very long transaction, actual
- * collisions are highly improbable; just be sure to use %u not %d to print.
- */
-unsigned int
-GetCursorNumber(Conn *conn)
-{
-	return ++cursor_number;
-}
-
-/*
- * Assign a "unique" number for a prepared statement.
- *
- * This works much like GetCursorNumber, except that we never reset the counter
- * within a session.  That's because we can't be 100% sure we've gotten rid
- * of all prepared statements on all connections, and it's not really worth
- * increasing the risk of prepared-statement name collisions by resetting.
- */
-unsigned int
-GetPrepStmtNumber(Conn *conn)
-{
-	return ++prep_stmt_number;
-}
-
-/*
- * Report an error we got from the remote server.
- *
- * elevel: error level to use (typically ERROR, but might be less)
- * res: CHresult containing the error
- * conn: connection we did the query on
- * clear: if true, CHclear the result (otherwise caller will handle it)
- * sql: NULL, or text of remote command we tried to execute
- *
- * Note: callers that choose not to throw ERROR for a remote error are
- * responsible for making sure that the associated ConnCacheEntry gets
- * marked with have_error = true.
- */
-void
-chfdw_report_error(int elevel, Conn *conn,
-                   bool clear, const char *sql)
-{
-	char *message_primary = pchomp(conn->error);
-	ereport(ERROR,
-	        (errcode(ERRCODE_CONNECTION_EXCEPTION),
-	         errmsg("%s\nquery: %s",
-	                message_primary, sql)));
 }
 
 /*
@@ -361,7 +291,7 @@ pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
  * and discard any pending result, and false if not.
  */
 static bool
-pgfdw_cancel_query(Conn *conn)
+pgfdw_cancel_query(ch_connection conn)
 {
 	return true;
 }
@@ -374,7 +304,7 @@ pgfdw_cancel_query(Conn *conn)
  * sent or times out, the return value is false.
  */
 static bool
-pgfdw_exec_cleanup_query(Conn *conn, const char *query, bool ignore_errors)
+pgfdw_exec_cleanup_query(ch_connection conn, const char *query, bool ignore_errors)
 {
 	return true;
 }

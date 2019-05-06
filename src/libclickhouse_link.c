@@ -7,6 +7,7 @@
 static ch_connection http_connect(ForeignServer *server, UserMapping *user);
 static void http_disconnect(ConnCacheEntry *entry);
 static ch_cursor *http_simple_query(ch_connection conn, const char *query);
+static void http_simple_insert(ch_connection conn, const char *query);
 static void http_cursor_free(ch_cursor *);
 static char **http_fetch_row(ch_cursor *cursor, size_t attcount);
 
@@ -14,6 +15,7 @@ static libclickhouse_methods http_methods = {
 	.connect=http_connect,
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
+	.simple_insert=http_simple_insert,
 	.cursor_free=http_cursor_free,
 	.fetch_row=http_fetch_row
 };
@@ -128,6 +130,35 @@ http_simple_query(ch_connection conn, const char *query)
 	ch_http_read_state_init(cursor->read_state, resp->data, resp->datasize);
 
 	return cursor;
+}
+
+static void
+http_simple_insert(ch_connection conn, const char *query)
+{
+	ch_cursor	*cursor;
+	ch_http_response_t *resp = ch_http_simple_query(conn, query);
+	if (resp == NULL)
+	{
+		char *error = ch_http_last_error();
+		if (error == NULL)
+			error = "undefined";
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+		         errmsg("clickhouse communication error: %s", error)));
+	}
+
+	if (resp->http_status != 200)
+	{
+		char *error = pnstrdup(resp->data, resp->datasize);
+		ch_http_response_free(resp);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+		         errmsg("clickhouse error: %s", error)));
+	}
+
+	ch_http_response_free(resp);
 }
 
 static void

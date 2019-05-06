@@ -18,6 +18,7 @@
 #include "nodes/relation.h"
 #include "utils/relcache.h"
 
+typedef void *ch_connection;
 
 /*
  * FDW-specific planner information kept in RelOptInfo.fdw_private for a
@@ -115,12 +116,12 @@ extern void reset_transmission_modes(int nestlevel);
 extern ForeignServer *get_foreign_server(Relation rel);
 
 /* in connection.c */
-extern Conn *GetConnection(UserMapping *user, bool will_prep_stmt, bool read);
-extern void ReleaseConnection(Conn *conn);
-extern unsigned int GetCursorNumber(Conn *conn);
-extern unsigned int GetPrepStmtNumber(Conn *conn);
-extern void chfdw_exec_query(Conn *conn, const char *query);
-extern void chfdw_report_error(int elevel, Conn *conn,
+extern ch_connection GetConnection(UserMapping *user, bool will_prep_stmt, bool read);
+extern void ReleaseConnection(ch_connection conn);
+extern unsigned int GetCursorNumber(ch_connection conn);
+extern unsigned int GetPrepStmtNumber(ch_connection conn);
+extern void chfdw_exec_query(ch_connection conn, const char *query);
+extern void chfdw_report_error(int elevel, ch_connection conn,
                                bool clear, const char *sql);
 
 /* in option.c */
@@ -186,7 +187,6 @@ typedef struct ConnCacheEntry
 } ConnCacheEntry;
 
 /* libclickhouse_link.c */
-typedef void *ch_connection;
 
 typedef struct
 {
@@ -198,6 +198,7 @@ typedef ch_connection (*connect_method)(ForeignServer *server, UserMapping *user
 typedef void (*disconnect_method)(ConnCacheEntry *entry);
 typedef void (*check_conn_method)(const char *password, UserMapping *user);
 typedef ch_cursor *(*simple_query_method)(ch_connection conn, const char *query);
+typedef void (*simple_insert_method)(ch_connection conn, const char *query);
 typedef void (*cursor_free_method)(ch_cursor *cursor);
 typedef char **(*cursor_fetch_row_method)(ch_cursor *cursor, size_t attcount);
 
@@ -206,6 +207,7 @@ typedef struct
 	connect_method				connect;
 	disconnect_method			disconnect;
 	simple_query_method			simple_query;
+	simple_insert_method		simple_insert;
 	cursor_free_method			cursor_free;
 	cursor_fetch_row_method		fetch_row;
 } libclickhouse_methods;

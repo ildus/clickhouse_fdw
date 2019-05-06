@@ -117,7 +117,7 @@ typedef struct ChFdwScanState
 	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
 
 	/* for remote query execution */
-	Conn	   *conn;			/* connection for the scan */
+	ch_connection conn;			/* connection for the scan */
 	int			numParams;		/* number of parameters passed to query */
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
@@ -143,8 +143,9 @@ typedef struct CHFdwModifyState
 	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
 
 	/* for remote query execution */
-	Conn	   *conn;			/* connection for the scan */
+	ch_connection	conn;			/* connection for the scan */
 	char	   *p_name;			/* name of prepared statement, if created */
+	char	   *result_query;
 
 	/* extracted fdw_private data */
 	char	   *query;			/* text of INSERT/UPDATE/DELETE command */
@@ -314,8 +315,6 @@ static int postgresAcquireSampleRowsFunc(Relation relation, int elevel,
         HeapTuple *rows, int targrows,
         double *totalrows,
         double *totaldeadrows);
-static void analyze_row_processor(Conn *conn, int row,
-                                  CHFdwAnalyzeState *astate);
 static void conversion_error_callback(void *arg);
 static bool foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel,
                             JoinType jointype, RelOptInfo *outerrel, RelOptInfo *innerrel,
@@ -1197,7 +1196,7 @@ make_tuple_from_result_row(Relation rel,
 				}
 			}
 		}
-		errpos.cur_attno = i + 1;
+		errpos.cur_attno = i;
 
 		/* Apply the input function even to nulls, to support domains */
 		nulls[i - 1] = (valstr == NULL);
@@ -1256,7 +1255,6 @@ static inline HeapTuple
 fetch_tuple(ForeignScanState *node)
 {
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-	Conn *conn = fsstate->conn;
 
 	return make_tuple_from_result_row(fsstate->rel,
 	                  fsstate->attinmeta,
@@ -1454,7 +1452,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	                                NULL);
 
 	resultRelInfo->ri_FdwState = fmstate;
-	fmstate->conn->query = NULL;
+	fmstate->result_query = NULL;
 }
 
 /*
@@ -1470,16 +1468,12 @@ clickhouseExecForeignInsert(EState *estate,
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
 	convert_prep_stmt_params(fmstate, NULL, slot);
-
 	prepare_foreign_modify(slot, fmstate);
 
-	if (odbc_execute(fmstate->conn) < 0)
-	{
-		chfdw_report_error(ERROR, fmstate->conn, true, fmstate->query);
-	}
+	/* actual query */
+	clickhouse_gate->simple_insert(fmstate->conn, fmstate->result_query);
 
 	MemoryContextReset(fmstate->temp_cxt);
-
 
 	return slot;
 }
@@ -1594,7 +1588,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                retrieved_attrs != NIL,
 	                                retrieved_attrs);
 
-	fmstate->conn->query = sql.data;
+	fmstate->result_query = sql.data;
 	resultRelInfo->ri_FdwState = fmstate;
 }
 
@@ -1884,12 +1878,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 
 	initStringInfo(&sql);
 
-	if (fmstate->conn->query == NULL)
-	{
-		fmstate->conn->query = fmstate->query;
-	}
-
-	appendStringInfo(&sql, "%s", fmstate->conn->query);
+	appendStringInfo(&sql, "%s", fmstate->query);
 	appendStringInfo(&sql, "%s", " VALUES (");
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
@@ -2131,7 +2120,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 
 	Assert(pindex == fmstate->p_nums);
 
-	fmstate->query = pstrdup(sql.data);
+	fmstate->result_query = pstrdup(sql.data);
 
 	MemoryContextSwitchTo(oldcontext);
 
