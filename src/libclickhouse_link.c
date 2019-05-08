@@ -93,7 +93,7 @@ http_simple_query(ch_connection conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("CH:%s\nQUERY:", format_error(error), query)));
+		         errmsg("CH:%s\nQUERY:%s", format_error(error), query)));
 	}
 
 	cursor = palloc(sizeof(ch_cursor));
@@ -128,7 +128,7 @@ http_simple_insert(ch_connection conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("CH:%s\nQUERY:", format_error(error), query)));
+		         errmsg("CH:%s\nQUERY:%s", format_error(error), query)));
 	}
 
 	ch_http_response_free(resp);

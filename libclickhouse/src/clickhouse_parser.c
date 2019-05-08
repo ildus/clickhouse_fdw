@@ -10,7 +10,7 @@
 
 void ch_http_read_state_init(ch_http_read_state *state, char *data, size_t datalen)
 {
-	state->data = data;
+	state->data = datalen > 0 ? data : NULL;
 	state->maxpos = datalen - 1;
 	state->buflen = 1024;
 	state->val = malloc(state->buflen);

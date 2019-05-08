@@ -91,6 +91,7 @@ INSERT INTO ft1
 	FROM generate_series(1, 1000) id;
 ERROR:  CH:Code: 41, e.displayText() = DB::Exception: Cannot parse datetime 1990-01-01: (at row 1)
 
+QUERY:INSERT INTO regression.t1(c1, c2, c3, c4, c5, c6, c7, c8) VALUES (1, 1, '00001', '1990-01-01', '1990-01-01', '1', '1         ', 'foo')
 INSERT INTO ft2
 	SELECT id,
 	       'AAA' || to_char(id, 'FM000')
@@ -128,9 +129,11 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
+QUERY:SELECT c1, c3, c4 FROM "no such database".t1
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
+QUERY:SELECT c1, c3, c4 FROM "no such database".t1
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
@@ -141,11 +144,13 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
 \set VERBOSITY default
 ANALYZE ft1;
 EXPLAIN (COSTS OFF) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
-        QUERY PLAN         
----------------------------
+           QUERY PLAN            
+---------------------------------
  Limit
-   ->  Foreign Scan on ft1
-(2 rows)
+   ->  Sort
+         Sort Key: c3, c1
+         ->  Foreign Scan on ft1
+(4 rows)
 
 SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 
@@ -445,4 +450,5 @@ drop cascades to server loopback2
 drop cascades to user mapping for user1 on server loopback2
 drop cascades to foreign table ft6
 RESET ROLE;
+DROP OWNED BY user1;
 DROP ROLE user1;
