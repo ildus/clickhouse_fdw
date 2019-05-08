@@ -28,6 +28,9 @@ int ch_http_read_next(ch_http_read_state *state)
 		   len = 0;
 	char  *data = state->data;
 
+	if (state->done)
+		return CH_EOF;
+
 	state->val[0] = '\0';
 	while (pos < state->maxpos && data[pos] != '\t' && data[pos] != '\n')
 	{

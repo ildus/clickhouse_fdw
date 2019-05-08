@@ -53,6 +53,9 @@ http_disconnect(ch_connection conn)
 		ch_http_close((ch_http_connection_t *) conn);
 }
 
+/*
+ * Return text before version mentioning
+ */
 static char *
 format_error(char *errstring)
 {
@@ -90,12 +93,13 @@ http_simple_query(ch_connection conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("CH:%s", format_error(error))));
+		         errmsg("CH:%s\nQUERY:", format_error(error), query)));
 	}
 
 	cursor = palloc(sizeof(ch_cursor));
 	cursor->query_response = resp;
 	cursor->read_state = palloc0(sizeof(ch_http_read_state));
+	cursor->query = pstrdup(query);
 	ch_http_read_state_init(cursor->read_state, resp->data, resp->datasize);
 
 	return cursor;
@@ -124,7 +128,7 @@ http_simple_insert(ch_connection conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("CH:%s", format_error(error))));
+		         errmsg("CH:%s\nQUERY:", format_error(error), query)));
 	}
 
 	ch_http_response_free(resp);
@@ -153,16 +157,22 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 
 	for (int i=0; i < attcount; i++)
 	{
-		if (rc != CH_CONT)
-			elog(ERROR, "result columns less then specified: %d from %d", i, attcount);
-
-		Assert(rc == CH_CONT);
 		rc = ch_http_read_next(state);
-		values[i] = state->val ? pstrdup(state->val): NULL;
+		if (rc == CH_CONT)
+			values[i] = state->val ? pstrdup(state->val): NULL;
+		else
+			values[i] = NULL;
 	}
 
 	if (rc != CH_EOL && rc != CH_EOF)
-		elog(ERROR, "attcount doesn't match with the clickhouse result");
+	{
+		char *resval = pnstrdup(state->data, state->maxpos + 1);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+		         errmsg("Columns mistmatch between PostgreSQL and ClickHouse"
+					    "\nQUERY: %s\nRESULT: %s", cursor->query, resval)));
+	}
 
 	return values;
 }

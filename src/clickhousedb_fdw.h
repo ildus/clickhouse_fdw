@@ -190,6 +190,7 @@ typedef struct
 {
 	void	*query_response;
 	void	*read_state;
+	char	*query;
 } ch_cursor;
 
 typedef ch_connection (*connect_method)(char *connstring);
