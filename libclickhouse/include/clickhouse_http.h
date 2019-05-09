@@ -31,7 +31,7 @@ typedef struct {
 	bool	done;
 } ch_http_read_state;
 
-void ch_http_init(int verbose);
+void ch_http_init(int verbose, void *progressfunc);
 ch_http_connection_t *ch_http_connection(char *connstring);
 void ch_http_close(ch_http_connection_t *conn);
 ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query);

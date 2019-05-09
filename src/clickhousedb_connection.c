@@ -189,7 +189,7 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 
 	/*
 	 * If cache entry doesn't have a connection, we have to establish a new
-	 * connection.  (If connect_pg_server throws an error, the cache entry
+	 * connection.  (If clickhouse_connect throws an error, the cache entry
 	 * will remain in a valid empty state, ie conn == NULL.)
 	 */
 	if (entry->conn == NULL)
@@ -198,7 +198,6 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 
 		/* Reset all transient state fields, to be sure all are clean */
 		entry->xact_depth = 0;
-		entry->have_prep_stmt = false;
 		entry->have_error = false;
 		entry->changing_xact_state = false;
 		entry->invalidated = false;
@@ -217,9 +216,6 @@ GetConnection(UserMapping *user, bool will_prep_stmt, bool read)
 		     "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
 		     entry->conn, server->servername, user->umid, user->userid);
 	}
-
-	/* Remember if caller will prepare statements */
-	entry->have_prep_stmt |= will_prep_stmt;
 
 	return entry->conn;
 }
@@ -281,11 +277,9 @@ pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
 	hash_seq_init(&scan, ConnectionHash);
 	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
 	{
-		/* Ignore invalid entries */
+		/* Ignore empty entries */
 		if (entry->conn == NULL)
-		{
 			continue;
-		}
 
 		/* hashvalue == 0 means a cache reset, must clear all state */
 		if (hashvalue == 0 ||
@@ -342,28 +336,3 @@ pgfdw_reject_incomplete_xact_state_change(ConnCacheEntry *entry)
 	         errmsg("connection to server \"%s\" was lost",
 	                server->servername)));
 }
-
-/*
- * Cancel the currently-in-progress query (whose query text we do not have)
- * and ignore the result.  Returns true if we successfully cancel the query
- * and discard any pending result, and false if not.
- */
-static bool
-pgfdw_cancel_query(ch_connection conn)
-{
-	return true;
-}
-
-/*
- * Submit a query during (sub)abort cleanup and wait up to 30 seconds for the
- * result.  If the query is executed without error, the return value is true.
- * If the query is executed successfully but returns an error, the return
- * value is true if and only if ignore_errors is set.  If the query can't be
- * sent or times out, the return value is false.
- */
-static bool
-pgfdw_exec_cleanup_query(ch_connection conn, const char *query, bool ignore_errors)
-{
-	return true;
-}
-

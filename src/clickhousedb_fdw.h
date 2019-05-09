@@ -164,7 +164,7 @@ extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo);
  */
 typedef struct ConnCacheKey
 {
-	Oid			userid;
+	Oid		userid;
 	bool    read;
 } ConnCacheKey;
 
@@ -175,7 +175,6 @@ typedef struct ConnCacheEntry
 	/* Remaining fields are invalid when conn is NULL: */
 	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
                                  * one level of subxact open, etc */
-	bool		have_prep_stmt; /* have we prepared any stmts in this xact? */
 	bool		have_error;		/* have any subxacts aborted in this xact? */
 	bool		changing_xact_state;	/* xact state change in process */
 	bool		invalidated;	/* true if reconnect is pending */
@@ -185,7 +184,6 @@ typedef struct ConnCacheEntry
 } ConnCacheEntry;
 
 /* libclickhouse_link.c */
-
 typedef struct
 {
 	void	*query_response;

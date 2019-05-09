@@ -5,6 +5,8 @@
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
 
+static bool initialized = false;
+
 static ch_connection http_connect(char *connstring);
 static void http_disconnect(ch_connection conn);
 static ch_cursor *http_simple_query(ch_connection conn, const char *query);
@@ -25,10 +27,25 @@ static libclickhouse_methods http_methods = {
 
 libclickhouse_methods	*clickhouse_gate = &http_methods;
 
+static int http_progress_callback(void *clientp, double dltotal, double dlnow,
+		double ultotal, double ulnow)
+{
+	if (ProcDiePending || QueryCancelPending)
+		return 1;
+
+	return 0;
+}
+
 static ch_connection
 http_connect(char *connstring)
 {
 	ch_http_connection_t *conn = ch_http_connection(connstring);
+	if (!initialized)
+	{
+		initialized = true;
+		ch_http_init(1, http_progress_callback);
+	}
+
 	if (conn == NULL)
 	{
 		char *error = ch_http_last_error();
