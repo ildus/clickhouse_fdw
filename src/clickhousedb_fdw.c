@@ -342,7 +342,7 @@ _PG_init(void)
 	                         "Server-side join_pushdown_safe",
 	                         NULL,
 	                         &is_join_pushdown_safe,
-	                         false,
+	                         true,
 	                         PGC_USERSET,
 	                         0,
 	                         NULL,

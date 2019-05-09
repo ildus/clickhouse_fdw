@@ -158,8 +158,8 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 	for (int i=0; i < attcount; i++)
 	{
 		rc = ch_http_read_next(state);
-		if (rc == CH_CONT)
-			values[i] = state->val ? pstrdup(state->val): NULL;
+		if (state->val[0] != '\0')
+			values[i] = pstrdup(state->val);
 		else
 			values[i] = NULL;
 	}

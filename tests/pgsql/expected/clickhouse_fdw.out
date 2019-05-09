@@ -129,11 +129,11 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
-QUERY:SELECT c1, c3, c4 FROM "no such database".t1
+QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
-QUERY:SELECT c1, c3, c4 FROM "no such database".t1
+QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
@@ -144,13 +144,11 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
 \set VERBOSITY default
 ANALYZE ft1;
 EXPLAIN (COSTS OFF) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
-           QUERY PLAN            
----------------------------------
+        QUERY PLAN         
+---------------------------
  Limit
-   ->  Sort
-         Sort Key: c3, c1
-         ->  Foreign Scan on ft1
-(4 rows)
+   ->  Foreign Scan on ft1
+(2 rows)
 
 SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 
@@ -279,6 +277,15 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT t1.c1, t2.c1 FROM ft2 t1 LEFT JOIN ft1 t2 ON
                      Output: t1.c1
                      Remote SQL: SELECT c1 FROM regression.t2
 (17 rows)
+
+EXPLAIN SELECT DISTINCT t1.c1, t2.c1 FROM ft2 t1 LEFT JOIN ft1 t2 ON (t1.c1 = t2.c1) order by t1.c1 LIMIT 10;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit  (cost=1.00..4.00 rows=1 width=8)
+   ->  Unique  (cost=1.00..4.00 rows=1 width=8)
+         ->  Foreign Scan  (cost=1.00..-1.00 rows=1000 width=50)
+               Relations: (ft2 t1) LEFT JOIN (ft1 t2)
+(4 rows)
 
 SELECT DISTINCT t1.c1, t2.c1 FROM ft2 t1 LEFT JOIN ft1 t2 ON (t1.c1 = t2.c1) order by t1.c1 LIMIT 10;
  c1 | c1 
