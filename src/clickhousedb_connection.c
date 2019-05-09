@@ -97,15 +97,12 @@ clickhouse_connect(ForeignServer *server, UserMapping *user)
 
 	if (strcmp(driver, "http") == 0)
 	{
-		connstring = psprintf("http://%s:%d", host, port);
-
 		if (username && password)
-		{
-			char *newconnstring = psprintf("%s?user=%s&password=%s", connstring,
-										   username, password);
-			pfree(connstring);
-			connstring = newconnstring;
-		}
+			connstring = psprintf("http://%s:%s@%s:%d/", username, password, host, port);
+		else if (username)
+			connstring = psprintf("http://%s@%s:%d/", username, host, port);
+		else
+			connstring = psprintf("http://%s:%d/", host, port);
 	}
 	else
 		elog(ERROR, "only http driver is supported by now");

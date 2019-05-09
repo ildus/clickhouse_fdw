@@ -1,6 +1,8 @@
 #ifndef CLICKHOUSE_HTTP_H
 #define CLICKHOUSE_HTTP_H
 
+#include <stdint.h>
+
 typedef enum
 {
 	CH_TAB_SEPARATED
@@ -13,6 +15,7 @@ typedef struct ch_http_response_t
 	char			   *data;
 	size_t				datasize;
 	long				http_status;
+	char				query_id[30];
 } ch_http_response_t;
 
 typedef enum
@@ -31,7 +34,8 @@ typedef struct {
 	bool	done;
 } ch_http_read_state;
 
-void ch_http_init(int verbose, void *progressfunc);
+void ch_http_init(int verbose, uint32_t query_id_prefix);
+void ch_http_set_progress_func(void *progressfunc);
 ch_http_connection_t *ch_http_connection(char *connstring);
 void ch_http_close(ch_http_connection_t *conn);
 ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query);

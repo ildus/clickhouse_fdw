@@ -43,7 +43,7 @@ http_connect(char *connstring)
 	if (!initialized)
 	{
 		initialized = true;
-		ch_http_init(1, http_progress_callback);
+		ch_http_init(1, (uint32_t) MyProcPid);
 	}
 
 	if (conn == NULL)
@@ -91,6 +91,8 @@ static ch_cursor *
 http_simple_query(ch_connection conn, const char *query)
 {
 	ch_cursor	*cursor;
+
+	ch_http_set_progress_func(http_progress_callback);
 	ch_http_response_t *resp = ch_http_simple_query(conn, query);
 	if (resp == NULL)
 	{
@@ -103,7 +105,23 @@ http_simple_query(ch_connection conn, const char *query)
 		         errmsg("clickhouse communication error: %s", error)));
 	}
 
-	if (resp->http_status != 200)
+	if (resp->http_status == 418)
+	{
+		/* kill aborted query if needed */
+		char *query = psprintf("kill query where query_id='%s'", resp->query_id);
+
+		ch_http_response_free(resp);
+		ch_http_set_progress_func(NULL);
+		resp = ch_http_simple_query(conn, query);
+		if (resp != NULL)
+			ch_http_response_free(resp);
+		pfree(query);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+		         errmsg("clickhouse query was aborted")));
+	}
+	else if (resp->http_status != 200)
 	{
 		char *error = pnstrdup(resp->data, resp->datasize);
 		ch_http_response_free(resp);

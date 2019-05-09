@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 
@@ -12,17 +13,23 @@ static bool curl_error_happened = false;
 static int	curl_verbose = 0;
 static void *curl_progressfunc = NULL;
 static bool curl_initialized = false;
+static char ch_query_id_prefix[5];
 
-void ch_http_init(int verbose, void *progressfunc)
+void ch_http_init(int verbose, uint32_t query_id_prefix)
 {
 	curl_verbose = verbose;
-	curl_progressfunc = progressfunc;
+	snprintf(ch_query_id_prefix, sizeof(ch_query_id_prefix), "%x", query_id_prefix);
 
 	if (!curl_initialized)
 	{
 		curl_initialized = true;
 		curl_global_init(CURL_GLOBAL_ALL);
 	}
+}
+
+void ch_http_set_progress_func(void *progressfunc)
+{
+	curl_progressfunc = progressfunc;
 }
 
 size_t write_data(void *contents, size_t size, size_t nmemb, void *userp)
@@ -44,8 +51,6 @@ size_t write_data(void *contents, size_t size, size_t nmemb, void *userp)
 
 ch_http_connection_t *ch_http_connection(char *connstring)
 {
-	int rc;
-
 	curl_error_happened = false;
 	ch_http_connection_t *conn = malloc(sizeof(ch_http_connection_t));
 	if (conn == NULL)
@@ -57,51 +62,50 @@ ch_http_connection_t *ch_http_connection(char *connstring)
 
 	conn->curl = curl_easy_init();
 	if (!conn->curl)
-	{
-		snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
 		goto cleanup;
-	}
 
 	conn->url = curl_url();
 	if (!conn->url)
-	{
-		snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
 		goto cleanup;
-	}
 
-	rc = curl_url_set(conn->url, CURLUPART_URL, connstring, 0);
-	if (rc)
-	{
-		snprintf(curl_error_buffer, CURL_ERROR_SIZE, "set base url: %d", rc);
+	conn->base_url = strdup(connstring);
+	if (conn->base_url == NULL)
 		goto cleanup;
-	}
 
-	rc = curl_url_set(conn->url, CURLUPART_SCHEME, "http", 0);
-	if (rc)
-	{
-		snprintf(curl_error_buffer, CURL_ERROR_SIZE, "set http: %d", rc);
-		goto cleanup;
-	}
-
+	conn->base_url_len = strlen(conn->base_url);
 	conn->format = CH_TAB_SEPARATED;
+
 	return conn;
 
 cleanup:
+	snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
 	curl_error_happened = true;
 	if (conn->url)
 		curl_url_cleanup(conn->url);
+	if (conn->base_url)
+		free(conn->base_url);
 
 	free(conn);
 	return NULL;
 }
 
+static void set_query_id(ch_http_response_t *resp)
+{
+	static uint32_t pseudo_unique = 0;
+	snprintf(resp->query_id, 4 + 1 + 4, "%s-%x", ch_query_id_prefix,
+				++pseudo_unique);
+}
+
 ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query)
 {
+	char		*url;
 	CURLcode	errcode;
 
 	ch_http_response_t	*resp = calloc(sizeof(ch_http_response_t), 1);
 	if (resp == NULL)
 		return NULL;
+
+	set_query_id(resp);
 
 	assert(conn && conn->curl);
 	assert(conn->format == CH_TAB_SEPARATED);
@@ -122,14 +126,25 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	{
 		curl_easy_setopt(conn->curl, CURLOPT_NOPROGRESS, 0L);
 		curl_easy_setopt(conn->curl, CURLOPT_XFERINFOFUNCTION, curl_progressfunc);
+		curl_easy_setopt(conn->curl, CURLOPT_XFERINFODATA, conn);
 	}
 	else
 		curl_easy_setopt(conn->curl, CURLOPT_NOPROGRESS, 1L);
 
+	url = malloc(conn->base_url_len + 30 /* query_id */ + 11 /* ?query_id= */);
+	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
+	curl_url_set(conn->url, CURLUPART_URL, url, 0);
+
 	curl_error_happened = false;
 	errcode = curl_easy_perform(conn->curl);
-	if (errcode != CURLE_OK)
+	if (errcode == CURLE_ABORTED_BY_CALLBACK)
 	{
+		resp->http_status = 418; /* I'm teapot */
+		return resp;
+	}
+	else if (errcode != CURLE_OK)
+	{
+		resp->http_status = 418; /* i'm teapot */
 		curl_error_happened = true;
 		free(resp);
 		return NULL;
@@ -146,6 +161,7 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 
 void ch_http_close(ch_http_connection_t *conn)
 {
+	free(conn->base_url);
 	curl_url_cleanup(conn->url);
 	curl_easy_cleanup(conn->curl);
 }
@@ -160,5 +176,8 @@ char *ch_http_last_error(void)
 
 void ch_http_response_free(ch_http_response_t *resp)
 {
+	if (resp->data)
+		free(resp->data);
+
 	free(resp);
 }
