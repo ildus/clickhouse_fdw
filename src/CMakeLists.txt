@@ -17,7 +17,9 @@ target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS})
 add_dependencies(clickhouse_fdw clickhouse)
 
 if (APPLE)
-	target_link_libraries(clickhouse_fdw PRIVATE "-bundle ${PGSQL_BINDIR}/postgres")
+	set_target_properties(clickhouse_fdw PROPERTIES BUNDLE TRUE)
+	target_link_libraries(clickhouse_fdw PRIVATE "-bundle_loader ${PGSQL_BINDIR}/postgres")
+	set(BUNDLE_EXTENSION "so")
 endif()
 
 set_target_properties (clickhouse_fdw PROPERTIES
