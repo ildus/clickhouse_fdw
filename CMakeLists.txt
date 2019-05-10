@@ -10,7 +10,7 @@ message(STATUS "Setting ${CMAKE_PROJECT_NAME} build type - ${CMAKE_BUILD_TYPE}")
 #------------------------------------------------------------------------------
 find_program(PG_CONFIG pg_config)
 if(NOT PG_CONFIG)
-	message(FATAL ERROR "Unable to find 'pg_config'")
+	message(FATAL_ERROR "Unable to find 'pg_config'")
 endif(NOT PG_CONFIG)
 
 exec_program(${PG_CONFIG} ARGS --version OUTPUT_VARIABLE PGCONFIG_OUTPUT)

@@ -20,10 +20,15 @@ elseif("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 	target_compile_options(clickhouse PRIVATE -Wall -Wextra -Wstrict-aliasing -g3 -O0)
 endif()
 
-find_package(PkgConfig)
-pkg_check_modules(CURL libcurl)
+if (APPLE)
+	message("Using libcurl from brew installation...")
+	set(ENV{PKG_CONFIG_PATH}  "/usr/local/opt/curl/lib/pkgconfig")
+endif()
 
-target_link_libraries(clickhouse ${CURL_LIBRARIES})
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CURL libcurl REQUIRED)
+
+target_link_libraries(clickhouse ${CURL_LDFLAGS})
 
 target_include_directories(clickhouse
     PUBLIC
