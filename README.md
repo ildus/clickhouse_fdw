@@ -1,8 +1,9 @@
-# clickhouse_fdw - ClickHouse Foreign Data Wrapper for PostgreSQL
+`clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
+=================================================================
 
 Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw
 
-The clickhouse_fdw is open-source. It is a Foreign Data Wrapper (FDW) for one
+The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for one
 of the fastest column store databases; "Clickhouse". This FDW allows you to
 SELECT from, and INSERT into, a ClickHouse database from within a PostgreSQL v11 server.
 
@@ -10,17 +11,20 @@ The FDW supports advanced features like aggregate pushdown and joins pushdown.
 These significantly improve performance by utilizing the remote server’s resources
 for these resource intensive operations.
 
-##### 1. Supported PostgreSQL Versions.
+Supported PostgreSQL Versions
+------------------------------
 
-PostgreSQL Version 11 [1].
+PostgreSQL 11+
 
-##### 2. Installation
+Installation
+----------------
+
 ###### Prerequisite
 
-The clickhouse_fdw uses an HTTP interface provided by ClickHouse. `libcurl` should
+The `clickhouse_fdw` uses an HTTP interface provided by ClickHouse. `libcurl` should
 be installed in the system.
 
-###### Installing clickhouse_fdw
+###### Installing `clickhouse_fdw`
 
 ```
 git clone https://github.com/ildus/clickhouse_fdw.git
@@ -30,7 +34,8 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG ..
 make && make install
 ```
 
-##### Usage
+Usage
+-----
 
 You need to set up the sample database and tables in the ClickHouse database.
 Here we create a sample database name test_database and two sample tables
@@ -72,8 +77,8 @@ Download the sample data from the taxbills.nyc website and put the data in the t
     PARTITION BY bbl
     ORDER BY bbl;
 
-##### PostgreSQL
-Now the data is ready in the ClickHouse, the next step is to set up the PostgreSQL side. We need to create a ClickHouse foreign server, user mapping, and foreign tables.
+Now the data is ready in the ClickHouse, the next step is to set up the PostgreSQL side.
+We need to create a ClickHouse foreign server, user mapping, and foreign tables.
 
     CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'test_database', host '127.0.0.1');
     
@@ -119,10 +124,12 @@ Now the data is ready in the ClickHouse, the next step is to set up the PostgreS
              Remote SQL: SELECT bbl, tbea, bav, insertion_date FROM test_database.tax_bills_nyc
     (5 rows)
 
-#### Aggregate Pushdown.
+Aggregate Pushdown.
+-------------------
 
-
-Aggregate pushdown is a new feature of PostgreSQL FDW. There are currently very few foreign data wrappers that support aggregate pushdown: clickhouse_fdw is one of them. Planner decides which aggregate to pushdown or not. Here is an example for both cases.
+Aggregate pushdown is a new feature of PostgreSQL FDW. There are currently very
+few foreign data wrappers that support aggregate pushdown: `clickhouse_fdw` is one of them.
+Planner decides which aggregate to pushdown or not. Here is an example for both cases.
 
     postgres=# EXPLAIN VERBOSE SELECT count(bbl) FROM tax_bills_nyc LIMIT 5;
                                     QUERY PLAN                                                                
@@ -148,8 +155,10 @@ Aggregate pushdown is a new feature of PostgreSQL FDW. There are currently very 
 
 
 
-###### Join Pushdown
-Join pushdown is also a very new feature of PostgreSQL FDW’s. The clickhouse_fdw also supports join pushdown.
+Join Pushdown
+---------------
+
+Join pushdown is also a very new feature of PostgreSQL FDW’s. The `clickhouse_fdw` also supports join pushdown.
 
     EXPLAIN VERBOSE SELECT t2.bbl, t2.owner_name, t1.bav FROM tax_bills_nyc t1 RIGHT OUTER JOIN tax_bills t2 ON (t1.bbl = t2.bbl);
                                                                         QUERY PLAN                                                                     
@@ -162,13 +171,15 @@ Join pushdown is also a very new feature of PostgreSQL FDW’s. The clickhouse_f
     Remote SQL: SELECT r2.bbl, r2.owner_name, r1.bav FROM  test_database.tax_bills r2 ALL LEFT JOIN test_database.tax_bills_nyc r1 ON (((r1.bbl = r2.bbl
     )))
     (4 rows)
-    
- ##### Limitations
+
+Limitations
+------------
+
 There are some limitations and ToDos. In some instances, more research is needed to implement cases such as these:
 
-    1 - All configuration parameters of ClickHouse database.
-    2 - Complex join pushdown support.
-    3 - Delete from a ClickHouse partition
+* all configuration parameters of ClickHouse database.
+* complex join pushdown support.
+* delete from a ClickHouse partition
 
 [1]: https://www.postgresql.org/
 [2]: http://www.clickhouse.com
