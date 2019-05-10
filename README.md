@@ -1,7 +1,11 @@
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
 
-Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw
+Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differences:
+
+* removed ODBC, use HTTP instead
+* support query cancelation
+* code cleanup
 
 The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for one
 of the fastest column store databases; "Clickhouse". This FDW allows you to
