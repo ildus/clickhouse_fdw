@@ -132,7 +132,7 @@ ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
+ERROR:  CH:Code: 192, e.displayText() = DB::Exception: Unknown user no such user
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);

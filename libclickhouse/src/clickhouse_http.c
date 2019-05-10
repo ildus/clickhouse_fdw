@@ -43,8 +43,8 @@ size_t write_data(void *contents, size_t size, size_t nmemb, void *userp)
 		res->data = realloc(res->data, res->datasize + realsize + 1);
 
 	memcpy(&(res->data[res->datasize]), contents, realsize);
-	res->data[res->datasize] = 0;
 	res->datasize += realsize;
+	res->data[res->datasize] = 0;
 
 	return realsize;
 }

@@ -193,7 +193,9 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 	for (int i=0; i < attcount; i++)
 	{
 		rc = ch_http_read_next(state);
-		if (state->val[0] != '\0')
+		if (state->val[0] == '\\' && state->val[1] == 'N')
+			values[i] = NULL;
+		else if (state->val[0] != '\0')
 			values[i] = pstrdup(state->val);
 		else
 			values[i] = NULL;

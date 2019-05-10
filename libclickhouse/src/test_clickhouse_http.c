@@ -13,7 +13,7 @@ static void test_simple_query(void **s) {
 	int rc;
 	ch_http_read_state state;
 
-	ch_http_init(1);
+	ch_http_init(1, 1);
 	ch_http_connection_t	*conn = ch_http_connection("http://localhost:8123");
 	ch_http_response_t		*res = ch_http_simple_query(conn, "SELECT 1,2,3,NULL");
 
@@ -32,10 +32,14 @@ static void test_simple_query(void **s) {
 
 	rc = ch_http_read_next(&state);
 	assert_int_equal(atoi(state.val), 3);
+	assert_int_equal(rc, CH_CONT);
+
+	rc = ch_http_read_next(&state);
+	assert_int_equal(strcmp(state.val, "\\N"), 0);
 	assert_int_equal(rc, CH_EOF);
 	ch_http_read_state_free(&state);
 
-	assert_int_equal(res->datasize, 6);
+	assert_int_equal(res->datasize, 9);
 	assert_ptr_equal(ch_http_last_error(), NULL);
 	ch_http_close(conn);
 
@@ -46,7 +50,7 @@ static void test_complex_query(void **s) {
 	int rc;
 	ch_http_read_state state;
 
-	ch_http_init(1);
+	ch_http_init(1, 1);
 	ch_http_connection_t *conn = ch_http_connection("http://localhost:8123");
 
 	char *drop = "DROP TABLE IF EXISTS t1";
