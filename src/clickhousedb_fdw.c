@@ -963,6 +963,8 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	                        remote_exprs, best_path->path.pathkeys,
 	                        false, &retrieved_attrs, &params_list);
 
+	elog(LOG, "DEPARSED: %s", sql.data);
+
 	/* Remember remote_exprs for possible use by postgresPlanDirectModify */
 	fpinfo->final_remote_exprs = remote_exprs;
 
@@ -1298,7 +1300,7 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	if (fsstate->ch_cursor == NULL)
 	{
 		EState	*estate = node->ss.ps.state;
-		MemoryContext	old = MemoryContextSwitchTo(estate->es_query_cxt);
+		MemoryContext	old = MemoryContextSwitchTo(fsstate->batch_cxt);
 		fsstate->ch_cursor = clickhouse_gate->simple_query(fsstate->conn,
 				fsstate->query);
 		MemoryContextSwitchTo(old);
