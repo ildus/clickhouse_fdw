@@ -131,6 +131,13 @@ We need to create a ClickHouse foreign server, user mapping, and foreign tables.
              Remote SQL: SELECT bbl, tbea, bav, insertion_date FROM test_database.tax_bills_nyc
     (5 rows)
 
+Also extension provides convinient `generate_fdw.py`
+script that helps to generate FDW definitions in PostgreSQL.
+
+	<repo_path>/generate_fdw.py \* --server_name=remote --host=192.168.10.10 --database=default  > defs.sql # for all tables in `default` database
+	<repo_path>/generate_fdw.py <table_name> --server_name=remote --host=192.168.10.10 --database=default  > defs.sql # for specific table
+	psql <your database> < defs.sql
+
 Aggregate Pushdown.
 -------------------
 

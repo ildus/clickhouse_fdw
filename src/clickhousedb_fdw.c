@@ -2551,11 +2551,7 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	Assert(fpinfo->relation_index == 0);	/* shouldn't be set yet */
 	fpinfo->relation_index =
 	    list_length(root->parse->rtable) + list_length(root->join_rel_list);
-	if (list_length(root->join_rel_list) > 1)
-	{
-		fpinfo->pushdown_safe = false;
-		return false;
-	}
+
 	return true;
 }
 
