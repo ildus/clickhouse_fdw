@@ -313,7 +313,6 @@ static int postgresAcquireSampleRowsFunc(Relation relation, int elevel,
         HeapTuple *rows, int targrows,
         double *totalrows,
         double *totaldeadrows);
-static void conversion_error_callback(void *arg);
 static bool foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel,
                             JoinType jointype, RelOptInfo *outerrel, RelOptInfo *innerrel,
                             JoinPathExtraData *extra);
@@ -335,10 +334,11 @@ static void merge_fdw_options(CHFdwRelationInfo *fpinfo,
                               const CHFdwRelationInfo *fpinfo_i);
 
 static bool is_join_pushdown_safe = true;
+
 void
 _PG_init(void)
 {
-	DefineCustomBoolVariable("clickhousedb_fdw.join_pushdown_safe",
+	DefineCustomBoolVariable("clickhouse_fdw.join_pushdown_safe",
 	                         "Server-side join_pushdown_safe",
 	                         NULL,
 	                         &is_join_pushdown_safe,
@@ -3137,83 +3137,6 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 
 	/* Add generated path into grouped_rel by add_path(). */
 	add_path(grouped_rel, (Path *) grouppath);
-}
-
-
-/*
- * Callback function which is called when error occurs during column value
- * conversion.  Print names of column and relation.
- */
-static void
-conversion_error_callback(void *arg)
-{
-	const char *attname = NULL;
-	const char *relname = NULL;
-	bool		is_wholerow = false;
-	ConversionLocation *errpos = (ConversionLocation *) arg;
-
-	if (errpos->rel)
-	{
-		/* error occurred in a scan against a foreign table */
-		TupleDesc	tupdesc = RelationGetDescr(errpos->rel);
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, errpos->cur_attno - 1);
-
-		if (errpos->cur_attno > 0 && errpos->cur_attno <= tupdesc->natts)
-		{
-			attname = NameStr(attr->attname);
-		}
-		relname = RelationGetRelationName(errpos->rel);
-	}
-	else
-	{
-		/* error occurred in a scan against a foreign join */
-		ForeignScanState *fsstate = errpos->fsstate;
-		ForeignScan *fsplan = castNode(ForeignScan, fsstate->ss.ps.plan);
-		EState	   *estate = fsstate->ss.ps.state;
-		TargetEntry *tle;
-
-		tle = list_nth_node(TargetEntry, fsplan->fdw_scan_tlist,
-		                    errpos->cur_attno - 1);
-
-		/*
-		 * Target list can have Vars and expressions.  For Vars, we can get
-		 * its relation, however for expressions we can't.  Thus for
-		 * expressions, just show generic context message.
-		 */
-		if (IsA(tle->expr, Var))
-		{
-			RangeTblEntry *rte;
-			Var		   *var = (Var *) tle->expr;
-
-			rte = rt_fetch(var->varno, estate->es_range_table);
-
-			if (var->varattno == 0)
-			{
-				is_wholerow = true;
-			}
-			else
-			{
-				attname = get_attname(rte->relid, var->varattno, false);
-			}
-
-			relname = get_rel_name(rte->relid);
-		}
-		else
-			errcontext("processing expression at position %d in select list",
-			           errpos->cur_attno);
-	}
-
-	if (relname)
-	{
-		if (is_wholerow)
-		{
-			errcontext("whole-row reference to foreign table \"%s\"", relname);
-		}
-		else if (attname)
-		{
-			errcontext("column \"%s\" of foreign table \"%s\"", attname, relname);
-		}
-	}
 }
 
 /*

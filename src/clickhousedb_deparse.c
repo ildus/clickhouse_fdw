@@ -1058,8 +1058,6 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 		appendOrderByClause(pathkeys, &context);
 	}
 
-	/* Add any necessary FOR UPDATE/SHARE. */
-	deparseLockingClause(&context);
 	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 }
 
@@ -1207,13 +1205,8 @@ deparseTargetList(StringInfo buf,
 		                      attrs_used))
 		{
 			if (!first)
-			{
 				appendStringInfoString(buf, ", ");
-			}
-			else if (is_returning)
-			{
-				appendStringInfoString(buf, " RETURNING ");
-			}
+
 			first = false;
 
 			deparseColumnRef(buf, rtindex, i, rte, qualify_col);
@@ -1276,97 +1269,6 @@ deparseTargetList(StringInfo buf,
 	if (first && !is_returning)
 	{
 		appendStringInfoString(buf, "NULL");
-	}
-}
-
-/*
- * Deparse the appropriate locking clause (FOR UPDATE or FOR SHARE) for a
- * given relation (context->scanrel).
- */
-static void
-deparseLockingClause(deparse_expr_cxt *context)
-{
-	StringInfo	buf = context->buf;
-	PlannerInfo *root = context->root;
-	RelOptInfo *rel = context->scanrel;
-	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *) rel->fdw_private;
-	int			relid = -1;
-
-	while ((relid = bms_next_member(rel->relids, relid)) >= 0)
-	{
-		/*
-		 * Ignore relation if it appears in a lower subquery.  Locking clause
-		 * for such a relation is included in the subquery if necessary.
-		 */
-		if (bms_is_member(relid, fpinfo->lower_subquery_rels))
-		{
-			continue;
-		}
-
-		/*
-		 * Add FOR UPDATE/SHARE if appropriate.  We apply locking during the
-		 * initial row fetch, rather than later on as is done for local
-		 * tables. The extra roundtrips involved in trying to duplicate the
-		 * local semantics exactly don't seem worthwhile (see also comments
-		 * for RowMarkType).
-		 *
-		 * Note: because we actually run the query as a cursor, this assumes
-		 * that DECLARE CURSOR ... FOR UPDATE is supported, which it isn't
-		 * before 8.3.
-		 */
-		if (relid == root->parse->resultRelation &&
-		        (root->parse->commandType == CMD_UPDATE ||
-		         root->parse->commandType == CMD_DELETE))
-		{
-			/* Relation is UPDATE/DELETE target, so use FOR UPDATE */
-			appendStringInfoString(buf, " FOR UPDATE");
-
-			/* Add the relation alias if we are here for a join relation */
-			if (IS_JOIN_REL(rel))
-			{
-				appendStringInfo(buf, " OF %s%d", REL_ALIAS_PREFIX, relid);
-			}
-		}
-		else
-		{
-			PlanRowMark *rc = get_plan_rowmark(root->rowMarks, relid);
-
-			if (rc)
-			{
-				/*
-				 * Relation is specified as a FOR UPDATE/SHARE target, so
-				 * handle that.  (But we could also see LCS_NONE, meaning this
-				 * isn't a target relation after all.)
-				 *
-				 * For now, just ignore any [NO] KEY specification, since (a)
-				 * it's not clear what that means for a remote table that we
-				 * don't have complete information about, and (b) it wouldn't
-				 * work anyway on older remote servers.  Likewise, we don't
-				 * worry about NOWAIT.
-				 */
-				switch (rc->strength)
-				{
-				case LCS_NONE:
-					/* No locking needed */
-					break;
-				case LCS_FORKEYSHARE:
-				case LCS_FORSHARE:
-					appendStringInfoString(buf, " FOR SHARE");
-					break;
-				case LCS_FORNOKEYUPDATE:
-				case LCS_FORUPDATE:
-					appendStringInfoString(buf, " FOR UPDATE");
-					break;
-				}
-
-				/* Add the relation alias if we are here for a join relation */
-				if (bms_num_members(rel->relids) > 1 &&
-				        rc->strength != LCS_NONE)
-				{
-					appendStringInfo(buf, " OF %s%d", REL_ALIAS_PREFIX, relid);
-				}
-			}
-		}
 	}
 }
 
