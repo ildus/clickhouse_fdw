@@ -1126,8 +1126,6 @@ make_tuple_from_result_row(Relation rel,
 	bool	   *nulls;
 	ItemPointer ctid = NULL;
 	Oid			oid = InvalidOid;
-	ConversionLocation errpos;
-	ErrorContextCallback errcallback;
 	MemoryContext oldcontext;
 	ListCell   *lc;
 	int			j;
@@ -1156,17 +1154,6 @@ make_tuple_from_result_row(Relation rel,
 
 	/* Initialize to nulls for any columns not present in result */
 	memset(nulls, true, tupdesc->natts * sizeof(bool));
-
-	/*
-	 * Set up and install callback to report where conversion error occurs.
-	 */
-	errpos.rel = rel;
-	errpos.cur_attno = 0;
-	errpos.fsstate = fsstate;
-	errcallback.callback = conversion_error_callback;
-	errcallback.arg = (void *) &errpos;
-	errcallback.previous = error_context_stack;
-	error_context_stack = &errcallback;
 
 	j = 0;
 
@@ -1215,7 +1202,6 @@ make_tuple_from_result_row(Relation rel,
 				}
 			}
 		}
-		errpos.cur_attno = i;
 
 		/* Apply the input function even to nulls, to support domains */
 		nulls[i - 1] = (valstr == NULL);
@@ -1223,12 +1209,8 @@ make_tuple_from_result_row(Relation rel,
 									  valstr,
 									  attinmeta->attioparams[i - 1],
 									  attinmeta->atttypmods[i - 1]);
-		errpos.cur_attno = 0;
 		j++;
 	}
-
-	/* Uninstall error context callback. */
-	error_context_stack = errcallback.previous;
 
 	MemoryContextSwitchTo(oldcontext);
 

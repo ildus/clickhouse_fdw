@@ -10,6 +10,8 @@ parser = argparse.ArgumentParser(description='generate PostgreSQL definitions fr
 parser.add_argument('tables', metavar='N', type=str, nargs='+', help='tables')
 parser.add_argument('-H', '--host', type=str, dest='host', default='localhost',
         help='specify remote host')
+parser.add_argument('-P', '--port', type=str, dest='port', default='8123',
+        help='specify remote port')
 parser.add_argument('-D', '--database', type=str, dest='database', default='default',
         help='specify remote database')
 parser.add_argument('-S', '--server_name', type=str, dest='server_name', default='remote',
@@ -38,22 +40,22 @@ types_map = {
 }
 
 
-def make_query(host, query):
-    resp = requests.get("http://%s:8123" % host, params={'query': query})
+def make_query(host, port, query):
+    resp = requests.get("http://%s:%s" % (host, port), params={'query': query})
     if resp.status_code == 200:
         return resp.content.decode('utf8')
 
     raise Exception(resp.content.decode('utf8'))
 
 
-def get_definition(host, name):
+def get_definition(host, port, name):
     query ="describe table %s format JSON" %  (name)
-    return json.loads(make_query(host, query))
+    return json.loads(make_query(host, port, query))
 
 
-def get_tables(host, database):
+def get_tables(host, port, database):
     query ="select name from system.tables where database = '%s' format JSON;" % database
-    return json.loads(make_query(host, query))
+    return json.loads(make_query(host, port, query))
 
 
 if __name__ == '__main__':
@@ -62,12 +64,15 @@ if __name__ == '__main__':
 
     server_name = args.server_name
     sql = 'CREATE EXTENSION clickhouse_fdw;'
-    sql += "CREATE SERVER IF NOT EXISTS %s FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS (dbname '%s');\n" % (server_name, database)
+    sql += """CREATE SERVER IF NOT EXISTS %s
+        FOREIGN DATA WRAPPER clickhouse_fdw
+        OPTIONS (dbname '%s', host '%s', port '%s');\n""" \
+        % (server_name, database, args.host, args.port)
     sql += "CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER %s;\n" % server_name
 
     tables = args.tables
     if len(tables) == 1 and tables[0] == '*':
-        data = get_tables(args.host, database)
+        data = get_tables(args.host, args.port, database)
         tables = []
         for row in data['data']:
             tables.append(row['name'])
@@ -75,7 +80,7 @@ if __name__ == '__main__':
     for table_name in tables:
         add_new_line = False
 
-        definition = get_definition(args.host, '%s.%s' % (database, table_name))
+        definition = get_definition(args.host, args.port, '%s.%s' % (database, table_name))
         sql += '\nCREATE FOREIGN TABLE %s (\n' % table_name
         for row in definition['data']:
             try:

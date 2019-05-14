@@ -87,6 +87,19 @@ format_error(char *errstring)
 	return errstring;
 }
 
+static void
+kill_query(ch_connection conn, const char *query_id)
+{
+	ch_http_response_t *resp;
+	char *query = psprintf("kill query where query_id='%s'", query_id);
+
+	ch_http_set_progress_func(NULL);
+	resp = ch_http_simple_query(conn, query);
+	if (resp != NULL)
+		ch_http_response_free(resp);
+	pfree(query);
+}
+
 static ch_cursor *
 http_simple_query(ch_connection conn, const char *query)
 {
@@ -107,15 +120,8 @@ http_simple_query(ch_connection conn, const char *query)
 
 	if (resp->http_status == 418)
 	{
-		/* kill aborted query if needed */
-		char *query = psprintf("kill query where query_id='%s'", resp->query_id);
-
+		kill_query(conn, resp->query_id);
 		ch_http_response_free(resp);
-		ch_http_set_progress_func(NULL);
-		resp = ch_http_simple_query(conn, query);
-		if (resp != NULL)
-			ch_http_response_free(resp);
-		pfree(query);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
@@ -174,6 +180,8 @@ http_cursor_free(ch_cursor *cursor)
 {
 	ch_http_read_state_free(cursor->read_state);
 	pfree(cursor->read_state);
+	if (cursor->query)
+		pfree(cursor->query);
 	ch_http_response_free(cursor->query_response);
 	pfree(cursor);
 }

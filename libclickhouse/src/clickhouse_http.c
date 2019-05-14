@@ -18,7 +18,7 @@ static char ch_query_id_prefix[5];
 void ch_http_init(int verbose, uint32_t query_id_prefix)
 {
 	curl_verbose = verbose;
-	snprintf(ch_query_id_prefix, sizeof(ch_query_id_prefix), "%x", query_id_prefix);
+	snprintf(ch_query_id_prefix, 5, "%x", query_id_prefix);
 
 	if (!curl_initialized)
 	{
@@ -117,6 +117,7 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	curl_easy_setopt(conn->curl, CURLOPT_ERRORBUFFER, curl_error_buffer);
 	curl_easy_setopt(conn->curl, CURLOPT_PATH_AS_IS, 1);
 	curl_easy_setopt(conn->curl, CURLOPT_CURLU, conn->url);
+	curl_easy_setopt(conn->curl, CURLOPT_NOSIGNAL, 1);
 
 	/* variable */
 	curl_easy_setopt(conn->curl, CURLOPT_WRITEDATA, resp);
@@ -131,7 +132,7 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	else
 		curl_easy_setopt(conn->curl, CURLOPT_NOPROGRESS, 1L);
 
-	url = malloc(conn->base_url_len + 30 /* query_id */ + 11 /* ?query_id= */);
+	url = malloc(conn->base_url_len + 30 /* query_id + ?query_id= */);
 	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
 	curl_url_set(conn->url, CURLUPART_URL, url, 0);
 	free(url);
