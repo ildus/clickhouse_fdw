@@ -219,9 +219,6 @@ extern PGDLLEXPORT void _PG_init(void);
 static void clickhouseGetForeignRelSize(PlannerInfo *root,
                                         RelOptInfo *baserel,
                                         Oid foreigntableid);
-static void clickhouseGetForeignPaths(PlannerInfo *root,
-                                      RelOptInfo *baserel,
-                                      Oid foreigntableid);
 static ForeignScan *clickhouseGetForeignPlan(PlannerInfo *root,
         RelOptInfo *foreignrel,
         Oid foreigntableid,
@@ -264,12 +261,6 @@ static void clickhouseGetForeignUpperPaths(PlannerInfo *root,
 static bool clickhouseAnalyzeForeignTable(Relation relation,
         AcquireSampleRowsFunc *func,
         BlockNumber *totalpages);
-static void clickhouseGetForeignJoinPaths(PlannerInfo *root,
-        RelOptInfo *joinrel,
-        RelOptInfo *outerrel,
-        RelOptInfo *innerrel,
-        JoinType jointype,
-        JoinPathExtraData *extra);
 static bool clickhouseRecheckForeignScan(ForeignScanState *node,
         TupleTableSlot *slot);
 /*
@@ -350,48 +341,6 @@ _PG_init(void)
 	                         NULL);
 }
 
-/*
- * Foreign-data wrapper handler function: return a struct with pointers
- * to my callback routines.
- */
-Datum
-clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
-{
-	FdwRoutine *routine = makeNode(FdwRoutine);
-
-	/* Functions for scanning foreign tables */
-	routine->GetForeignRelSize = clickhouseGetForeignRelSize;
-	routine->GetForeignPaths = clickhouseGetForeignPaths;
-	routine->GetForeignPlan = clickhouseGetForeignPlan;
-	routine->BeginForeignScan = clickhouseBeginForeignScan;
-	routine->IterateForeignScan = clickhouseIterateForeignScan;
-	routine->ReScanForeignScan = clickhouseReScanForeignScan;
-	routine->EndForeignScan = clickhouseEndForeignScan;
-
-	/* Functions for updating foreign tables */
-	routine->PlanForeignModify = clickhousePlanForeignModify;
-	routine->BeginForeignModify = clickhouseBeginForeignModify;
-	routine->ExecForeignInsert = clickhouseExecForeignInsert;
-	routine->BeginForeignInsert = clickhouseBeginForeignInsert;
-	routine->EndForeignInsert = clickhouseEndForeignInsert;
-
-	/* Function for EvalPlanQual rechecks */
-	routine->RecheckForeignScan = clickhouseRecheckForeignScan;
-
-	/* Support functions for EXPLAIN */
-	routine->ExplainForeignScan = clickhouseExplainForeignScan;
-
-	/* Support functions for ANALYZE */
-	routine->AnalyzeForeignTable = clickhouseAnalyzeForeignTable;
-
-	/* Support functions for join push-down */
-	routine->GetForeignJoinPaths = clickhouseGetForeignJoinPaths;
-
-	/* Support functions for upper relation push-down */
-	routine->GetForeignUpperPaths = clickhouseGetForeignUpperPaths;
-
-	PG_RETURN_POINTER(routine);
-}
 
 /* Make one query and close the connection */
 Datum
@@ -846,32 +795,22 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 		 * except for the additional decision about remote versus local
 		 * execution.
 		 */
-		foreach (lc, scan_clauses)
+		foreach(lc, scan_clauses)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 
 			/* Ignore any pseudoconstants, they're dealt with elsewhere */
 			if (rinfo->pseudoconstant)
-			{
 				continue;
-			}
 
 			if (list_member_ptr(fpinfo->remote_conds, rinfo))
-			{
 				remote_exprs = lappend(remote_exprs, rinfo->clause);
-			}
 			else if (list_member_ptr(fpinfo->local_conds, rinfo))
-			{
 				local_exprs = lappend(local_exprs, rinfo->clause);
-			}
 			else if (is_foreign_expr(root, foreignrel, rinfo->clause))
-			{
 				remote_exprs = lappend(remote_exprs, rinfo->clause);
-			}
 			else
-			{
 				local_exprs = lappend(local_exprs, rinfo->clause);
-			}
 		}
 
 		/*
@@ -3166,4 +3105,47 @@ find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel)
 
 	/* We didn't find any suitable equivalence class expression */
 	return NULL;
+}
+
+/*
+ * Foreign-data wrapper handler function: return a struct with pointers
+ * to my callback routines.
+ */
+Datum
+clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
+{
+	FdwRoutine *routine = makeNode(FdwRoutine);
+
+	/* Functions for scanning foreign tables */
+	routine->GetForeignRelSize = clickhouseGetForeignRelSize;
+	routine->GetForeignPaths = clickhouseGetForeignPaths;
+	routine->GetForeignPlan = clickhouseGetForeignPlan;
+	routine->BeginForeignScan = clickhouseBeginForeignScan;
+	routine->IterateForeignScan = clickhouseIterateForeignScan;
+	routine->ReScanForeignScan = clickhouseReScanForeignScan;
+	routine->EndForeignScan = clickhouseEndForeignScan;
+
+	/* Functions for updating foreign tables */
+	routine->PlanForeignModify = clickhousePlanForeignModify;
+	routine->BeginForeignModify = clickhouseBeginForeignModify;
+	routine->ExecForeignInsert = clickhouseExecForeignInsert;
+	routine->BeginForeignInsert = clickhouseBeginForeignInsert;
+	routine->EndForeignInsert = clickhouseEndForeignInsert;
+
+	/* Function for EvalPlanQual rechecks */
+	routine->RecheckForeignScan = clickhouseRecheckForeignScan;
+
+	/* Support functions for EXPLAIN */
+	routine->ExplainForeignScan = clickhouseExplainForeignScan;
+
+	/* Support functions for ANALYZE */
+	routine->AnalyzeForeignTable = clickhouseAnalyzeForeignTable;
+
+	/* Support functions for join push-down */
+	routine->GetForeignJoinPaths = clickhouseGetForeignJoinPaths;
+
+	/* Support functions for upper relation push-down */
+	routine->GetForeignUpperPaths = clickhouseGetForeignUpperPaths;
+
+	PG_RETURN_POINTER(routine);
 }

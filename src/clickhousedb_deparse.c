@@ -570,8 +570,44 @@ foreign_expr_walker(Node *node,
 	break;
 	case T_ScalarArrayOpExpr:
 	{
-		/* Don't push-down the scalar expression because clickhouse does not support that. */
-		return false;
+		Form_pg_operator operform;
+		HeapTuple	opertup;
+		ScalarArrayOpExpr *oe = (ScalarArrayOpExpr *) node;
+
+		opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(oe->opno));
+		if (!HeapTupleIsValid(opertup))
+			elog(ERROR, "cache lookup failed for operator %u", oe->opno);
+
+		/* we support only '=' operator */
+		operform = (Form_pg_operator) GETSTRUCT(opertup);
+		if (NameStr(operform->oprname)[0] != '=')
+		{
+			ReleaseSysCache(opertup);
+			return false;
+		}
+
+		ReleaseSysCache(opertup);
+
+		/*
+		 * Recurse to input subexpressions.
+		 */
+		if (!foreign_expr_walker((Node *) oe->args,
+								 glob_cxt, &inner_cxt))
+			return false;
+
+		/*
+		 * If operator's input collation is not derived from a foreign
+		 * Var, it can't be sent to remote.
+		 */
+		if (oe->inputcollid == InvalidOid)
+			 /* OK, inputs are all noncollatable */ ;
+		else if (inner_cxt.state != FDW_COLLATE_SAFE ||
+				 oe->inputcollid != inner_cxt.collation)
+			return false;
+
+		/* Output is always boolean and so noncollatable. */
+		collation = InvalidOid;
+		state = FDW_COLLATE_NONE;
 	}
 	break;
 	case T_RelabelType:
@@ -2524,26 +2560,42 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 	/* Sanity check. */
 	Assert(list_length(node->args) == 2);
 
-	/* Always parenthesize the expression. */
-	appendStringInfoChar(buf, '(');
+	if (node->useOr)
+	{
+		appendStringInfoString(buf, " has (");
 
-	/* Deparse left operand. */
-	arg1 = linitial(node->args);
-	deparseExpr(arg1, context);
-	appendStringInfoChar(buf, ' ');
+		/* Deparse right operand. */
+		arg2 = lsecond(node->args);
+		deparseExpr(arg2, context);
+		appendStringInfoChar(buf, ',');
 
-	/* Deparse operator name plus decoration. */
-	deparseOperatorName(buf, form);
-	appendStringInfo(buf, " %s (", node->useOr ? "ANY" : "ALL");
+		/* Deparse left operand. */
+		arg1 = linitial(node->args);
+		deparseExpr(arg1, context);
 
-	/* Deparse right operand. */
-	arg2 = lsecond(node->args);
-	deparseExpr(arg2, context);
+		/* Close function call */
+		appendStringInfoChar(buf, ')');
+	}
+	else
+	{
+		appendStringInfoString(buf, " countEqual (");
 
-	appendStringInfoChar(buf, ')');
+		/* Deparse right operand. */
+		arg2 = lsecond(node->args);
+		deparseExpr(arg2, context);
+		appendStringInfoChar(buf, ',');
 
-	/* Always parenthesize the expression. */
-	appendStringInfoChar(buf, ')');
+		/* Deparse left operand. */
+		arg1 = linitial(node->args);
+		deparseExpr(arg1, context);
+
+		/* Close function call */
+		appendStringInfoString(buf, ") = length(");
+
+		/* Deparse right operand again */
+		deparseExpr(arg2, context);
+		appendStringInfoChar(buf, ')');
+	}
 
 	ReleaseSysCache(tuple);
 }
@@ -2644,6 +2696,24 @@ deparseNullTest(NullTest *node, deparse_expr_cxt *context)
 static void
 deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context)
 {
+	StringInfo	buf = context->buf;
+	bool		first = true;
+	ListCell   *lc;
+
+	appendStringInfoString(buf, "array(");
+	foreach(lc, node->elements)
+	{
+		if (!first)
+			appendStringInfoString(buf, ", ");
+		deparseExpr(lfirst(lc), context);
+		first = false;
+	}
+	appendStringInfoChar(buf, ')');
+
+	/* If the array is empty, we need an explicit cast to the array type. */
+	if (node->elements == NIL)
+		appendStringInfo(buf, "::%s",
+						 deparse_type_name(node->array_typeid, -1));
 }
 
 /*

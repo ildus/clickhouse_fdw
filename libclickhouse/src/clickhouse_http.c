@@ -146,7 +146,6 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	}
 	else if (errcode != CURLE_OK)
 	{
-		resp->http_status = 418; /* i'm teapot */
 		curl_error_happened = true;
 		free(resp);
 		return NULL;
