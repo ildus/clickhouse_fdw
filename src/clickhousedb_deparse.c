@@ -135,6 +135,8 @@ static void deparseOperatorName(StringInfo buf, Form_pg_operator opform);
 static void deparseDistinctExpr(DistinctExpr *node, deparse_expr_cxt *context);
 static void deparseScalarArrayOpExpr(ScalarArrayOpExpr *node,
                                      deparse_expr_cxt *context);
+static void deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context);
+static void deparseCaseWhen(CaseWhen *node, deparse_expr_cxt *context);
 static void deparseRelabelType(RelabelType *node, deparse_expr_cxt *context);
 static void deparseBoolExpr(BoolExpr *node, deparse_expr_cxt *context);
 static void deparseNullTest(NullTest *node, deparse_expr_cxt *context);
@@ -851,6 +853,46 @@ foreign_expr_walker(Node *node,
 		 * node might not care.)
 		 */
 		collation = agg->aggcollid;
+		if (collation == InvalidOid)
+		{
+			state = FDW_COLLATE_NONE;
+		}
+		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
+		         collation == inner_cxt.collation)
+		{
+			state = FDW_COLLATE_SAFE;
+		}
+		else if (collation == DEFAULT_COLLATION_OID)
+		{
+			state = FDW_COLLATE_NONE;
+		}
+		else
+		{
+			state = FDW_COLLATE_UNSAFE;
+		}
+	}
+	break;
+	case T_CaseExpr:
+	{
+		CaseExpr   *caseexpr = (CaseExpr *) node;
+		ListCell   *lc;
+
+		if (!foreign_expr_walker((Node *) caseexpr->arg, glob_cxt, &inner_cxt))
+			return true;
+
+		foreach(lc, caseexpr->args)
+		{
+			CaseWhen   *when = lfirst_node(CaseWhen, lc);
+
+			if (!foreign_expr_walker((Node *) when->expr, glob_cxt, &inner_cxt))
+				return false;
+			if (!foreign_expr_walker((Node *) when->result, glob_cxt, &inner_cxt))
+				return false;
+		}
+		if (!foreign_expr_walker((Node *) caseexpr->defresult, glob_cxt, &inner_cxt))
+			return false;
+
+		collation = caseexpr->casecollid;
 		if (collation == InvalidOid)
 		{
 			state = FDW_COLLATE_NONE;
@@ -2115,6 +2157,12 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_Aggref:
 		deparseAggref((Aggref *) node, context);
 		break;
+	case T_CaseExpr:
+		deparseCaseExpr((CaseExpr *) node, context);
+		break;
+	case T_CaseWhen:
+		deparseCaseWhen((CaseWhen *) node, context);
+		break;
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
 		     (int) nodeTag(node));
@@ -2816,6 +2864,42 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	}
 
 	appendStringInfoChar(buf, ')');
+}
+
+static void
+deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+
+	appendStringInfoString(buf, "CASE");
+	if (node->arg)
+	{
+		appendStringInfoChar(buf, ' ');
+		deparseExpr(lfirst(lc), context);
+	}
+	foreach(lc, node->args)
+	{
+		deparseExpr(lfirst(lc), context);
+	}
+	if (node->defresult)
+	{
+		appendStringInfoString(buf, " ELSE ");
+		deparseExpr(node->defresult, context);
+	}
+	appendStringInfoString(buf, " END");
+}
+
+static void
+deparseCaseWhen(CaseWhen *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+
+	appendStringInfoString(buf, " WHEN ");
+	deparseExpr(node->expr, context);
+	appendStringInfoString(buf, " THEN ");
+	deparseExpr(node->result, context);
 }
 
 /*

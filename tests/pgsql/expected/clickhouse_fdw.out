@@ -446,6 +446,25 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be
    Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM regression.t1 WHERE ((c8 = 'foo'))
 (3 rows)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
+	sum(length(c2)) FROM ft2 GROUP BY a;
+                                                                                         QUERY PLAN                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: (CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END), (sum(length(c2)))
+   Relations: Aggregate on (ft2)
+   Remote SQL: SELECT CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END, sum(length(c2)) FROM regression.t2 GROUP BY (CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END)
+(4 rows)
+
+SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
+	sum(length(c2)) FROM ft2 GROUP BY a;
+ a | sum 
+---+-----
+ 1 |  54
+ 2 | 240
+ 3 | 306
+(3 rows)
+
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
 ------------------------

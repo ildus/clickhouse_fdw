@@ -183,6 +183,12 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  --
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
+	sum(length(c2)) FROM ft2 GROUP BY a;
+
+SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
+	sum(length(c2)) FROM ft2 GROUP BY a;
+
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
 RESET ROLE;
