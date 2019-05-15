@@ -1,4 +1,4 @@
-[WIP] `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
+`clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
 
 Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differences:
@@ -6,7 +6,9 @@ Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differe
 * removed ODBC, use HTTP instead
 * support query cancelation
 * code cleanup
-* use `cmake` for building
+* use `cmake` for Makefile generation (for out for source builds)
+* support arrays and `ANY`, `ALL` functions
+* push down `CASE WHEN`
 
 The extension is NOT production ready.
 
