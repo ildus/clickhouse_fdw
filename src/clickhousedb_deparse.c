@@ -47,7 +47,7 @@ typedef struct foreign_glob_cxt
 	PlannerInfo *root;			/* global planner state */
 	RelOptInfo *foreignrel;		/* the foreign relation we are planning for */
 	Relids		relids;			/* relids of base relations in the underlying
-						 * scan */
+								 * scan */
 } foreign_glob_cxt;
 
 /*
@@ -57,11 +57,11 @@ typedef struct foreign_glob_cxt
 typedef enum
 {
 	FDW_COLLATE_NONE,			/* expression is of a noncollatable type, or
-						 * it has default collation that is not
-						 * traceable to a foreign Var */
+								 * it has default collation that is not
+								 * traceable to a foreign Var */
 	FDW_COLLATE_SAFE,			/* collation derives from a foreign Var */
 	FDW_COLLATE_UNSAFE			/* collation is non-default and derives from
-						 * something other than a foreign Var */
+								 * something other than a foreign Var */
 } FDWCollateState;
 
 typedef struct foreign_loc_cxt
@@ -78,8 +78,8 @@ typedef struct deparse_expr_cxt
 	PlannerInfo *root;			/* global planner state */
 	RelOptInfo *foreignrel;		/* the foreign relation we are planning for */
 	RelOptInfo *scanrel;		/* the underlying scan relation. Same as
-					 * foreignrel, when that represents a join or
-					 * a base relation. */
+								 * foreignrel, when that represents a join or
+								 * a base relation. */
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
 } deparse_expr_cxt;
@@ -87,7 +87,7 @@ typedef struct deparse_expr_cxt
 #define REL_ALIAS_PREFIX	"r"
 /* Handy macro to add relation name qualification */
 #define ADD_REL_QUALIFIER(buf, varno)	\
-        appendStringInfo((buf), "%s%d.", REL_ALIAS_PREFIX, (varno))
+		appendStringInfo((buf), "%s%d.", REL_ALIAS_PREFIX, (varno))
 #define SUBQUERY_REL_ALIAS_PREFIX	"s"
 #define SUBQUERY_COL_ALIAS_PREFIX	"c"
 
@@ -96,33 +96,33 @@ typedef struct deparse_expr_cxt
  * remote server.
  */
 static bool foreign_expr_walker(Node *node,
-                                foreign_glob_cxt *glob_cxt,
-                                foreign_loc_cxt *outer_cxt);
+					foreign_glob_cxt *glob_cxt,
+					foreign_loc_cxt *outer_cxt);
 static char *deparse_type_name(Oid type_oid, int32 typemod);
 
 /*
  * Functions to construct string representation of a node tree.
  */
 static void deparseTargetList(StringInfo buf,
-                              RangeTblEntry *rte,
-                              Index rtindex,
-                              Relation rel,
-                              bool is_returning,
-                              Bitmapset *attrs_used,
-                              bool qualify_col,
-                              List **retrieved_attrs);
+				  RangeTblEntry *rte,
+				  Index rtindex,
+				  Relation rel,
+				  bool is_returning,
+				  Bitmapset *attrs_used,
+				  bool qualify_col,
+				  List **retrieved_attrs);
 static void deparseExplicitTargetList(List *tlist,
-                                      bool is_returning,
-                                      List **retrieved_attrs,
-                                      deparse_expr_cxt *context);
+						  bool is_returning,
+						  List **retrieved_attrs,
+						  deparse_expr_cxt *context);
 static void deparseSubqueryTargetList(deparse_expr_cxt *context);
 static void deparseReturningList(StringInfo buf, RangeTblEntry *rte,
-                                 Index rtindex, Relation rel,
-                                 bool trig_after_row,
-                                 List *returningList,
-                                 List **retrieved_attrs);
+					 Index rtindex, Relation rel,
+					 bool trig_after_row,
+					 List *returningList,
+					 List **retrieved_attrs);
 static void deparseColumnRef(StringInfo buf, int varno, int varattno,
-                             RangeTblEntry *rte, bool qualify_col);
+				 RangeTblEntry *rte, bool qualify_col);
 static void deparseRelation(StringInfo buf, Relation rel);
 static void deparseExpr(Expr *expr, deparse_expr_cxt *context);
 static void deparseVar(Var *node, deparse_expr_cxt *context);
@@ -142,38 +142,37 @@ static void deparseBoolExpr(BoolExpr *node, deparse_expr_cxt *context);
 static void deparseNullTest(NullTest *node, deparse_expr_cxt *context);
 static void deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context);
 static void printRemoteParam(int paramindex, Oid paramtype, int32 paramtypmod,
-                             deparse_expr_cxt *context);
+				 deparse_expr_cxt *context);
 static void printRemotePlaceholder(Oid paramtype, int32 paramtypmod,
-                                   deparse_expr_cxt *context);
-static void deparseSelectSql(List *tlist, bool is_subquery,
-                             List **retrieved_attrs,
-                             deparse_expr_cxt *context);
+					   deparse_expr_cxt *context);
+static void deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
+				 deparse_expr_cxt *context);
 static void deparseLockingClause(deparse_expr_cxt *context);
 static void appendOrderByClause(List *pathkeys, deparse_expr_cxt *context);
 static void appendConditions(List *exprs, deparse_expr_cxt *context);
 static void deparseFromExprForRel(StringInfo buf, PlannerInfo *root,
-                                  RelOptInfo *foreignrel, bool use_alias,
-                                  Index ignore_rel, List **ignore_conds,
-                                  List **params_list);
+					  RelOptInfo *foreignrel, bool use_alias,
+					  Index ignore_rel, List **ignore_conds,
+					  List **params_list);
 static void deparseFromExpr(List *quals, deparse_expr_cxt *context);
 static void deparseRangeTblRef(StringInfo buf, PlannerInfo *root,
-                               RelOptInfo *foreignrel, bool make_subquery,
-                               Index ignore_rel, List **ignore_conds, List **params_list);
+				   RelOptInfo *foreignrel, bool make_subquery,
+				   Index ignore_rel, List **ignore_conds, List **params_list);
 static void deparseAggref(Aggref *node, deparse_expr_cxt *context);
 static void appendGroupByClause(List *tlist, deparse_expr_cxt *context);
 static void appendAggOrderBy(List *orderList, List *targetList,
-                             deparse_expr_cxt *context);
+				 deparse_expr_cxt *context);
 static void appendFunctionName(Oid funcid, deparse_expr_cxt *context);
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
-                                    deparse_expr_cxt *context);
+					   deparse_expr_cxt *context);
 
 /*
  * Helper functions
  */
 static bool is_subquery_var(Var *node, RelOptInfo *foreignrel,
-                            int *relno, int *colno);
+				int *relno, int *colno);
 static void get_relation_column_alias_ids(Var *node, RelOptInfo *foreignrel,
-        int *relno, int *colno);
+							  int *relno, int *colno);
 
 
 /*
@@ -184,28 +183,24 @@ static void get_relation_column_alias_ids(Var *node, RelOptInfo *foreignrel,
  */
 void
 classifyConditions(PlannerInfo *root,
-                   RelOptInfo *baserel,
-                   List *input_conds,
-                   List **remote_conds,
-                   List **local_conds)
+				   RelOptInfo *baserel,
+				   List *input_conds,
+				   List **remote_conds,
+				   List **local_conds)
 {
 	ListCell   *lc;
 
 	*remote_conds = NIL;
 	*local_conds = NIL;
 
-	foreach (lc, input_conds)
+	foreach(lc, input_conds)
 	{
 		RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
 
 		if (is_foreign_expr(root, baserel, ri->clause))
-		{
 			*remote_conds = lappend(*remote_conds, ri);
-		}
 		else
-		{
 			*local_conds = lappend(*local_conds, ri);
-		}
 	}
 }
 
@@ -214,8 +209,8 @@ classifyConditions(PlannerInfo *root,
  */
 bool
 is_foreign_expr(PlannerInfo *root,
-                RelOptInfo *baserel,
-                Expr *expr)
+				RelOptInfo *baserel,
+				Expr *expr)
 {
 	foreign_glob_cxt glob_cxt;
 	foreign_loc_cxt loc_cxt;
@@ -234,28 +229,20 @@ is_foreign_expr(PlannerInfo *root,
 	 * meaningful by the core code.  For other relation, use their own relids.
 	 */
 	if (IS_UPPER_REL(baserel))
-	{
 		glob_cxt.relids = fpinfo->outerrel->relids;
-	}
 	else
-	{
 		glob_cxt.relids = baserel->relids;
-	}
 	loc_cxt.collation = InvalidOid;
 	loc_cxt.state = FDW_COLLATE_NONE;
 	if (!foreign_expr_walker((Node *) expr, &glob_cxt, &loc_cxt))
-	{
 		return false;
-	}
 
 	/*
 	 * If the expression has a valid collation that does not arise from a
 	 * foreign var, the expression can not be sent over.
 	 */
 	if (loc_cxt.state == FDW_COLLATE_UNSAFE)
-	{
 		return false;
-	}
 
 	/*
 	 * An expression which includes any mutable functions can't be sent over
@@ -265,12 +252,27 @@ is_foreign_expr(PlannerInfo *root,
 	 * because it requires a lot of expensive catalog lookups.)
 	 */
 	if (contain_mutable_functions((Node *) expr))
-	{
 		return false;
-	}
 
 	/* OK to evaluate on the remote server */
 	return true;
+}
+
+bool
+is_equal_op(Oid opno)
+{
+	Form_pg_operator operform;
+	HeapTuple	opertup;
+	bool res;
+
+	opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(opno));
+	if (!HeapTupleIsValid(opertup))
+		elog(ERROR, "cache lookup failed for operator %u", opno);
+
+	operform = (Form_pg_operator) GETSTRUCT(opertup);
+	res = (NameStr(operform->oprname)[0] == '=' && NameStr(operform->oprname)[1] == '\0');
+	ReleaseSysCache(opertup);
+	return res;
 }
 
 /*
@@ -299,9 +301,7 @@ foreign_expr_walker(Node *node,
 
 	/* Need do nothing for empty subexpressions */
 	if (node == NULL)
-	{
 		return true;
-	}
 
 	/* May need server info from baserel's fdw_private struct */
 	fpinfo = (CHFdwRelationInfo *)(glob_cxt->foreignrel->fdw_private);
@@ -572,23 +572,10 @@ foreign_expr_walker(Node *node,
 	break;
 	case T_ScalarArrayOpExpr:
 	{
-		Form_pg_operator operform;
-		HeapTuple	opertup;
 		ScalarArrayOpExpr *oe = (ScalarArrayOpExpr *) node;
 
-		opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(oe->opno));
-		if (!HeapTupleIsValid(opertup))
-			elog(ERROR, "cache lookup failed for operator %u", oe->opno);
-
-		/* we support only '=' operator */
-		operform = (Form_pg_operator) GETSTRUCT(opertup);
-		if (NameStr(operform->oprname)[0] != '=')
-		{
-			ReleaseSysCache(opertup);
+		if (!is_equal_op(oe->opno))
 			return false;
-		}
-
-		ReleaseSysCache(opertup);
 
 		/*
 		 * Recurse to input subexpressions.
@@ -996,9 +983,7 @@ deparse_type_name(Oid type_oid, int32 typemod)
 	bits16		flags = FORMAT_TYPE_TYPEMOD_GIVEN;
 
 	if (!is_builtin(type_oid))
-	{
 		flags |= FORMAT_TYPE_FORCE_QUALIFY;
-	}
 
 	return format_type_extended(type_oid, typemod, flags);
 }
@@ -1023,24 +1008,22 @@ build_tlist_to_deparse(RelOptInfo *foreignrel)
 	 * checking shippability, so just return that.
 	 */
 	if (IS_UPPER_REL(foreignrel))
-	{
 		return fpinfo->grouped_tlist;
-	}
 
 	/*
 	 * We require columns specified in foreignrel->reltarget->exprs and those
 	 * required for evaluating the local conditions.
 	 */
 	tlist = add_to_flat_tlist(tlist,
-	                          pull_var_clause((Node *) foreignrel->reltarget->exprs,
-	                                  PVC_RECURSE_PLACEHOLDERS));
-	foreach (lc, fpinfo->local_conds)
+							  pull_var_clause((Node *) foreignrel->reltarget->exprs,
+											  PVC_RECURSE_PLACEHOLDERS));
+	foreach(lc, fpinfo->local_conds)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 
 		tlist = add_to_flat_tlist(tlist,
-		                          pull_var_clause((Node *) rinfo->clause,
-		                                  PVC_RECURSE_PLACEHOLDERS));
+								  pull_var_clause((Node *) rinfo->clause,
+												  PVC_RECURSE_PLACEHOLDERS));
 	}
 
 	return tlist;
@@ -1072,9 +1055,9 @@ build_tlist_to_deparse(RelOptInfo *foreignrel)
  */
 void
 deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
-                        List *tlist, List *remote_conds, List *pathkeys,
-                        bool is_subquery, List **retrieved_attrs,
-                        List **params_list)
+						List *tlist, List *remote_conds, List *pathkeys,
+						bool is_subquery, List **retrieved_attrs,
+						List **params_list)
 {
 	deparse_expr_cxt context;
 	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *) rel->fdw_private;
@@ -1110,9 +1093,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 		quals = ofpinfo->remote_conds;
 	}
 	else
-	{
 		quals = remote_conds;
-	}
 
 	/* Construct FROM and WHERE clauses */
 	deparseFromExpr(quals, &context);
@@ -1132,11 +1113,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 
 	/* Add ORDER BY clause if we found any useful pathkeys */
 	if (pathkeys)
-	{
 		appendOrderByClause(pathkeys, &context);
-	}
-
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1154,7 +1131,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
  */
 static void
 deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
-                 deparse_expr_cxt *context)
+				 deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	RelOptInfo *foreignrel = context->foreignrel;
@@ -1199,7 +1176,7 @@ deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
 		Relation	rel = heap_open(rte->relid, NoLock);
 
 		deparseTargetList(buf, rte, foreignrel->relid, rel, false,
-		                  fpinfo->attrs_used, false, retrieved_attrs);
+						  fpinfo->attrs_used, false, retrieved_attrs);
 		heap_close(rel, NoLock);
 	}
 	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
@@ -1220,13 +1197,13 @@ deparseFromExpr(List *quals, deparse_expr_cxt *context)
 
 	/* For upper relations, scanrel must be either a joinrel or a baserel */
 	Assert(!IS_UPPER_REL(context->foreignrel) ||
-	       IS_JOIN_REL(scanrel) || IS_SIMPLE_REL(scanrel));
+		   IS_JOIN_REL(scanrel) || IS_SIMPLE_REL(scanrel));
 
 	/* Construct FROM clause */
 	appendStringInfoString(buf, " FROM ");
 	deparseFromExprForRel(buf, context->root, scanrel,
-	                      (bms_num_members(scanrel->relids) > 1),
-	                      (Index) 0, NULL, context->params_list);
+						  (bms_num_members(scanrel->relids) > 1),
+						  (Index) 0, NULL, context->params_list);
 
 	/* Construct WHERE clause */
 	if (quals != NIL)
@@ -1248,13 +1225,13 @@ deparseFromExpr(List *quals, deparse_expr_cxt *context)
  */
 static void
 deparseTargetList(StringInfo buf,
-                  RangeTblEntry *rte,
-                  Index rtindex,
-                  Relation rel,
-                  bool is_returning,
-                  Bitmapset *attrs_used,
-                  bool qualify_col,
-                  List **retrieved_attrs)
+				  RangeTblEntry *rte,
+				  Index rtindex,
+				  Relation rel,
+				  bool is_returning,
+				  Bitmapset *attrs_used,
+				  bool qualify_col,
+				  List **retrieved_attrs)
 {
 	TupleDesc	tupdesc = RelationGetDescr(rel);
 	bool		have_wholerow;
@@ -1265,7 +1242,10 @@ deparseTargetList(StringInfo buf,
 
 	/* If there's a whole-row reference, we'll need all the columns. */
 	have_wholerow = bms_is_member(0 - FirstLowInvalidHeapAttributeNumber,
-	                              attrs_used);
+								  attrs_used);
+
+	if (is_returning)
+		elog(ERROR, "clickhouse does not support RETURNING expresssions");
 
 	first = true;
 	for (i = 1; i <= tupdesc->natts; i++)
@@ -1274,13 +1254,11 @@ deparseTargetList(StringInfo buf,
 
 		/* Ignore dropped attributes. */
 		if (attr->attisdropped)
-		{
 			continue;
-		}
 
 		if (have_wholerow ||
-		        bms_is_member(i - FirstLowInvalidHeapAttributeNumber,
-		                      attrs_used))
+			bms_is_member(i - FirstLowInvalidHeapAttributeNumber,
+						  attrs_used))
 		{
 			if (!first)
 				appendStringInfoString(buf, ", ");
@@ -1490,7 +1468,7 @@ deparseSubqueryTargetList(deparse_expr_cxt *context)
 	Assert(IS_SIMPLE_REL(foreignrel) || IS_JOIN_REL(foreignrel));
 
 	first = true;
-	foreach (lc, foreignrel->reltarget->exprs)
+	foreach(lc, foreignrel->reltarget->exprs)
 	{
 		Node	   *node = (Node *) lfirst(lc);
 
@@ -1649,7 +1627,6 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		{
 			appendStringInfoString(buf, "(TRUE)");
 		}
-
 	}
 	else
 	{

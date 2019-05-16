@@ -158,6 +158,7 @@ extern const char *get_jointype_name(JoinType jointype);
 /* in shippable.c */
 extern bool is_builtin(Oid objectId);
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo);
+extern bool is_equal_op(Oid opno);
 
 /*
  * Connection cache hash table entry

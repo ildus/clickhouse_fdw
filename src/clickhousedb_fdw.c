@@ -2208,6 +2208,39 @@ clickhouseAcquireSampleRowsFunc(Relation relation, int elevel,
 	return 0;
 }
 
+static bool
+is_simple_join_clause(Expr *expr)
+{
+	if (IsA(expr, RestrictInfo))
+	{
+		expr = ((RestrictInfo *) expr)->clause;
+	}
+
+	if (IsA(expr, OpExpr))
+	{
+		OpExpr	*opexpr = (OpExpr *) expr;
+		if (is_equal_op(opexpr->opno))
+			return true;
+	}
+	return false;
+}
+
+static List *
+extract_join_equals(List *conds, List **to)
+{
+	ListCell *lc;
+	List *res = NIL;
+	foreach (lc, conds)
+	{
+		Expr	   *expr = (Expr *) lfirst(lc);
+		if (is_simple_join_clause(expr))
+			*to = lappend(*to, expr);
+		else
+			res = lappend(res, expr);
+	}
+	return res;
+}
+
 /*
  * Assess whether the join between inner and outer relations can be pushed down
  * to the foreign server. As a side effect, save information we obtain in this
@@ -2283,31 +2316,25 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	 * won't consult those lists again if we deem the join unshippable.
 	 */
 	joinclauses = NIL;
-	foreach (lc, extra->restrictlist)
+	foreach(lc, extra->restrictlist)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 		bool		is_remote_clause = is_foreign_expr(root, joinrel,
-		                               rinfo->clause);
+													   rinfo->clause);
 
 		if (IS_OUTER_JOIN(jointype) &&
-		        !RINFO_IS_PUSHED_DOWN(rinfo, joinrel->relids))
+			!RINFO_IS_PUSHED_DOWN(rinfo, joinrel->relids))
 		{
 			if (!is_remote_clause)
-			{
 				return false;
-			}
 			joinclauses = lappend(joinclauses, rinfo);
 		}
 		else
 		{
 			if (is_remote_clause)
-			{
 				fpinfo->remote_conds = lappend(fpinfo->remote_conds, rinfo);
-			}
 			else
-			{
 				fpinfo->local_conds = lappend(fpinfo->local_conds, rinfo);
-			}
 		}
 	}
 
@@ -2438,8 +2465,7 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	if (jointype == JOIN_INNER)
 	{
 		Assert(!fpinfo->joinclauses);
-		fpinfo->joinclauses = fpinfo->remote_conds;
-		fpinfo->remote_conds = NIL;
+		fpinfo->remote_conds = extract_join_equals(fpinfo->remote_conds, &fpinfo->joinclauses);
 	}
 
 	/* Mark that this join can be pushed down safely */
