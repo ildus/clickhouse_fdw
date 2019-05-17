@@ -2689,9 +2689,8 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 	{
 		/* Free path required for EPQ if we copied one; we don't need it now */
 		if (epq_path)
-		{
 			pfree(epq_path);
-		}
+
 		return;
 	}
 
@@ -2772,9 +2771,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 
 	/* We currently don't support pushing Grouping Sets. */
 	if (query->groupingSets)
-	{
 		return false;
-	}
 
 	/* Get the fpinfo of the underlying scan relation. */
 	ofpinfo = (CHFdwRelationInfo *) fpinfo->outerrel->fdw_private;
@@ -2785,9 +2782,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	 * aggregate cannot be pushed down.
 	 */
 	if (ofpinfo->local_conds)
-	{
 		return false;
-	}
 
 	/*
 	 * Examine grouping expressions, as well as other expressions we'd need to
@@ -2813,9 +2808,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			 * push down aggregation to the foreign server.
 			 */
 			if (!is_foreign_expr(root, grouped_rel, expr))
-			{
 				return false;
-			}
 
 			/*
 			 * Pushable, so add to tlist.  We need to create a TLE for this
@@ -2906,13 +2899,9 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			                          NULL,
 			                          NULL);
 			if (is_foreign_expr(root, grouped_rel, expr))
-			{
 				fpinfo->remote_conds = lappend(fpinfo->remote_conds, rinfo);
-			}
 			else
-			{
 				fpinfo->local_conds = lappend(fpinfo->local_conds, rinfo);
-			}
 		}
 	}
 
@@ -2947,9 +2936,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			if (IsA(expr, Aggref))
 			{
 				if (!is_foreign_expr(root, grouped_rel, expr))
-				{
 					return false;
-				}
 
 				tlist = add_to_flat_tlist(tlist, list_make1(expr));
 			}
