@@ -2219,7 +2219,10 @@ is_simple_join_clause(Expr *expr)
 	if (IsA(expr, OpExpr))
 	{
 		OpExpr	*opexpr = (OpExpr *) expr;
-		if (is_equal_op(opexpr->opno))
+		if (is_equal_op(opexpr->opno)
+				&& list_length(opexpr->args) == 2
+				&& IsA(list_nth(opexpr->args, 0), Var)
+				&& IsA(list_nth(opexpr->args, 1), Var))
 			return true;
 	}
 	return false;
@@ -2410,6 +2413,15 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 		                                   list_copy(fpinfo_i->remote_conds));
 		fpinfo->remote_conds = list_concat(fpinfo->remote_conds,
 		                                   list_copy(fpinfo_o->remote_conds));
+
+		/*
+		 * For an inner join, some restrictions can be treated alike. Treating the
+		 * pushed down conditions as join conditions allows a top level full outer
+		 * join to be deparsed without requiring subqueries.
+		 */
+		Assert(!fpinfo->joinclauses);
+		fpinfo->remote_conds = extract_join_equals(fpinfo->remote_conds,
+										&fpinfo->joinclauses);
 		break;
 
 	case JOIN_LEFT:
@@ -2457,17 +2469,6 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 		elog(ERROR, "unsupported join type %d", jointype);
 	}
 
-	/*
-	 * For an inner join, all restrictions can be treated alike. Treating the
-	 * pushed down conditions as join conditions allows a top level full outer
-	 * join to be deparsed without requiring subqueries.
-	 */
-	if (jointype == JOIN_INNER)
-	{
-		Assert(!fpinfo->joinclauses);
-		fpinfo->remote_conds = extract_join_equals(fpinfo->remote_conds, &fpinfo->joinclauses);
-	}
-
 	/* Mark that this join can be pushed down safely */
 	fpinfo->pushdown_safe = true;
 
@@ -2475,18 +2476,12 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	if (fpinfo->use_remote_estimate)
 	{
 		if (fpinfo_o->use_remote_estimate)
-		{
 			fpinfo->user = fpinfo_o->user;
-		}
 		else
-		{
 			fpinfo->user = fpinfo_i->user;
-		}
 	}
 	else
-	{
 		fpinfo->user = NULL;
-	}
 
 	/*
 	 * Set cached relation costs to some negative value, so that we can detect
