@@ -238,7 +238,7 @@ read_string_binary(ch_readahead_t *readahead)
 		char *s = malloc(size + 1),
 			 *p = s;
 
-		while (size_left && (left = ch_readahead_left(readahead)) > 0)
+		while (size_left && ((left = ch_readahead_left(readahead)) > 0))
 		{
 			size_t cp = left > size_left ? size_left : left;
 
@@ -246,6 +246,9 @@ read_string_binary(ch_readahead_t *readahead)
 			ch_readahead_pos_read_advance(readahead, cp);
 			p += cp;
 			size_left -= cp;
+
+			if (size_left == 0)
+				break;
 
 			/* free old data and read new */
 			ch_readahead_reuse(readahead);
