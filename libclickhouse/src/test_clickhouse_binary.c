@@ -10,7 +10,7 @@
 static void test_binary(void **s) {
 	ch_readahead_t	io;
 
-	ch_readahead_init(&io);
+	ch_readahead_init(0, &io);
 	write_uint64_binary(&io, 2);
 	assert_int_equal(io.size, 8192);
 	write_uint64_binary(&io, 3);
@@ -20,14 +20,15 @@ static void test_binary(void **s) {
 	write_char_binary(&io, 'a');
 	write_char_binary(&io, 'b');
 
-	io.pos = 0;
+	assert_true(ch_readahead_unread(&io) > 0);
 	assert_int_equal(read_uint64_binary(&io), 2);
 	assert_int_equal(read_uint64_binary(&io), 3);
-	assert_int_equal(strcmp(read_string_binary(&io), "stringstring"), 0);
+	assert_int_equal(strcmp(read_string_binary_unsafe(&io), "stringstring"), 0);
 	assert_true(read_bool_binary(&io));
 	assert_false(read_bool_binary(&io));
 	assert_int_equal(read_char_binary(&io), 'a');
 	assert_int_equal(read_char_binary(&io), 'b');
+	assert_int_equal(ch_readahead_unread(&io), 0);
 
 	ch_readahead_free(&io);
 

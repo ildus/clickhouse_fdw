@@ -11,6 +11,7 @@
  // readahead code borrowed from "yandex/odyssey"
 typedef struct ch_readahead_t
 {
+	int		sock;
 	char   *buf;
 	size_t  size;
 	size_t  pos;
@@ -65,13 +66,16 @@ enum {
 	CH_TablesStatusResponse = 9, /// A response to TablesStatus request.
 	CH_Log = 10,                 /// System logs of the query execution
 	CH_TableColumns = 11,        /// Columns' description for default values calculation
+	CH_MaxPacketType
 };
 
 extern void ch_error(const char *fmt, ...);
+extern int sock_read(int sock, ch_readahead_t *readahead);
 
 static inline int
-ch_readahead_init(ch_readahead_t *readahead)
+ch_readahead_init(int sock, ch_readahead_t *readahead)
 {
+	readahead->sock     = sock;
 	readahead->buf      = malloc(8192);
 	if (readahead->buf == NULL)
 		return -1;
@@ -103,6 +107,12 @@ ch_readahead_unread(ch_readahead_t *readahead)
 	return readahead->pos - readahead->pos_read;
 }
 
+static inline void
+ch_readahead_unread_check(ch_readahead_t *readahead, size_t size)
+{
+	assert(ch_readahead_unread(readahead) >= size);
+}
+
 static inline char*
 ch_readahead_pos(ch_readahead_t *readahead)
 {
@@ -131,9 +141,6 @@ static inline void
 ch_readahead_reuse(ch_readahead_t *readahead)
 {
 	size_t unread = ch_readahead_unread(readahead);
-
-	if (unread > sizeof(uint64_t))	/* packet_type */
-		return;
 
 	if (unread == 0) {
 		readahead->pos      = 0;
@@ -173,6 +180,7 @@ inline static uint64_t
 read_uint64_binary(ch_readahead_t *readahead)
 {
 	uint64_t	res;
+	ch_readahead_unread_check(readahead, sizeof(uint64_t));
 	memcpy(&res, ch_readahead_pos_read(readahead), sizeof(uint64_t));
 	ch_readahead_pos_read_advance(readahead, sizeof(uint64_t));
 	return res;
@@ -188,6 +196,43 @@ write_uint64_binary(ch_readahead_t *readahead, uint64_t val)
 
 inline static char *
 read_string_binary(ch_readahead_t *readahead)
+{
+	size_t left;
+    size_t size = read_uint64_binary(readahead),
+		   size_left = size;
+
+	if (check_io_boundary(readahead, size))
+	{
+		char *s = malloc(size + 1),
+			 *p = s;
+
+		while (size_left && (left = ch_readahead_left(readahead)) > 0)
+		{
+			size_t cp = left > size_left ? size_left : left;
+
+			memcpy(p, ch_readahead_pos_read(readahead), cp);
+			ch_readahead_pos_read_advance(readahead, cp);
+			p += cp;
+			size_left -= cp;
+
+			/* free old data and read new */
+			ch_readahead_reuse(readahead);
+			if (sock_read(readahead->sock, readahead) < 0)
+			{
+				ch_error("server communication error");
+				return NULL;
+			}
+		}
+		s[size] = '\0';
+		return s;
+	}
+
+	ch_error("string reading error");
+	return NULL;
+}
+
+inline static char *
+read_string_binary_unsafe(ch_readahead_t *readahead)
 {
     size_t size = read_uint64_binary(readahead);
 
@@ -230,6 +275,7 @@ write_char_binary(ch_readahead_t *readahead, char val)
 inline static char
 read_char_binary(ch_readahead_t *readahead)
 {
+	ch_readahead_unread_check(readahead, sizeof(char));
 	char res = ch_readahead_pos_read(readahead)[0];
 	ch_readahead_pos_read_advance(readahead, sizeof(char));
 	return res;

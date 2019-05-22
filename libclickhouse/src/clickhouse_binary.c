@@ -165,50 +165,107 @@ again:
 	return true;
 }
 
-static bool
+int
+sock_read(int sock, ch_readahead_t *readahead)
+{
+	int		n;
+	size_t	left = ch_readahead_left(readahead);
+
+	if (!left)
+	{
+		/* reader should deal with unread data first */
+		return ch_readahead_unread(readahead);
+	}
+
+again:
+	n = recv(sock, ch_readahead_pos(readahead), left, 0);
+	if (n < 0)
+	{
+		int result_errno = errno;
+		switch (result_errno)
+		{
+#ifdef EAGAIN
+			case EAGAIN:
+#endif
+#if defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))
+			case EWOULDBLOCK:
+#endif
+			case EINTR:
+				goto again;
+
+#ifdef ECONNRESET
+				/* FALL THRU */
+			case ECONNRESET:
+#endif
+				ch_error("server closed the connection unexpectedly");
+				break;
+
+			default:
+				ch_error("could not send data to server");
+				break;
+		}
+
+		return -1;
+	}
+
+	return n;
+}
+
+static int
+ch_binary_read_header(ch_binary_connection_t *conn)
+{
+	uint64_t	val;
+
+	ch_readahead_reuse(&conn->in);
+	if (ch_readahead_unread(&conn->in) < sizeof(uint64_t))
+	{
+		if (sock_read(conn->sock, &conn->in) <= 0)
+			return -1;
+	}
+
+	if (ch_readahead_unread(&conn->in) < sizeof(uint64_t))
+	{
+		ch_error("server communication error");
+		return -1;
+	}
+
+	val = read_uint64_binary(&conn->in);
+	if (val >= CH_MaxPacketType)
+	{
+		ch_error("imcompatible server, invalid packet type");
+		return -1;
+	}
+
+	return (int) read_uint64_binary(&conn->in);
+}
+
+static int
 ch_binary_read(ch_binary_connection_t *conn)
 {
-	char	buf[8192];
 	int		n;
 
 	ch_reset_error();
-again:
-	while ((n = recv(conn->sock, buf, sizeof(buf), 0)) != 0)
+	size_t unread = ch_readahead_unread(&conn->in);
+	if (unread > 0)
+		return unread;
+
+	for (;;)
 	{
-		if (n < 0)
+		size_t left = ch_readahead_left(&conn->in);
+		if (!left)
 		{
-			int result_errno = errno;
-			switch (result_errno)
-			{
-#ifdef EAGAIN
-				case EAGAIN:
-#endif
-#if defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))
-				case EWOULDBLOCK:
-#endif
-				case EINTR:
-					goto again;
-
-#ifdef ECONNRESET
-					/* FALL THRU */
-				case ECONNRESET:
-#endif
-					ch_error("server closed the connection unexpectedly");
-					break;
-
-				default:
-					ch_error("could not send data to server");
-					break;
-			}
-
-			return false;
+			/* reader should deal with buffer */
+			return ch_readahead_unread(&conn->in);
 		}
 
-		ch_readahead_extend(&conn->in, n);
-		write_pod_binary(&conn->in, buf, n);
+		n = sock_read(conn->sock, &conn->in);
+		if (n <= 0)
+			return n;
+
+		ch_readahead_pos_advance(&conn->in, n);
 	}
 
-	return true;
+	return 0;
 }
 
 /* send hello packet */
@@ -225,6 +282,9 @@ say_hello(ch_binary_connection_t *conn)
 		return false;
 	}
 
+	ch_readahead_reuse(&conn->in);
+	assert(conn->out.pos == 0);
+
     write_uint64_binary(&conn->out, CH_Client_Hello);
     write_string_binary(&conn->out, conn->client_name);
     write_uint64_binary(&conn->out, VERSION_MAJOR);
@@ -237,7 +297,6 @@ say_hello(ch_binary_connection_t *conn)
 	for (int i = 0; i < 1000; i++)
 		write_char_binary(&conn->out, '\0');
 
-	ch_readahead_reuse(&conn->out);
 	bool res = ch_binary_send(conn);
 	return res;
 }
@@ -246,25 +305,38 @@ say_hello(ch_binary_connection_t *conn)
 static bool
 get_hello(ch_binary_connection_t *conn)
 {
-	uint64_t	packet_type;
+	int packet_type;
 
 	if (!ch_binary_read(conn))
 		return false;
 
 	ch_reset_error();
-	packet_type = read_uint64_binary(&conn->in);
+	packet_type = ch_binary_read_header(conn);
+	if (packet_type < 0)
+		return false;
 
     if (packet_type == CH_Hello)
     {
 		conn->server_name = read_string_binary(&conn->in);
+		if (conn->server_name == NULL)
+			return false;
+
 		conn->server_version_major = read_uint64_binary(&conn->in);
 		conn->server_version_minor = read_uint64_binary(&conn->in);
 		conn->server_revision = read_uint64_binary(&conn->in);
 
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_SERVER_TIMEZONE)
+		{
             conn->server_timezone = read_string_binary(&conn->in);
+			if (conn->server_timezone == NULL)
+				return false;
+		}
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_SERVER_DISPLAY_NAME)
+		{
             conn->server_display_name = read_string_binary(&conn->in);
+			if (conn->server_display_name == NULL)
+				return false;
+		}
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_VERSION_PATCH)
 			conn->server_version_patch = read_uint64_binary(&conn->in);
         else
@@ -272,7 +344,7 @@ get_hello(ch_binary_connection_t *conn)
     }
     else
     {
-		ch_error("wrong packet on hello: %luu", packet_type);
+		ch_error("wrong packet on hello: %d", packet_type);
 		return false;
     }
 	return true;
@@ -363,6 +435,9 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 	conn->password = strdup(password);
 	conn->default_database = strdup(default_database);
 	conn->client_name = strdup(client_name);
+
+	ch_readahead_init(sock, &conn->in);
+	ch_readahead_init(sock, &conn->out);
 
 	/* exchange hello packets and initialize server fields in connection */
 	if (say_hello(conn) && get_hello(conn))
