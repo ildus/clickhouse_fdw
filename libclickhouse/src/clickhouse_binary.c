@@ -10,10 +10,13 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <errno.h>
-#include "clickhouse_internal.h"
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include "clickhouse_net.h"
 #include "clickhouse_binary.h"
 #include "clickhouse_config.h"
 
+static bool in_error_state = false;
 static char last_error[2048];
 
 #ifdef __GNUC__
@@ -22,10 +25,32 @@ static char last_error[2048];
 void
 ch_error(const char *fmt, ...)
 {
+	in_error_state = true;
+
 	va_list args;
 	va_start(args, fmt);
 	vsnprintf(last_error, sizeof(last_error), fmt, args);
 	va_end(args);
+}
+
+static void
+ch_reset_error(void)
+{
+	in_error_state = false;
+}
+
+int
+ch_binary_errno(void)
+{
+	return in_error_state ? 1 : 0;
+}
+
+const char *
+ch_binary_last_error(void)
+{
+	if (in_error_state)
+		return (const char *) last_error;
+	return NULL;
 }
 
 static int
@@ -33,10 +58,10 @@ ch_connect(struct sockaddr *sa)
 {
 	int addrlen,
 		rc,
-		fd;
+		sock;
 
-	fd = socket(sa->sa_family, SOCK_STREAM, 0);
-	if (fd == -1)
+	sock = socket(sa->sa_family, SOCK_STREAM, 0);
+	if (sock == -1)
 		return -1;
 
 	if (sa->sa_family == AF_INET)
@@ -48,18 +73,37 @@ ch_connect(struct sockaddr *sa)
 	else
 		return -1;
 
-	rc = connect(fd, sa, addrlen);
+	rc = connect(sock, sa, addrlen);
 	if (rc)
 		return -1;
 
-	return fd;
+#ifdef TCP_NODELAY
+	int on = 1;
+	if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
+				   (char *) &on, sizeof(on)) < 0)
+	{
+		close(sock);
+		ch_error("setsockopt(%s) failed: %m", "TCP_NODELAY");
+		return -1;
+	}
+#endif
+
+	on = 1;
+	if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+				   (char *) &on, sizeof(on)) < 0)
+	{
+		close(sock);
+		ch_error("setsockopt(%s) failed: %m", "SO_KEEPALIVE");
+		return -1;
+	}
+
+	return sock;
 }
 
 static bool
 has_control_character(char *s)
 {
-	int i = strlen(s);
-	while (--i)
+	for (size_t i = 0; i < strlen(s); i++)
 		if (s[i] < 31)
 			return true;
 
@@ -67,7 +111,7 @@ has_control_character(char *s)
 };
 
 static bool
-ch_binary_write(ch_binary_connection_t *conn, ch_binary_io_state_t *io)
+ch_binary_send(ch_binary_connection_t *conn)
 {
 	int n;
 	int flags = 0;
@@ -76,8 +120,18 @@ ch_binary_write(ch_binary_connection_t *conn, ch_binary_io_state_t *io)
 	flags = MSG_NOSIGNAL;
 #endif
 
+	ch_reset_error();
+	if (ch_readahead_unread(&conn->out) == 0)
+		// nothing to send
+		return true;
+
 again:
-	n = send(conn->fd, io->buf, io->pos, flags);
+	n = send(conn->sock,
+			ch_readahead_pos_read(&conn->out),
+			ch_readahead_unread(&conn->out), flags);
+
+	ch_readahead_pos_read_advance(&conn->out, ch_readahead_unread(&conn->out));
+
 	if (n < 0)
 	{
 		int result_errno = errno;
@@ -107,17 +161,19 @@ again:
 
 		return false;
 	}
+
 	return true;
 }
 
 static bool
-ch_binary_read(ch_binary_connection_t *conn, ch_binary_io_state_t *io)
+ch_binary_read(ch_binary_connection_t *conn)
 {
 	char	buf[8192];
 	int		n;
 
+	ch_reset_error();
 again:
-	while ((n = recv(conn->fd, buf, sizeof(buf), 0)) != 0)
+	while ((n = recv(conn->sock, buf, sizeof(buf), 0)) != 0)
 	{
 		if (n < 0)
 		{
@@ -148,8 +204,8 @@ again:
 			return false;
 		}
 
-		extend_io_state(io, n);
-		write_pod_binary(io, buf, n);
+		ch_readahead_extend(&conn->in, n);
+		write_pod_binary(&conn->in, buf, n);
 	}
 
 	return true;
@@ -159,9 +215,7 @@ again:
 static bool
 say_hello(ch_binary_connection_t *conn)
 {
-	ch_binary_io_state_t	io;
-	init_io_state(&io);
-
+	ch_reset_error();
     if (has_control_character(conn->default_database)
         || has_control_character(conn->user)
         || has_control_character(conn->password)
@@ -171,17 +225,20 @@ say_hello(ch_binary_connection_t *conn)
 		return false;
 	}
 
-    write_uint32_binary(&io, CH_Client_Hello);
-    write_string_binary(&io, conn->client_name);
-    write_uint32_binary(&io, VERSION_MAJOR);
-    write_uint32_binary(&io, VERSION_MINOR);
-    write_uint32_binary(&io, VERSION_REVISION);
-    write_string_binary(&io, conn->default_database);
-    write_string_binary(&io, conn->user);
-    write_string_binary(&io, conn->password);
+    write_uint64_binary(&conn->out, CH_Client_Hello);
+    write_string_binary(&conn->out, conn->client_name);
+    write_uint64_binary(&conn->out, VERSION_MAJOR);
+    write_uint64_binary(&conn->out, VERSION_MINOR);
+    write_uint64_binary(&conn->out, VERSION_REVISION);
+    write_string_binary(&conn->out, conn->default_database);
+    write_string_binary(&conn->out, conn->user);
+    write_string_binary(&conn->out, conn->password);
 
-	bool res = ch_binary_write(conn, &io);
-	reset_io_state(&io);
+	for (int i = 0; i < 1000; i++)
+		write_char_binary(&conn->out, '\0');
+
+	ch_readahead_reuse(&conn->out);
+	bool res = ch_binary_send(conn);
 	return res;
 }
 
@@ -189,34 +246,33 @@ say_hello(ch_binary_connection_t *conn)
 static bool
 get_hello(ch_binary_connection_t *conn)
 {
-	ch_binary_io_state_t	io;
-	uint32_t	packet_type;
+	uint64_t	packet_type;
 
-	init_io_state(&io);
-	if (!ch_binary_read(conn, &io))
+	if (!ch_binary_read(conn))
 		return false;
 
-	packet_type = read_uint32_binary(&io);
+	ch_reset_error();
+	packet_type = read_uint64_binary(&conn->in);
 
     if (packet_type == CH_Hello)
     {
-		conn->server_name = read_string_binary(&io);
-		conn->server_version_major = read_uint32_binary(&io);
-		conn->server_version_minor = read_uint32_binary(&io);
-		conn->server_revision = read_uint32_binary(&io);
+		conn->server_name = read_string_binary(&conn->in);
+		conn->server_version_major = read_uint64_binary(&conn->in);
+		conn->server_version_minor = read_uint64_binary(&conn->in);
+		conn->server_revision = read_uint64_binary(&conn->in);
 
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_SERVER_TIMEZONE)
-            conn->server_timezone = read_string_binary(&io);
+            conn->server_timezone = read_string_binary(&conn->in);
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_SERVER_DISPLAY_NAME)
-            conn->server_display_name = read_string_binary(&io);
+            conn->server_display_name = read_string_binary(&conn->in);
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_VERSION_PATCH)
-			conn->server_version_patch = read_uint32_binary(&io);
+			conn->server_version_patch = read_uint64_binary(&conn->in);
         else
             conn->server_version_patch = conn->server_revision;
     }
     else
     {
-		ch_error("wrong packet on hello: %u", packet_type);
+		ch_error("wrong packet on hello: %luu", packet_type);
 		return false;
     }
 	return true;
@@ -231,6 +287,7 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 	struct addrinfo *ai = NULL;
 	struct sockaddr	*saddr = NULL;
 
+	ch_reset_error();
 	if (!host || !port)
 	{
 		ch_error("host or port wasn't specified");
@@ -280,60 +337,54 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 		saddr = ai->ai_addr;
 	}
 
-	int fd = ch_connect(saddr);
+	int sock = ch_connect(saddr);
 
 	if (ai)
 		freeaddrinfo(ai);
 
-	if (fd == -1)
+	if (sock == -1)
 	{
 		ch_error("could not create connection to ClickHouse");
 		return NULL;
 	}
 
 	conn = calloc(sizeof(ch_binary_connection_t), 1);
-	conn->fd = fd;
+	conn->sock = sock;
 	conn->host = strdup(host);
 	conn->port = port;
-	if (user)
-		conn->user = strdup(user);
-	if (password)
-		conn->password = strdup(password);
-	if (default_database)
-		conn->default_database = strdup(default_database);
-	if (client_name)
-		conn->client_name = strdup(client_name);
 
+	/* set default values if needed */
+	user = user ? user : "default";
+	default_database  = default_database ? default_database : "default";
+	password = password ? password : "";
+	client_name = client_name ? client_name : "fdw";
+
+	conn->user = strdup(user);
+	conn->password = strdup(password);
+	conn->default_database = strdup(default_database);
+	conn->client_name = strdup(client_name);
+
+	/* exchange hello packets and initialize server fields in connection */
 	if (say_hello(conn) && get_hello(conn))
 		/* all good */
 		return conn;
 
-	ch_binary_free_connection(conn);
+	ch_binary_disconnect(conn);
 	return NULL;
 }
 
 void
 ch_binary_disconnect(ch_binary_connection_t *conn)
 {
-	conn->fd = 0;
-}
-
-void
-ch_binary_free_connection(ch_binary_connection_t *conn)
-{
-	if (conn->fd)
-		close(conn->fd);
+	if (conn->sock)
+		close(conn->sock);
 
 	free(conn->host);
+	free(conn->default_database);
+	free(conn->user);
+	free(conn->password);
+	free(conn->client_name);
 
-	if (conn->default_database)
-		free(conn->default_database);
-	if (conn->user)
-		free(conn->user);
-	if (conn->password)
-		free(conn->password);
-	if (conn->client_name)
-		free(conn->client_name);
 	if (conn->server_name)
 		free(conn->server_name);
 	if (conn->server_timezone)
