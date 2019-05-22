@@ -11,9 +11,9 @@ static void test_binary(void **s) {
 	ch_readahead_t	io;
 
 	ch_readahead_init(0, &io);
-	write_uint64_binary(&io, 2);
+	write_varuint_binary(&io, 2);
 	assert_int_equal(io.size, 8192);
-	write_uint64_binary(&io, 3);
+	write_varuint_binary(&io, 3);
 	write_string_binary(&io, "stringstring");
 	write_bool_binary(&io, true);
 	write_bool_binary(&io, false);
@@ -21,8 +21,8 @@ static void test_binary(void **s) {
 	write_char_binary(&io, 'b');
 
 	assert_true(ch_readahead_unread(&io) > 0);
-	assert_int_equal(read_uint64_binary(&io), 2);
-	assert_int_equal(read_uint64_binary(&io), 3);
+	assert_int_equal(read_varuint_binary(&io), 2);
+	assert_int_equal(read_varuint_binary(&io), 3);
 	assert_int_equal(strcmp(read_string_binary_unsafe(&io), "stringstring"), 0);
 	assert_true(read_bool_binary(&io));
 	assert_false(read_bool_binary(&io));
@@ -36,7 +36,7 @@ static void test_binary(void **s) {
 }
 
 static void test_connection(void **s) {
-	ch_binary_connection_t *conn = ch_binary_connect("localhost", 8123, NULL, NULL, NULL, NULL);
+	ch_binary_connection_t *conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	assert_ptr_not_equal(conn, NULL);
 	ch_binary_disconnect(conn);
 

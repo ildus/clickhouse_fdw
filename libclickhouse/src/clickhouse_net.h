@@ -107,10 +107,19 @@ ch_readahead_unread(ch_readahead_t *readahead)
 	return readahead->pos - readahead->pos_read;
 }
 
-static inline void
+static inline int
 ch_readahead_unread_check(ch_readahead_t *readahead, size_t size)
 {
-	assert(ch_readahead_unread(readahead) >= size);
+	if (ch_readahead_unread(readahead) == 0)
+	{
+		int n = sock_read(readahead->sock, readahead);
+		if (n <= 0)
+		{
+			ch_error("could not read data from socket, needed %d bytes", size);
+			return n;
+		}
+	}
+	return ch_readahead_unread(readahead);
 }
 
 static inline char*
@@ -177,28 +186,51 @@ check_io_boundary(ch_readahead_t *readahead, size_t size)
 }
 
 inline static uint64_t
-read_uint64_binary(ch_readahead_t *readahead)
+read_varuint_binary(ch_readahead_t *readahead)
 {
-	uint64_t	res;
-	ch_readahead_unread_check(readahead, sizeof(uint64_t));
-	memcpy(&res, ch_readahead_pos_read(readahead), sizeof(uint64_t));
-	ch_readahead_pos_read_advance(readahead, sizeof(uint64_t));
-	return res;
+	uint64_t	x = 0;
+	size_t		n = ch_readahead_unread_check(readahead, sizeof(uint64_t));
+
+    x = 0;
+    for (size_t i = 0; i < min(9, n); ++i)
+    {
+		uint64_t byte = ch_readahead_pos_read(readahead)[0];
+		ch_readahead_pos_read_advance(readahead, sizeof(uint8_t));
+
+        x |= (byte & 0x7F) << (7 * i);
+
+        if (!(byte & 0x80))
+			break;
+    }
+
+	return x;
 }
 
 inline static void
-write_uint64_binary(ch_readahead_t *readahead, uint64_t val)
+write_varuint_binary(ch_readahead_t *readahead, uint64_t x)
 {
 	ch_readahead_extend(readahead, sizeof(uint64_t));
-	memcpy(ch_readahead_pos(readahead), &val, sizeof(uint64_t));
-	ch_readahead_pos_advance(readahead, sizeof(uint64_t));
+
+    for (size_t i = 0; i < 9; ++i)
+    {
+        uint8_t byte = x & 0x7F;
+        if (x > 0x7F)
+            byte |= 0x80;
+
+		ch_readahead_pos(readahead)[0] = byte;
+		ch_readahead_pos_advance(readahead, sizeof(uint8_t));
+
+        x >>= 7;
+        if (!x)
+            break;
+    }
 }
 
 inline static char *
 read_string_binary(ch_readahead_t *readahead)
 {
 	size_t left;
-    size_t size = read_uint64_binary(readahead),
+    size_t size = read_varuint_binary(readahead),
 		   size_left = size;
 
 	if (check_io_boundary(readahead, size))
@@ -234,7 +266,7 @@ read_string_binary(ch_readahead_t *readahead)
 inline static char *
 read_string_binary_unsafe(ch_readahead_t *readahead)
 {
-    size_t size = read_uint64_binary(readahead);
+    size_t size = read_varuint_binary(readahead);
 
 	if (check_io_boundary(readahead, size))
 	{
@@ -260,7 +292,7 @@ inline static void
 write_string_binary(ch_readahead_t *readahead, char *s)
 {
 	int len = strlen(s);
-	write_uint64_binary(readahead, len);
+	write_varuint_binary(readahead, len);
 	write_pod_binary(readahead, s, len);
 }
 

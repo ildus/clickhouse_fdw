@@ -208,6 +208,7 @@ again:
 		return -1;
 	}
 
+	ch_readahead_pos_advance(readahead, n);
 	return n;
 }
 
@@ -217,55 +218,26 @@ ch_binary_read_header(ch_binary_connection_t *conn)
 	uint64_t	val;
 
 	ch_readahead_reuse(&conn->in);
-	if (ch_readahead_unread(&conn->in) < sizeof(uint64_t))
+	if (ch_readahead_unread(&conn->in) == 0)
 	{
 		if (sock_read(conn->sock, &conn->in) <= 0)
 			return -1;
 	}
 
-	if (ch_readahead_unread(&conn->in) < sizeof(uint64_t))
+	if (ch_readahead_unread(&conn->in) == 0)
 	{
 		ch_error("server communication error");
 		return -1;
 	}
 
-	val = read_uint64_binary(&conn->in);
+	val = read_varuint_binary(&conn->in);
 	if (val >= CH_MaxPacketType)
 	{
 		ch_error("imcompatible server, invalid packet type");
 		return -1;
 	}
 
-	return (int) read_uint64_binary(&conn->in);
-}
-
-static int
-ch_binary_read(ch_binary_connection_t *conn)
-{
-	int		n;
-
-	ch_reset_error();
-	size_t unread = ch_readahead_unread(&conn->in);
-	if (unread > 0)
-		return unread;
-
-	for (;;)
-	{
-		size_t left = ch_readahead_left(&conn->in);
-		if (!left)
-		{
-			/* reader should deal with buffer */
-			return ch_readahead_unread(&conn->in);
-		}
-
-		n = sock_read(conn->sock, &conn->in);
-		if (n <= 0)
-			return n;
-
-		ch_readahead_pos_advance(&conn->in, n);
-	}
-
-	return 0;
+	return (int) val;
 }
 
 /* send hello packet */
@@ -285,17 +257,14 @@ say_hello(ch_binary_connection_t *conn)
 	ch_readahead_reuse(&conn->in);
 	assert(conn->out.pos == 0);
 
-    write_uint64_binary(&conn->out, CH_Client_Hello);
+    write_varuint_binary(&conn->out, CH_Client_Hello);
     write_string_binary(&conn->out, conn->client_name);
-    write_uint64_binary(&conn->out, VERSION_MAJOR);
-    write_uint64_binary(&conn->out, VERSION_MINOR);
-    write_uint64_binary(&conn->out, VERSION_REVISION);
+    write_varuint_binary(&conn->out, VERSION_MAJOR);
+    write_varuint_binary(&conn->out, VERSION_MINOR);
+    write_varuint_binary(&conn->out, VERSION_REVISION);
     write_string_binary(&conn->out, conn->default_database);
     write_string_binary(&conn->out, conn->user);
     write_string_binary(&conn->out, conn->password);
-
-	for (int i = 0; i < 1000; i++)
-		write_char_binary(&conn->out, '\0');
 
 	bool res = ch_binary_send(conn);
 	return res;
@@ -306,9 +275,6 @@ static bool
 get_hello(ch_binary_connection_t *conn)
 {
 	int packet_type;
-
-	if (!ch_binary_read(conn))
-		return false;
 
 	ch_reset_error();
 	packet_type = ch_binary_read_header(conn);
@@ -321,9 +287,9 @@ get_hello(ch_binary_connection_t *conn)
 		if (conn->server_name == NULL)
 			return false;
 
-		conn->server_version_major = read_uint64_binary(&conn->in);
-		conn->server_version_minor = read_uint64_binary(&conn->in);
-		conn->server_revision = read_uint64_binary(&conn->in);
+		conn->server_version_major = read_varuint_binary(&conn->in);
+		conn->server_version_minor = read_varuint_binary(&conn->in);
+		conn->server_revision = read_varuint_binary(&conn->in);
 
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_SERVER_TIMEZONE)
 		{
@@ -338,7 +304,7 @@ get_hello(ch_binary_connection_t *conn)
 				return false;
 		}
         if (conn->server_revision >= DBMS_MIN_REVISION_WITH_VERSION_PATCH)
-			conn->server_version_patch = read_uint64_binary(&conn->in);
+			conn->server_version_patch = read_varuint_binary(&conn->in);
         else
             conn->server_version_patch = conn->server_revision;
     }
@@ -347,6 +313,11 @@ get_hello(ch_binary_connection_t *conn)
 		ch_error("wrong packet on hello: %d", packet_type);
 		return false;
     }
+
+	if (ch_binary_errno() > 0)
+		// something happened in between
+		return false;
+
 	return true;
 }
 
