@@ -166,7 +166,7 @@ again:
 }
 
 int
-sock_read(int sock, ch_readahead_t *readahead)
+sock_read(ch_readahead_t *readahead)
 {
 	int		n;
 	size_t	left = ch_readahead_left(readahead);
@@ -177,8 +177,11 @@ sock_read(int sock, ch_readahead_t *readahead)
 		return ch_readahead_unread(readahead);
 	}
 
+	if (readahead->sock == 0)
+		return 0;
+
 again:
-	n = recv(sock, ch_readahead_pos(readahead), left, 0);
+	n = recv(readahead->sock, ch_readahead_pos(readahead), left, 0);
 	if (n < 0)
 	{
 		int result_errno = errno;
@@ -220,7 +223,7 @@ ch_binary_read_header(ch_binary_connection_t *conn)
 	ch_readahead_reuse(&conn->in);
 	if (ch_readahead_unread(&conn->in) == 0)
 	{
-		if (sock_read(conn->sock, &conn->in) <= 0)
+		if (sock_read(&conn->in) <= 0)
 			return -1;
 	}
 

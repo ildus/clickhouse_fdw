@@ -70,7 +70,7 @@ enum {
 };
 
 extern void ch_error(const char *fmt, ...);
-extern int sock_read(int sock, ch_readahead_t *readahead);
+extern int sock_read(ch_readahead_t *readahead);
 
 static inline int
 ch_readahead_init(int sock, ch_readahead_t *readahead)
@@ -110,12 +110,16 @@ ch_readahead_unread(ch_readahead_t *readahead)
 static inline int
 ch_readahead_unread_check(ch_readahead_t *readahead, size_t size)
 {
+	/*
+	 * We can't check for `size` bytes since we usually expect char
+	 * or variable-length encoded uint64
+	 * */
 	if (ch_readahead_unread(readahead) == 0)
 	{
-		int n = sock_read(readahead->sock, readahead);
+		int n = sock_read(readahead);
 		if (n <= 0)
 		{
-			ch_error("could not read data from socket, needed %d bytes", size);
+			ch_error("could not read data from socket, needed %d (max) bytes", size);
 			return n;
 		}
 	}
@@ -209,7 +213,7 @@ read_varuint_binary(ch_readahead_t *readahead)
 inline static void
 write_varuint_binary(ch_readahead_t *readahead, uint64_t x)
 {
-	ch_readahead_extend(readahead, sizeof(uint64_t));
+	ch_readahead_extend(readahead, sizeof(uint64_t) + 1);
 
     for (size_t i = 0; i < 9; ++i)
     {
@@ -252,7 +256,7 @@ read_string_binary(ch_readahead_t *readahead)
 
 			/* free old data and read new */
 			ch_readahead_reuse(readahead);
-			if (sock_read(readahead->sock, readahead) < 0)
+			if (sock_read(readahead) < 0)
 			{
 				ch_error("server communication error");
 				return NULL;
@@ -310,10 +314,13 @@ write_char_binary(ch_readahead_t *readahead, char val)
 inline static char
 read_char_binary(ch_readahead_t *readahead)
 {
-	ch_readahead_unread_check(readahead, sizeof(char));
-	char res = ch_readahead_pos_read(readahead)[0];
-	ch_readahead_pos_read_advance(readahead, sizeof(char));
-	return res;
+	if (ch_readahead_unread_check(readahead, sizeof(char)))
+	{
+		char res = ch_readahead_pos_read(readahead)[0];
+		ch_readahead_pos_read_advance(readahead, sizeof(char));
+		return res;
+	}
+	return '\0';
 }
 
 inline static void
