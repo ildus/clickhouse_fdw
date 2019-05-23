@@ -385,11 +385,13 @@ get_hello(ch_binary_connection_t *conn)
 	return true;
 }
 
-static bool
-ping(ch_binary_connection_t *conn)
+bool
+ch_ping(ch_binary_connection_t *conn)
 {
+	int packet_type;
+
 	ch_reset_error();
-	ch_readahead_reuse(&conn->in);
+	ch_readahead_reuse(&conn->out);
 	assert(conn->out.pos == 0);
 
     write_varuint_binary(&conn->out, CH_Client_Ping);
@@ -397,7 +399,19 @@ ping(ch_binary_connection_t *conn)
 	if (!res)
 		return false;
 
-	return res;
+	packet_type = ch_binary_read_header(conn);
+	switch (packet_type)
+	{
+		case CH_Progress:
+			/* TODO: late progress packet, process it */
+			break;
+		case CH_Pong:
+			return true;
+		default:
+			break;
+	}
+
+	return false;
 }
 
 ch_binary_connection_t *
@@ -436,7 +450,7 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 		saddr_v4->sin_port   = htons(port);
 		rc_resolve = inet_pton(AF_INET, host, &saddr_v4->sin_addr);
 		saddr = (struct sockaddr*) saddr_v4;
-	}
+	};
 
 	/* if it wasn't proper ip, try getaddrinfo */
 	if (rc_resolve != 1)
@@ -500,6 +514,21 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 
 	ch_binary_disconnect(conn);
 	return NULL;
+}
+
+void ch_binary_configure_connection(
+		ch_binary_connection_t *conn,
+		ch_binary_settings_t *settings,
+		ch_binary_timeouts_t *timeouts)
+{
+	if (timeouts)
+	{
+		conn->recv_timeout.tv_sec = timeouts->recv_timeout;
+		conn->send_timeout.tv_sec = timeouts->send_timeout;
+	}
+
+	if (settings)
+		conn->compression = settings->compression;
 }
 
 void

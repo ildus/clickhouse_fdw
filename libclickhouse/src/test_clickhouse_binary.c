@@ -38,6 +38,9 @@ static void test_binary(void **s) {
 static void test_connection(void **s) {
 	ch_binary_connection_t *conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL, 10);
 	assert_ptr_not_equal(conn, NULL);
+
+	assert_true(ch_ping(conn));
+	assert_true(ch_ping(conn));
 	ch_binary_disconnect(conn);
 
 	(void) s;	/* keep compiler quiet */

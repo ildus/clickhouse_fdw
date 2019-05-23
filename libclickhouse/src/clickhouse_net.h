@@ -8,6 +8,8 @@
 #define min(A, B) ((B)<(A)?(B):(A))
 #define max(A, B) ((B)>(A)?(B):(A))
 
+typedef struct ch_binary_connection ch_binary_connection_t;
+
  // readahead code borrowed from "yandex/odyssey"
 typedef struct ch_readahead_t
 {
@@ -20,7 +22,7 @@ typedef struct ch_readahead_t
 	size_t	pos_read;
 } ch_readahead_t;
 
-typedef struct ch_binary_connection_t
+struct ch_binary_connection
 {
 	int					sock;		/* comm socket */
 	char			   *host;
@@ -32,6 +34,9 @@ typedef struct ch_binary_connection_t
 
 	ch_readahead_t		in;
 	ch_readahead_t		out;
+
+	/* settings */
+	int					compression;
 
 	/* timeouts */
 	int					connection_timeout;
@@ -46,7 +51,7 @@ typedef struct ch_binary_connection_t
 	uint64_t			server_version_major;
 	uint64_t			server_revision;
 	uint64_t			server_version_patch;
-} ch_binary_connection_t;
+};
 
 enum {
 	CH_Client_Hello = 0,               /// Name, version, revision, default DB
@@ -78,6 +83,7 @@ enum {
 
 extern void ch_error(const char *fmt, ...);
 extern int sock_read(ch_readahead_t *readahead);
+bool ch_ping(ch_binary_connection_t *conn);
 
 static inline int
 ch_readahead_init(int sock, ch_readahead_t *readahead, struct timeval *timeout)
