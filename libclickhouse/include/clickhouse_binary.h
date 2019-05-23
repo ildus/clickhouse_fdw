@@ -4,7 +4,8 @@
 #include <stdint.h>
 
 ch_binary_connection_t	*ch_binary_connect(char *host, uint16_t port,
-	char *default_database, char *user, char *password, char *client_name);
+	char *default_database, char *user, char *password, char *client_name,
+	int connection_timeout);
 void ch_binary_configure_connection(void *timeouts);
 void ch_binary_disconnect(ch_binary_connection_t *conn);
 

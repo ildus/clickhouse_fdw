@@ -12,6 +12,8 @@
 typedef struct ch_readahead_t
 {
 	int		sock;
+	struct timeval *timeout;
+
 	char   *buf;
 	size_t  size;
 	size_t  pos;
@@ -30,6 +32,11 @@ typedef struct ch_binary_connection_t
 
 	ch_readahead_t		in;
 	ch_readahead_t		out;
+
+	/* timeouts */
+	int					connection_timeout;
+	struct timeval		send_timeout;
+	struct timeval		recv_timeout;
 
 	/* server part */
 	char			   *server_name;
@@ -73,7 +80,7 @@ extern void ch_error(const char *fmt, ...);
 extern int sock_read(ch_readahead_t *readahead);
 
 static inline int
-ch_readahead_init(int sock, ch_readahead_t *readahead)
+ch_readahead_init(int sock, ch_readahead_t *readahead, struct timeval *timeout)
 {
 	readahead->sock     = sock;
 	readahead->buf      = malloc(8192);
@@ -83,6 +90,7 @@ ch_readahead_init(int sock, ch_readahead_t *readahead)
 	readahead->size     = 8192;
 	readahead->pos      = 0;
 	readahead->pos_read = 0;
+	readahead->timeout  = timeout;
 
 	return 0;
 }

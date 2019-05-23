@@ -12,6 +12,8 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <stropts.h>
 #include "clickhouse_net.h"
 #include "clickhouse_binary.h"
 #include "clickhouse_config.h"
@@ -54,11 +56,13 @@ ch_binary_last_error(void)
 }
 
 static int
-ch_connect(struct sockaddr *sa)
+ch_connect(struct sockaddr *sa, int timeout)
 {
 	int addrlen,
 		rc,
 		sock;
+
+	int on = 1;
 
 	sock = socket(sa->sa_family, SOCK_STREAM, 0);
 	if (sock == -1)
@@ -71,20 +75,57 @@ ch_connect(struct sockaddr *sa)
 	else if (sa->sa_family == AF_UNIX)
 		addrlen = sizeof(struct sockaddr_un);
 	else
-		return -1;
+		goto fail;
+
+#if defined(O_NONBLOCK)
+	fcntl(sock, F_SETFL, O_NONBLOCK);
+#else
+	int flags;
+
+    /* Otherwise, use the old way of doing it */
+    flags = 1;
+	ioctl(fd, FIOBIO, &flags);
+#endif
 
 	rc = connect(sock, sa, addrlen);
-	if (rc)
-		return -1;
+	if (rc == 0)
+		goto done;
 
+	int result_errno = errno;
+	if (result_errno == EINPROGRESS)
+	{
+		struct timeval tv = {timeout,0};
+		fd_set	rset,
+				wset;
+
+		FD_ZERO (&rset);
+		FD_SET  (sock, &rset);
+		wset = rset;
+
+		rc = select(FD_SETSIZE, &rset, &wset, NULL, &tv);
+		if (rc == 0)
+		{
+			ch_error("connection timed out");
+			goto fail;
+		} else if (rc < 0)
+		{
+			ch_error("connection error: %s", strerror(result_errno));
+			goto fail;
+		}
+		// all good
+	}
+	else
+	{
+		ch_error("connection error: %s", strerror(result_errno));
+		goto fail;
+	}
+done:
 #ifdef TCP_NODELAY
-	int on = 1;
 	if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
 				   (char *) &on, sizeof(on)) < 0)
 	{
-		close(sock);
 		ch_error("setsockopt(%s) failed: %m", "TCP_NODELAY");
-		return -1;
+		goto fail;
 	}
 #endif
 
@@ -92,12 +133,16 @@ ch_connect(struct sockaddr *sa)
 	if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
 				   (char *) &on, sizeof(on)) < 0)
 	{
-		close(sock);
 		ch_error("setsockopt(%s) failed: %m", "SO_KEEPALIVE");
-		return -1;
+		goto fail;
 	}
 
 	return sock;
+fail:
+	if (sock > 0)
+		close(sock);
+
+	return -1;
 }
 
 static bool
@@ -168,7 +213,8 @@ again:
 int
 sock_read(ch_readahead_t *readahead)
 {
-	int		n;
+	int		n,
+			rc;
 	size_t	left = ch_readahead_left(readahead);
 
 	if (!left)
@@ -182,37 +228,52 @@ sock_read(ch_readahead_t *readahead)
 
 again:
 	n = recv(readahead->sock, ch_readahead_pos(readahead), left, 0);
-	if (n < 0)
+	if (n >= 0)
 	{
-		int result_errno = errno;
-		switch (result_errno)
-		{
-#ifdef EAGAIN
-			case EAGAIN:
-#endif
-#if defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))
-			case EWOULDBLOCK:
-#endif
-			case EINTR:
-				goto again;
-
-#ifdef ECONNRESET
-				/* FALL THRU */
-			case ECONNRESET:
-#endif
-				ch_error("server closed the connection unexpectedly");
-				break;
-
-			default:
-				ch_error("could not send data to server");
-				break;
-		}
-
-		return -1;
+		ch_readahead_pos_advance(readahead, n);
+		return n;
 	}
 
-	ch_readahead_pos_advance(readahead, n);
-	return n;
+	int result_errno = errno;
+	switch (result_errno)
+	{
+		case EAGAIN:
+#if defined(EWOULDBLOCK) && (!defined(EAGAIN) || (EWOULDBLOCK != EAGAIN))
+		case EWOULDBLOCK:
+#endif
+		{
+			fd_set	rset;
+
+			FD_ZERO (&rset);
+			FD_SET  (readahead->sock, &rset);
+
+			rc = select(FD_SETSIZE, &rset, NULL, NULL, readahead->timeout);
+			if (rc > 0)
+				goto again;
+
+			if (rc == 0)
+				ch_error("recv timed out");
+			else
+				ch_error("recv error: %s", strerror(errno));
+
+			return -1;
+		}
+		case EINTR:
+			goto again;
+
+#ifdef ECONNRESET
+			/* FALL THRU */
+		case ECONNRESET:
+			ch_error("server closed the connection unexpectedly");
+			break;
+#endif
+
+		default:
+			ch_error("could not send data to server");
+			break;
+	}
+
+	return -1;
 }
 
 static int
@@ -324,9 +385,24 @@ get_hello(ch_binary_connection_t *conn)
 	return true;
 }
 
+static bool
+ping(ch_binary_connection_t *conn)
+{
+	ch_reset_error();
+	ch_readahead_reuse(&conn->in);
+	assert(conn->out.pos == 0);
+
+    write_varuint_binary(&conn->out, CH_Client_Ping);
+	bool res = ch_binary_send(conn);
+	if (!res)
+		return false;
+
+	return res;
+}
+
 ch_binary_connection_t *
 ch_binary_connect(char *host, uint16_t port, char *default_database,
-		char *user, char *password, char *client_name)
+		char *user, char *password, char *client_name, int connection_timeout)
 {
 	ch_binary_connection_t	*conn;
 
@@ -383,7 +459,7 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 		saddr = ai->ai_addr;
 	}
 
-	int sock = ch_connect(saddr);
+	int sock = ch_connect(saddr, connection_timeout);
 
 	if (ai)
 		freeaddrinfo(ai);
@@ -410,8 +486,12 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 	conn->default_database = strdup(default_database);
 	conn->client_name = strdup(client_name);
 
-	ch_readahead_init(sock, &conn->in);
-	ch_readahead_init(sock, &conn->out);
+	/* setup timeouts */
+	conn->connection_timeout = connection_timeout;
+	conn->recv_timeout.tv_sec = 60;
+	conn->send_timeout.tv_sec = 60;
+	ch_readahead_init(sock, &conn->in, &conn->recv_timeout);
+	ch_readahead_init(sock, &conn->out, &conn->send_timeout);
 
 	/* exchange hello packets and initialize server fields in connection */
 	if (say_hello(conn) && get_hello(conn))
@@ -420,6 +500,11 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 
 	ch_binary_disconnect(conn);
 	return NULL;
+}
+
+void
+ch_binary_reconnect(ch_binary_connection_t *conn)
+{
 }
 
 void

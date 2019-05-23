@@ -10,7 +10,7 @@
 static void test_binary(void **s) {
 	ch_readahead_t	io;
 
-	ch_readahead_init(0, &io);
+	ch_readahead_init(0, &io, NULL);
 	write_varuint_binary(&io, 2);
 	assert_int_equal(io.size, 8192);
 	write_varuint_binary(&io, 3);
@@ -36,7 +36,7 @@ static void test_binary(void **s) {
 }
 
 static void test_connection(void **s) {
-	ch_binary_connection_t *conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
+	ch_binary_connection_t *conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL, 10);
 	assert_ptr_not_equal(conn, NULL);
 	ch_binary_disconnect(conn);
 
