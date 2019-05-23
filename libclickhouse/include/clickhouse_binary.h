@@ -6,6 +6,8 @@
 typedef struct ch_binary_timeouts ch_binary_timeouts_t;
 typedef struct ch_binary_settings ch_binary_settings_t;
 typedef struct ch_binary_connection ch_binary_connection_t;
+typedef struct ch_binary_query_settings ch_binary_query_settings_t;
+typedef struct ch_binary_client_info ch_binary_client_info_t;
 
 struct ch_binary_timeouts
 {
@@ -17,6 +19,14 @@ struct ch_binary_settings
 {
 	int compression;	/* 0 - turned off, 1 - lz4 */
 };
+
+struct ch_binary_query_settings
+{
+}
+
+struct ch_binary_client_info
+{
+}
 
 ch_binary_connection_t	*ch_binary_connect(char *host, uint16_t port,
 	char *default_database, char *user, char *password, char *client_name,

@@ -414,6 +414,67 @@ ch_ping(ch_binary_connection_t *conn)
 	return false;
 }
 
+static int
+write_client_info(ch_readahead_t *readahead,
+	ch_binary_client_info_t *client_info)
+{
+	char query_kind;
+
+	if (client_info == NULL)
+	{
+		query_kind = CH_KIND_INITIAL_QUERY;
+		/// No client info passed - means this query initiated by me.
+		client_info_to_send.query_kind = ClientInfo::QueryKind::INITIAL_QUERY;
+		client_info_to_send.fillOSUserHostNameAndVersionInfo();
+		client_info_to_send.client_name = (DBMS_NAME " ") + client_name;
+	}
+	else
+	{
+		query_kind = CH_KIND_SECONDARY_QUERY;
+	}
+
+    write_char_binary(readahead, query_kind);
+}
+
+int
+ch_binary_send_query(
+	ch_binary_connection_t *conn,
+	const char *query,
+	const char *query_id,
+	uint64_t stage,
+	ch_binary_query_settings_t *settings,
+	ch_binary_client_info_t *client_info)
+{
+	ch_reset_error();
+	ch_readahead_reuse(&conn->out);
+
+    write_varuint_binary(&conn->out, CH_Client_Query);
+	write_string_binary(&conn->out, query_id);
+
+	assert(conn->server_revision);
+    if (conn->server_revision >= DBMS_MIN_REVISION_WITH_CLIENT_INFO)
+		write_client_info(&conn->out, client_info);
+
+    /// Per query settings.
+    if (settings)
+		/* TODO: per query settings */;
+    else
+        write_string_binary(&conn->out, "");
+
+	write_varuint_binary(&conn->out, stage);
+	write_bool_binary(&conn->out, conn->compression > 0);
+
+	assert(query);
+    write_string_binary(&conn->out, query);
+
+    /// Send empty block which means end of data.
+    if (!with_pending_data)
+    {
+        sendData(Block());
+        out->next();
+    }
+}
+
 ch_binary_connection_t *
 ch_binary_connect(char *host, uint16_t port, char *default_database,
 		char *user, char *password, char *client_name, int connection_timeout)

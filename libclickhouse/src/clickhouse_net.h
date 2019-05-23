@@ -81,6 +81,12 @@ enum {
 	CH_MaxPacketType
 };
 
+enum {
+    CH_KIND_NO_QUERY = 0,            /// Uninitialized object.
+    CH_KIND_INITIAL_QUERY = 1,
+    CH_KIND_SECONDARY_QUERY = 2,    /// Query that was initiated by another query for distributed or ON CLUSTER query execution.
+};
+
 extern void ch_error(const char *fmt, ...);
 extern int sock_read(ch_readahead_t *readahead);
 bool ch_ping(ch_binary_connection_t *conn);
