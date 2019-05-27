@@ -480,6 +480,32 @@ SELECT SUM(c1) FILTER (WHERE c1 < 20) FROM ft2;
  190
 (1 row)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT COUNT(DISTINCT c1) FROM ft2;
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Foreign Scan
+   Output: (count(DISTINCT c1))
+   Relations: Aggregate on (ft2)
+   Remote SQL: SELECT count(DISTINCT c1) FROM regression.t2
+(4 rows)
+
+SELECT COUNT(DISTINCT c1) FROM ft2;
+ count 
+-------
+   100
+(1 row)
+
+/* DISTINCT with IF */
+EXPLAIN (VERBOSE, COSTS OFF) SELECT COUNT(DISTINCT c1) FILTER (WHERE c1 < 20) FROM ft2;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Aggregate
+   Output: count(DISTINCT c1) FILTER (WHERE (c1 < 20))
+   ->  Foreign Scan on public.ft2
+         Output: c1, c2
+         Remote SQL: SELECT c1 FROM regression.t2
+(5 rows)
+
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
 ------------------------

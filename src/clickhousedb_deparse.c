@@ -758,7 +758,7 @@ foreign_expr_walker(Node *node,
 		if (agg->aggorder)
 			return false;
 
-		if (agg->aggdistinct != NIL)
+		if (agg->aggdistinct && agg->aggfilter)
 			return false;
 
 		if (agg->aggvariadic)
@@ -2734,6 +2734,9 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	if (node->aggfilter)
 		appendStringInfoString(buf, "If");
 	appendStringInfoChar(buf, '(');
+
+	/* Add DISTINCT */
+	appendStringInfoString(buf, (node->aggdistinct != NIL) ? "DISTINCT " : "");
 
 	/* aggstar can be set only in zero-argument aggregates */
 	if (node->aggstar)
