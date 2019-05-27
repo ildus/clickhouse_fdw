@@ -399,12 +399,13 @@ ch_ping(ch_binary_connection_t *conn)
 	if (!res)
 		return false;
 
+again:
 	packet_type = ch_binary_read_header(conn);
 	switch (packet_type)
 	{
 		case CH_Progress:
 			/* TODO: late progress packet, process it */
-			break;
+			goto again;
 		case CH_Pong:
 			return true;
 		default:
@@ -414,26 +415,66 @@ ch_ping(ch_binary_connection_t *conn)
 	return false;
 }
 
+static ch_binary_client_info_t *
+get_default_client_info(void)
+{
+	static ch_binary_client_info_t *client_info = malloc(sizeof(ch_binary_client_info_t));
+
+	client_infofillOSUserHostNameAndVersionInfo();
+
+	rc = gethostname(client_info->hostname, sizeof(client_info->hostname));
+	if (rc == 0)
+	{
+		ch_error("could not get hostname: %s", strerror(errno));
+		goto fail;
+	}
+
+    rc = getlogin_r(client_info->os_user, sizeof(client_info->os_user));
+	if (rc == 0)
+		/* it's ok if can't get username */
+		client_info->os_user[0] = '\0';
+
+	client_info->version_major = DBMS_VERSION_MAJOR;
+	client_info->version_minor = DBMS_VERSION_MINOR;
+	client_info->version_patch = DBMS_VERSION_PATCH;
+	client_info->version_revision = DBMS_VERSION_REVISION;
+
+	return client_info;
+
+fail:
+	free(client_info);
+	client_info = NULL;
+	return NULL;
+}
+
 static int
-write_client_info(ch_readahead_t *readahead,
-	ch_binary_client_info_t *client_info)
+write_client_info(ch_binary_connection_t *conn, char *query_id)
 {
 	char query_kind;
+	ch_binary_client_info_t	*client_info;
 
+	query_kind = CH_KIND_INITIAL_QUERY;
+	client_info = get_default_client_info(client_name);
 	if (client_info == NULL)
-	{
-		query_kind = CH_KIND_INITIAL_QUERY;
-		/// No client info passed - means this query initiated by me.
-		client_info_to_send.query_kind = ClientInfo::QueryKind::INITIAL_QUERY;
-		client_info_to_send.fillOSUserHostNameAndVersionInfo();
-		client_info_to_send.client_name = (DBMS_NAME " ") + client_name;
-	}
-	else
-	{
-		query_kind = CH_KIND_SECONDARY_QUERY;
-	}
+		return -1;
 
-    write_char_binary(readahead, query_kind);
+    write_char_binary(&conn->out, query_kind);
+    write_string_binary(&conn->out, conn->user);
+    write_string_binary(&conn->out, query_id);
+    write_string_binary(&conn->out, conn->address_str);
+    write_char_binary(&conn->out, 1);	// tcp
+	write_string_binary(&conn->out, client_info->os_user);
+	write_string_binary(&conn->out, client_info->hostname);
+	write_string_binary(&conn->out, client_name);
+	write_varuint_binary(&conn->out, client_info->version_major);
+	write_varuint_binary(&conn->out, client_info->version_minor);
+	write_varuint_binary(&conn->out, client_info->version_revision);
+
+    if (server_protocol_revision >= DBMS_MIN_REVISION_WITH_QUOTA_KEY_IN_CLIENT_INFO)
+        write_string_binary(&conn->out, "");
+
+	if (server_protocol_revision >= DBMS_MIN_REVISION_WITH_VERSION_PATCH)
+		write_varuint_binary(&conn->out, client_info->version_patch);
 }
 
 int
@@ -442,18 +483,23 @@ ch_binary_send_query(
 	const char *query,
 	const char *query_id,
 	uint64_t stage,
-	ch_binary_query_settings_t *settings,
-	ch_binary_client_info_t *client_info)
+	ch_binary_query_settings_t *settings)
 {
 	ch_reset_error();
 	ch_readahead_reuse(&conn->out);
 
     write_varuint_binary(&conn->out, CH_Client_Query);
+
+	/* set default query as empty */
+	if (!query_id)
+		query_id = "";
+
 	write_string_binary(&conn->out, query_id);
 
 	assert(conn->server_revision);
     if (conn->server_revision >= DBMS_MIN_REVISION_WITH_CLIENT_INFO)
-		write_client_info(&conn->out, client_info);
+		if (write_client_info(&conn, query_id) != 0)
+			return -1;
 
     /// Per query settings.
     if (settings)
@@ -481,6 +527,7 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 {
 	ch_binary_connection_t	*conn;
 
+	char  *address_str = NULL;
 	struct addrinfo *ai = NULL;
 	struct sockaddr	*saddr = NULL;
 
@@ -535,6 +582,8 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 	}
 
 	int sock = ch_connect(saddr, connection_timeout);
+	if (sock > 0)
+		address_str = get_ipaddress(saddr);
 
 	if (ai)
 		freeaddrinfo(ai);
@@ -560,6 +609,10 @@ ch_binary_connect(char *host, uint16_t port, char *default_database,
 	conn->password = strdup(password);
 	conn->default_database = strdup(default_database);
 	conn->client_name = strdup(client_name);
+
+	/* construct address for ch protocol */
+	assert(address_str != NULL);
+	conn->address_str = address_str;
 
 	/* setup timeouts */
 	conn->connection_timeout = connection_timeout;

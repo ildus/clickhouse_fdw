@@ -9,8 +9,8 @@
 #define max(A, B) ((B)>(A)?(B):(A))
 
 typedef struct ch_binary_connection ch_binary_connection_t;
+typedef struct ch_binary_client_info ch_binary_client_info_t;
 
- // readahead code borrowed from "yandex/odyssey"
 typedef struct ch_readahead_t
 {
 	int		sock;
@@ -31,6 +31,7 @@ struct ch_binary_connection
 	char			   *user;
 	char			   *password;
 	char			   *client_name;
+	char			   *address_str;
 
 	ch_readahead_t		in;
 	ch_readahead_t		out;
@@ -51,6 +52,16 @@ struct ch_binary_connection
 	uint64_t			server_version_major;
 	uint64_t			server_revision;
 	uint64_t			server_version_patch;
+};
+
+struct ch_binary_client_info
+{
+	char		hostname[256];
+	char		os_user[256];
+    uint64_t	version_major;
+    uint64_t	version_minor;
+    uint64_t	version_patch;
+	uint64_t	version_revision;
 };
 
 enum {
@@ -95,11 +106,11 @@ static inline int
 ch_readahead_init(int sock, ch_readahead_t *readahead, struct timeval *timeout)
 {
 	readahead->sock     = sock;
-	readahead->buf      = malloc(8192);
+	readahead->size     = 8192;
+	readahead->buf      = malloc(readahead->size);
 	if (readahead->buf == NULL)
 		return -1;
 
-	readahead->size     = 8192;
 	readahead->pos      = 0;
 	readahead->pos_read = 0;
 	readahead->timeout  = timeout;
