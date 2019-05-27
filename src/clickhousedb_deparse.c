@@ -744,21 +744,25 @@ foreign_expr_walker(Node *node,
 
 		/* Not safe to pushdown when not in grouping context */
 		if (!IS_UPPER_REL(glob_cxt->foreignrel))
-		{
 			return false;
-		}
 
 		/* Only non-split aggregates are pushable. */
 		if (agg->aggsplit != AGGSPLIT_SIMPLE)
-		{
 			return false;
-		}
 
 		/* As usual, it must be shippable. */
 		if (!is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo))
-		{
 			return false;
-		}
+
+		/* Features that ClickHouse doesn't support */
+		if (agg->aggorder)
+			return false;
+
+		if (agg->aggdistinct != NIL)
+			return false;
+
+		if (agg->aggvariadic)
+			return false;
 
 		/*
 		 * Recurse to input args. aggdirectargs, aggorder and
@@ -780,37 +784,6 @@ foreign_expr_walker(Node *node,
 			if (!foreign_expr_walker(n, glob_cxt, &inner_cxt))
 			{
 				return false;
-			}
-		}
-
-		/*
-		 * For aggorder elements, check whether the sort operator, if
-		 * specified, is shippable or not.
-		 */
-		if (agg->aggorder)
-		{
-			ListCell   *lc;
-
-			foreach (lc, agg->aggorder)
-			{
-				SortGroupClause *srt = (SortGroupClause *) lfirst(lc);
-				Oid			sortcoltype;
-				TypeCacheEntry *typentry;
-				TargetEntry *tle;
-
-				tle = get_sortgroupref_tle(srt->tleSortGroupRef,
-				                           agg->args);
-				sortcoltype = exprType((Node *) tle->expr);
-				typentry = lookup_type_cache(sortcoltype,
-				                             TYPECACHE_LT_OPR | TYPECACHE_GT_OPR);
-				/* Check shippability of non-default sort operator. */
-				if (srt->sortop != typentry->lt_opr &&
-				        srt->sortop != typentry->gt_opr &&
-				        !is_shippable(srt->sortop, OperatorRelationId,
-				                      fpinfo))
-				{
-					return false;
-				}
 			}
 		}
 
@@ -2758,85 +2731,42 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 
 	/* Find aggregate name from aggfnoid which is a pg_proc entry */
 	appendFunctionName(node->aggfnoid, context);
+	if (node->aggfilter)
+		appendStringInfoString(buf, "If");
 	appendStringInfoChar(buf, '(');
 
-	/* Add DISTINCT */
-	appendStringInfoString(buf, (node->aggdistinct != NIL) ? "DISTINCT " : "");
-
-	if (AGGKIND_IS_ORDERED_SET(node->aggkind))
+	/* aggstar can be set only in zero-argument aggregates */
+	if (node->aggstar)
 	{
-		/* Add WITHIN GROUP (ORDER BY ..) */
-		ListCell   *arg;
-		bool		first = true;
-
-		Assert(!node->aggvariadic);
-		Assert(node->aggorder != NIL);
-
-		foreach (arg, node->aggdirectargs)
-		{
-			if (!first)
-			{
-				appendStringInfoString(buf, ", ");
-			}
-			first = false;
-
-			deparseExpr((Expr *) lfirst(arg), context);
-		}
-
-		appendStringInfoString(buf, ") WITHIN GROUP (ORDER BY ");
-		appendAggOrderBy(node->aggorder, node->args, context);
+		appendStringInfoChar(buf, '*');
 	}
 	else
 	{
-		/* aggstar can be set only in zero-argument aggregates */
-		if (node->aggstar)
+		ListCell   *arg;
+		bool		first = true;
+
+		/* Add all the arguments */
+		foreach (arg, node->args)
 		{
-			appendStringInfoChar(buf, '*');
-		}
-		else
-		{
-			ListCell   *arg;
-			bool		first = true;
+			TargetEntry *tle = (TargetEntry *) lfirst(arg);
+			Node	   *n = (Node *) tle->expr;
 
-			/* Add all the arguments */
-			foreach (arg, node->args)
-			{
-				TargetEntry *tle = (TargetEntry *) lfirst(arg);
-				Node	   *n = (Node *) tle->expr;
+			if (tle->resjunk)
+				continue;
 
-				if (tle->resjunk)
-				{
-					continue;
-				}
+			if (!first)
+				appendStringInfoString(buf, ", ");
 
-				if (!first)
-				{
-					appendStringInfoString(buf, ", ");
-				}
-				first = false;
+			first = false;
 
-				/* Add VARIADIC */
-				if (use_variadic && lnext(arg) == NULL)
-				{
-					appendStringInfoString(buf, "VARIADIC ");
-				}
-
-				deparseExpr((Expr *) n, context);
-			}
-		}
-
-		/* Add ORDER BY */
-		if (node->aggorder != NIL)
-		{
-			appendStringInfoString(buf, " ORDER BY ");
-			appendAggOrderBy(node->aggorder, node->args, context);
+			deparseExpr((Expr *) n, context);
 		}
 	}
 
 	/* Add FILTER (WHERE ..) */
 	if (node->aggfilter != NULL)
 	{
-		appendStringInfoString(buf, ") FILTER (WHERE ");
+		appendStringInfoChar(buf, ',');
 		deparseExpr((Expr *) node->aggfilter, context);
 	}
 
