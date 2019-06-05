@@ -8,6 +8,7 @@ set (src
 	clickhousedb_option.c
 	clickhousedb_shipable.c
 	clickhousedb_shipable.c
+	clickhousedb_adjust.c
 	libclickhouse_link.c
 )
 

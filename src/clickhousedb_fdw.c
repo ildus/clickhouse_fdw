@@ -44,6 +44,7 @@
 #include "utils/sampling.h"
 #include "utils/selfuncs.h"
 #include "utils/datetime.h"
+#include "utils/fmgroids.h"
 PG_MODULE_MAGIC;
 
 
@@ -1134,6 +1135,15 @@ make_tuple_from_result_row(Relation rel,
 					break;
 				default:
 				{
+					/* arrays */
+					if (attinmeta->attinfuncs[i - 1].fn_oid == F_ARRAY_IN)
+					{
+						Assert(valstr[0] = '[');
+						valstr[0] = '{';
+						valstr[strlen(valstr) - 1] = '}';
+						break;
+					}
+
 					ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
 									errmsg("cannot convert clickhouse value to postgres value"),
 									errhint("Constant value data type: %u", pgtype)));

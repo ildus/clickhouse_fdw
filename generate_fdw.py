@@ -63,7 +63,7 @@ if __name__ == '__main__':
     database = args.database
 
     server_name = args.server_name
-    sql = 'CREATE EXTENSION clickhouse_fdw;'
+    sql = 'CREATE EXTENSION clickhouse_fdw;\n'
     sql += """CREATE SERVER IF NOT EXISTS %s
         FOREIGN DATA WRAPPER clickhouse_fdw
         OPTIONS (dbname '%s', host '%s', port '%s');\n""" \
