@@ -1146,7 +1146,7 @@ make_tuple_from_result_row(Relation rel,
 
 					ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
 									errmsg("cannot convert clickhouse value to postgres value"),
-									errhint("Constant value data type: %u", pgtype)));
+									errhint("val: %s, data type: %u", valstr, pgtype)));
 					break;
 				}
 			}
@@ -2583,7 +2583,8 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 static void
 apply_server_options(CHFdwRelationInfo *fpinfo)
 {
-	/* No server options */
+	fpinfo->shippable_extensions =
+		ExtractExtensionList("istore", false);
 }
 
 /*

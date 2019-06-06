@@ -214,4 +214,26 @@ typedef struct
 
 extern libclickhouse_methods *clickhouse_gate;
 
+/* custom */
+typedef enum {
+	CF_USUAL = 0,
+	CF_ISTORE_SUM
+} custom_function_type;
+
+typedef enum {
+	CF_ISTORE_COLS,
+	CF_ISTORE_ARR
+} custom_argument_type;
+
+typedef struct CustomFunctionDef
+{
+	Oid						cf_oid;
+	custom_function_type	cf_type;
+	custom_argument_type	cf_arg_type;
+	char					custom_name[NAMEDATALEN];
+} CustomFunctionDef;
+
+extern CustomFunctionDef *checkForCustomName(Oid funcid);
+extern void modifyCustomVar(CustomFunctionDef *def, Node *node);
+
 #endif							/* POSTGRES_FDW_H */

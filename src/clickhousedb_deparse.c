@@ -12,8 +12,6 @@
  */
 #include "postgres.h"
 
-#include "clickhousedb_fdw.h"
-
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/sysattr.h"
@@ -38,6 +36,7 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 
+#include "clickhousedb_fdw.h"
 
 /*
  * Global context for foreign_expr_walker's search of an expression tree.
@@ -82,6 +81,7 @@ typedef struct deparse_expr_cxt
 								 * a base relation. */
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
+	CustomFunctionDef	*custom_funcdef;	/* custom function deparse */
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -121,8 +121,8 @@ static void deparseReturningList(StringInfo buf, RangeTblEntry *rte,
 					 bool trig_after_row,
 					 List *returningList,
 					 List **retrieved_attrs);
-static void deparseColumnRef(StringInfo buf, int varno, int varattno,
-				 RangeTblEntry *rte, bool qualify_col);
+static void deparseColumnRef(StringInfo buf, CustomFunctionDef *cdef,
+	int varno, int varattno, RangeTblEntry *rte, bool qualify_col);
 static void deparseRelation(StringInfo buf, Relation rel);
 static void deparseExpr(Expr *expr, deparse_expr_cxt *context);
 static void deparseVar(Var *node, deparse_expr_cxt *context);
@@ -162,7 +162,7 @@ static void deparseAggref(Aggref *node, deparse_expr_cxt *context);
 static void appendGroupByClause(List *tlist, deparse_expr_cxt *context);
 static void appendAggOrderBy(List *orderList, List *targetList,
 				 deparse_expr_cxt *context);
-static void appendFunctionName(Oid funcid, deparse_expr_cxt *context);
+static CustomFunctionDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context);
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 					   deparse_expr_cxt *context);
 
@@ -456,24 +456,24 @@ foreign_expr_walker(Node *node,
 	{
 		FuncExpr   *fe = (FuncExpr *) node;
 
+		/* not in ClickHouse */
+		if (fe->funcvariadic)
+			return false;
+
 		/*
 		 * If function used by the expression is not shippable, it
 		 * can't be sent to remote because it might have incompatible
 		 * semantics on remote side.
 		 */
 		if (!is_shippable(fe->funcid, ProcedureRelationId, fpinfo))
-		{
 			return false;
-		}
 
 		/*
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) fe->args,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
 
 		/*
 		 * If function's input collation is not derived from a foreign
@@ -483,9 +483,7 @@ foreign_expr_walker(Node *node,
 			/* OK, inputs are all noncollatable */ ;
 		else if (inner_cxt.state != FDW_COLLATE_SAFE ||
 		         fe->inputcollid != inner_cxt.collation)
-		{
 			return false;
-		}
 
 		/*
 		 * Detect whether node is introducing a collation not derived
@@ -495,22 +493,14 @@ foreign_expr_walker(Node *node,
 		 */
 		collation = fe->funccollid;
 		if (collation == InvalidOid)
-		{
 			state = FDW_COLLATE_NONE;
-		}
 		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
 		         collation == inner_cxt.collation)
-		{
 			state = FDW_COLLATE_SAFE;
-		}
 		else if (collation == DEFAULT_COLLATION_OID)
-		{
 			state = FDW_COLLATE_NONE;
-		}
 		else
-		{
 			state = FDW_COLLATE_UNSAFE;
-		}
 	}
 	break;
 	case T_OpExpr:
@@ -1238,7 +1228,7 @@ deparseTargetList(StringInfo buf,
 
 			first = false;
 
-			deparseColumnRef(buf, rtindex, i, rte, qualify_col);
+			deparseColumnRef(buf, NULL, rtindex, i, rte, qualify_col);
 
 			*retrieved_attrs = lappend_int(*retrieved_attrs, i);
 		}
@@ -1729,7 +1719,7 @@ deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
 			}
 			first = false;
 
-			deparseColumnRef(buf, rtindex, attnum, rte, false);
+			deparseColumnRef(buf, NULL, rtindex, attnum, rte, false);
 		}
 		appendStringInfoChar(buf, ')');
 	}
@@ -1828,146 +1818,60 @@ deparseAnalyzeSql(StringInfo buf, Relation rel, List **retrieved_attrs)
  * If qualify_col is true, qualify column name with the alias of relation.
  */
 static void
-deparseColumnRef(StringInfo buf, int varno, int varattno, RangeTblEntry *rte,
+deparseColumnRef(StringInfo buf, CustomFunctionDef *cdef,
+				 int varno, int varattno, RangeTblEntry *rte,
                  bool qualify_col)
 {
-	/* We support fetching the remote side's CTID and OID. */
-	if (varattno == SelfItemPointerAttributeNumber)
-	{
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, varno);
-		}
-		appendStringInfoString(buf, "ctid");
-	}
-	else if (varattno == ObjectIdAttributeNumber)
-	{
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, varno);
-		}
-		appendStringInfoString(buf, "oid");
-	}
-	else if (varattno < 0)
-	{
-		/*
-		 * All other system attributes are fetched as 0, except for table OID,
-		 * which is fetched as the local table OID.  However, we must be
-		 * careful; the table could be beneath an outer join, in which case it
-		 * must go to NULL whenever the rest of the row does.
-		 */
-		Oid			fetchval = 0;
+	char	   *colname = NULL;
+	List	   *options;
+	ListCell   *lc;
 
-		if (varattno == TableOidAttributeNumber)
-		{
-			fetchval = rte->relid;
-		}
+	/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
+	Assert(!IS_SPECIAL_VARNO(varno));
 
-		if (qualify_col)
+	if (varattno <= 0)
+		elog(ERROR, "ClickHouse does not support system attributes");
+
+	/*
+	 * If it's a column of a foreign table, and it has the column_name FDW
+	 * option, use that value.
+	 */
+	options = GetForeignColumnOptions(rte->relid, varattno);
+	foreach (lc, options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, "column_name") == 0)
 		{
-			appendStringInfoString(buf, "CASE WHEN (");
-			ADD_REL_QUALIFIER(buf, varno);
-			appendStringInfo(buf, "*) IS NOT NULL THEN %u END", fetchval);
-		}
-		else
-		{
-			appendStringInfo(buf, "%u", fetchval);
+			colname = defGetString(def);
+			break;
 		}
 	}
-	else if (varattno == 0)
+
+	/*
+	 * If it's a column of a regular table or it doesn't have column_name
+	 * FDW option, use attribute name.
+	 */
+	if (colname == NULL)
+		colname = get_attname(rte->relid, varattno, false);
+
+	if (qualify_col)
+		ADD_REL_QUALIFIER(buf, varno);
+
+	if (cdef && cdef->cf_type == CF_ISTORE_SUM)
 	{
-		/* Whole row reference */
-		Relation	rel;
-		Bitmapset  *attrs_used;
+		char *col1 = psprintf("%s_ids", colname);
+		char *col2 = psprintf("%s_values", colname);
 
-		/* Required only to be passed down to deparseTargetList(). */
-		List	   *retrieved_attrs;
+		appendStringInfoString(buf, quote_identifier(col1));
+		appendStringInfoChar(buf, ',');
+		appendStringInfoString(buf, quote_identifier(col2));
 
-		/*
-		 * The lock on the relation will be held by upper callers, so it's
-		 * fine to open it with no lock here.
-		 */
-		rel = heap_open(rte->relid, NoLock);
-
-		/*
-		 * The local name of the foreign table can not be recognized by the
-		 * foreign server and the table it references on foreign server might
-		 * have different column ordering or different columns than those
-		 * declared locally. Hence we have to deparse whole-row reference as
-		 * ROW(columns referenced locally). Construct this by deparsing a
-		 * "whole row" attribute.
-		 */
-		attrs_used = bms_add_member(NULL,
-		                            0 - FirstLowInvalidHeapAttributeNumber);
-
-		/*
-		 * In case the whole-row reference is under an outer join then it has
-		 * to go NULL whenever the rest of the row goes NULL. Deparsing a join
-		 * query would always involve multiple relations, thus qualify_col
-		 * would be true.
-		 */
-		if (qualify_col)
-		{
-			appendStringInfoString(buf, "CASE WHEN (");
-			ADD_REL_QUALIFIER(buf, varno);
-			appendStringInfoString(buf, "*) IS NOT NULL THEN ");
-		}
-
-		appendStringInfoString(buf, "ROW(");
-		deparseTargetList(buf, rte, varno, rel, false, attrs_used, qualify_col,
-		                  &retrieved_attrs);
-		appendStringInfoChar(buf, ')');
-
-		/* Complete the CASE WHEN statement started above. */
-		if (qualify_col)
-		{
-			appendStringInfoString(buf, " END");
-		}
-
-		heap_close(rel, NoLock);
-		bms_free(attrs_used);
+		pfree(col1);
+		pfree(col2);
 	}
 	else
-	{
-		char	   *colname = NULL;
-		List	   *options;
-		ListCell   *lc;
-
-		/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
-		Assert(!IS_SPECIAL_VARNO(varno));
-
-		/*
-		 * If it's a column of a foreign table, and it has the column_name FDW
-		 * option, use that value.
-		 */
-		options = GetForeignColumnOptions(rte->relid, varattno);
-		foreach (lc, options)
-		{
-			DefElem    *def = (DefElem *) lfirst(lc);
-
-			if (strcmp(def->defname, "column_name") == 0)
-			{
-				colname = defGetString(def);
-				break;
-			}
-		}
-
-		/*
-		 * If it's a column of a regular table or it doesn't have column_name
-		 * FDW option, use attribute name.
-		 */
-		if (colname == NULL)
-		{
-			colname = get_attname(rte->relid, varattno, false);
-		}
-
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, varno);
-		}
-
 		appendStringInfoString(buf, quote_identifier(colname));
-	}
 }
 
 /*
@@ -2152,8 +2056,9 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 	}
 
 	if (bms_is_member(node->varno, relids) && node->varlevelsup == 0)
-		deparseColumnRef(context->buf, node->varno, node->varattno,
-		                 planner_rt_fetch(node->varno, context->root),
+		deparseColumnRef(context->buf, context->custom_funcdef,
+						 node->varno, node->varattno,
+						 planner_rt_fetch(node->varno, context->root),
 		                 qualify_col);
 	else
 	{
@@ -2185,6 +2090,27 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 		{
 			printRemotePlaceholder(node->vartype, node->vartypmod, context);
 		}
+	}
+}
+
+void deparseCustomVar(StringInfo buf, CustomFunctionDef *def, Node *node)
+{
+	Assert(IsA(node, Var));
+
+	switch (def->cf_type)
+	{
+		case CF_USUAL:
+			Assert(false);
+			break;
+		case CF_ISTORE_SUM:
+			switch (def->cf_arg_type)
+			{
+				case CF_ISTORE_ARR:
+					break;
+				case CF_ISTORE_COLS:
+					elog(ERROR, "not implemented");
+			}
+			break;
 	}
 }
 
@@ -2361,7 +2287,6 @@ static void
 deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
-	bool		use_variadic;
 	bool		first;
 	ListCell   *arg;
 
@@ -2390,9 +2315,6 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		return;
 	}
 
-	/* Check if need to print VARIADIC (cf. ruleutils.c) */
-	use_variadic = node->funcvariadic;
-
 	/*
 	 * Normal function: display as proname(args).
 	 */
@@ -2404,13 +2326,8 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	foreach (arg, node->args)
 	{
 		if (!first)
-		{
 			appendStringInfoString(buf, ", ");
-		}
-		if (use_variadic && lnext(arg) == NULL)
-		{
-			appendStringInfoString(buf, "VARIADIC ");
-		}
+
 		deparseExpr((Expr *) lfirst(arg), context);
 		first = false;
 	}
@@ -2721,16 +2638,13 @@ static void
 deparseAggref(Aggref *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
-	bool		use_variadic;
+	CustomFunctionDef	*cdef;
 
 	/* Only basic, non-split aggregation accepted. */
 	Assert(node->aggsplit == AGGSPLIT_SIMPLE);
 
-	/* Check if need to print VARIADIC (cf. ruleutils.c) */
-	use_variadic = node->aggvariadic;
-
 	/* Find aggregate name from aggfnoid which is a pg_proc entry */
-	appendFunctionName(node->aggfnoid, context);
+	context->custom_funcdef = appendFunctionName(node->aggfnoid, context);
 	if (node->aggfilter)
 		appendStringInfoString(buf, "If");
 	appendStringInfoChar(buf, '(');
@@ -2774,6 +2688,9 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	}
 
 	appendStringInfoChar(buf, ')');
+
+	/* cleanup */
+	context->custom_funcdef = NULL;
 }
 
 static void
@@ -2974,36 +2891,37 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 /*
  * appendFunctionName
  *		Deparses function name from given function oid.
+ *		Returns was custom or not.
  */
-static void
+static CustomFunctionDef *
 appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	proctup;
 	Form_pg_proc procform;
 	const char *proname;
+	CustomFunctionDef	*def;
+
+	def = checkForCustomName(funcid);
+	if (def && def->cf_type != CF_USUAL)
+	{
+		appendStringInfoString(buf, quote_identifier(def->custom_name));
+		return def;
+	}
 
 	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
 	if (!HeapTupleIsValid(proctup))
-	{
 		elog(ERROR, "cache lookup failed for function %u", funcid);
-	}
+
 	procform = (Form_pg_proc) GETSTRUCT(proctup);
-
-	/* Print schema name only if it's not pg_catalog */
-	if (procform->pronamespace != PG_CATALOG_NAMESPACE)
-	{
-		const char *schemaname;
-
-		schemaname = get_namespace_name(procform->pronamespace);
-		appendStringInfo(buf, "%s.", quote_identifier(schemaname));
-	}
 
 	/* Always print the function name */
 	proname = NameStr(procform->proname);
 	appendStringInfoString(buf, quote_identifier(proname));
 
 	ReleaseSysCache(proctup);
+
+	return NULL;
 }
 
 /*
