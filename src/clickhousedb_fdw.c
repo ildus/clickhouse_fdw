@@ -1113,45 +1113,6 @@ make_tuple_from_result_row(Relation rel,
 
 		Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
 
-		if (valstr != NULL)
-		{
-			switch (pgtype)
-			{
-				case INT2OID:
-				case INT4OID:
-				case INT8OID:
-				case BOOLOID:
-				case FLOAT4OID:
-				case FLOAT8OID:
-				case NUMERICOID:
-				case BPCHAROID:
-				case VARCHAROID:
-				case TEXTOID:
-				case JSONOID:
-				case NAMEOID:
-				case DATEOID:
-				case TIMEOID:
-				case TIMESTAMPOID:
-					break;
-				default:
-				{
-					/* arrays */
-					if (attinmeta->attinfuncs[i - 1].fn_oid == F_ARRAY_IN)
-					{
-						Assert(valstr[0] = '[');
-						valstr[0] = '{';
-						valstr[strlen(valstr) - 1] = '}';
-						break;
-					}
-
-					ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-									errmsg("cannot convert clickhouse value to postgres value"),
-									errhint("val: %s, data type: %u", valstr, pgtype)));
-					break;
-				}
-			}
-		}
-
 		/* Apply the input function even to nulls, to support domains */
 		nulls[i - 1] = (valstr == NULL);
 		values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
