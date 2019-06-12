@@ -18,6 +18,11 @@
 
 typedef void *ch_connection;
 
+typedef enum {
+	CH_DEFAULT,
+	CH_COLLAPSING_MERGE_TREE
+} CHRemoteTableEngine;
+
 /*
  * FDW-specific planner information kept in RelOptInfo.fdw_private for a
  * postgres_fdw foreign table.  For a baserel, this struct is created by
@@ -106,6 +111,9 @@ typedef struct CHFdwRelationInfo
 	 * representing the relation.
 	 */
 	int			relation_index;
+
+	/* Custom */
+	CHRemoteTableEngine		ch_table_engine;
 } CHFdwRelationInfo;
 
 /* in clickhouse_fdw.c */
@@ -221,19 +229,21 @@ typedef enum {
 } custom_function_type;
 
 typedef enum {
-	CF_ISTORE_COLS,
+	CF_USUAL_ARG = 0,
 	CF_ISTORE_ARR
 } custom_argument_type;
 
-typedef struct CustomFunctionDef
+typedef struct CustomObjectDef
 {
 	Oid						cf_oid;
 	custom_function_type	cf_type;
 	custom_argument_type	cf_arg_type;
 	char					custom_name[NAMEDATALEN];
-} CustomFunctionDef;
+} CustomObjectDef;
 
-extern CustomFunctionDef *checkForCustomName(Oid funcid);
-extern void modifyCustomVar(CustomFunctionDef *def, Node *node);
+extern CustomObjectDef *checkForCustomName(Oid funcid);
+extern CustomObjectDef *checkForCustomType(Oid typeoid);
+extern void modifyCustomVar(CustomObjectDef *def, Node *node);
+void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo);
 
 #endif							/* POSTGRES_FDW_H */

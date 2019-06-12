@@ -325,21 +325,9 @@ static void merge_fdw_options(CHFdwRelationInfo *fpinfo,
                               const CHFdwRelationInfo *fpinfo_o,
                               const CHFdwRelationInfo *fpinfo_i);
 
-static bool is_join_pushdown_safe = true;
-
 void
 _PG_init(void)
 {
-	DefineCustomBoolVariable("clickhouse_fdw.join_pushdown_safe",
-	                         "Server-side join_pushdown_safe",
-	                         NULL,
-	                         &is_join_pushdown_safe,
-	                         true,
-	                         PGC_USERSET,
-	                         0,
-	                         NULL,
-	                         NULL,
-	                         NULL);
 }
 
 
@@ -402,8 +390,7 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	fpinfo->fdw_tuple_cost = DEFAULT_FDW_TUPLE_COST;
 	fpinfo->shippable_extensions = NIL;
 
-	apply_server_options(fpinfo);
-	apply_table_options(fpinfo);
+	ApplyCustomTableOptions(fpinfo);
 
 	fpinfo->user = NULL;
 
@@ -1606,20 +1593,10 @@ estimate_path_cost_size(PlannerInfo *root,
                         double *p_rows, int *p_width,
                         Cost *p_startup_cost, Cost *p_total_cost)
 {
-
-	*p_rows = 1000;
-	*p_width = 50;
-
-	if (is_join_pushdown_safe)
-	{
-		*p_startup_cost = 1.0;
-		*p_total_cost = -1.0;
-	}
-	else
-	{
-		*p_startup_cost = 1000.0;
-		*p_total_cost = 100.0;
-	}
+	*p_rows = 2;
+	*p_width = 2;
+	*p_startup_cost = 1.0;
+	*p_total_cost = -1.0;
 }
 
 /*
@@ -2534,29 +2511,6 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 		                                 sorted_epq_path,
 		                                 NIL));
 	}
-}
-
-/*
- * Parse options from foreign server and apply them to fpinfo.
- *
- * New options might also require tweaking merge_fdw_options().
- */
-static void
-apply_server_options(CHFdwRelationInfo *fpinfo)
-{
-	fpinfo->shippable_extensions =
-		ExtractExtensionList("istore", false);
-}
-
-/*
- * Parse options from foreign table and apply them to fpinfo.
- *
- * New options might also require tweaking merge_fdw_options().
- */
-static void
-apply_table_options(CHFdwRelationInfo *fpinfo)
-{
-	/* No server options */
 }
 
 /*

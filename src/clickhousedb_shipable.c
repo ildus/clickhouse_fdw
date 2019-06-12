@@ -17,6 +17,8 @@
 
 #include "access/transam.h"
 #include "catalog/dependency.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 #include "utils/syscache.h"
@@ -163,15 +165,17 @@ is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 
 	/* Built-in objects are presumed shippable. */
 	if (is_builtin(objectId))
-	{
 		return true;
-	}
+
+	if (classId == ProcedureRelationId && checkForCustomName(objectId) != NULL)
+		return true;
+
+	if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
+		return true;
 
 	/* Otherwise, give up if user hasn't specified any shippable extensions. */
 	if (fpinfo->shippable_extensions == NIL)
-	{
 		return false;
-	}
 
 	/* Initialize cache if first time through. */
 	if (!ShippableCacheHash)

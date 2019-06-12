@@ -1,0 +1,92 @@
+CREATE EXTENSION clickhouse_fdw;
+CREATE EXTENSION istore;
+CREATE SERVER ch_default FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE USER MAPPING FOR CURRENT_USER SERVER ch_default;
+-- create remote table
+SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (`dt` Date, `a_ids` Array(Int32), `a_values` Array(Int32)) ENGINE = MergeTree() PARTITION BY dt ORDER BY dt SETTINGS index_granularity = 8192');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t2 VALUES (''2019-10-10'', [1,2,3], [11, 22, 33])');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t2 VALUES (''2019-10-10'', [1,2,3,4], [11,22, 33,44])');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t2 VALUES (''2019-10-11'', [3,4,5], [33, 44, 55])');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- TODO:sign column
+CREATE FOREIGN TABLE t2 (dt date NOT NULL, a istore) SERVER ch_default
+	OPTIONS (table_name 't2', engine 'collapsingmergetree');
+-- check all good
+EXPLAIN (VERBOSE) SELECT * FROM t2 ORDER BY dt;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Foreign Scan on public.t2  (cost=1.00..-1.00 rows=2 width=36)
+   Output: dt, a
+   Remote SQL: SELECT dt, (a_ids,a_values) FROM regression.t2 ORDER BY dt ASC
+(3 rows)
+
+SELECT * FROM t2 ORDER BY dt;
+     dt     |                     a                      
+------------+--------------------------------------------
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33", "4"=>"44"
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+(3 rows)
+
+EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Sort  (cost=-0.99..-0.98 rows=2 width=36)
+   Output: dt, (sum(a))
+   Sort Key: t2.dt
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=36)
+         Output: dt, (sum(a))
+         Relations: Aggregate on (t2)
+         Remote SQL: SELECT dt, "sumMap"(a_ids,a_values) FROM regression.t2 GROUP BY dt
+(7 rows)
+
+SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
+     dt     |                    sum                     
+------------+--------------------------------------------
+ 10-10-2019 | "1"=>"22", "2"=>"44", "3"=>"66", "4"=>"44"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+(2 rows)
+
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to server ch_default
+drop cascades to user mapping for ildus on server ch_default
+drop cascades to foreign table t2
+DROP EXTENSION IF EXISTS istore CASCADE;

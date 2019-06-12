@@ -81,7 +81,7 @@ typedef struct deparse_expr_cxt
 								 * a base relation. */
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
-	CustomFunctionDef	*custom_funcdef;	/* custom function deparse */
+	CustomObjectDef	*custom_funcdef;	/* custom function deparse */
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -121,7 +121,7 @@ static void deparseReturningList(StringInfo buf, RangeTblEntry *rte,
 					 bool trig_after_row,
 					 List *returningList,
 					 List **retrieved_attrs);
-static void deparseColumnRef(StringInfo buf, CustomFunctionDef *cdef,
+static void deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 	int varno, int varattno, RangeTblEntry *rte, bool qualify_col);
 static void deparseRelation(StringInfo buf, Relation rel);
 static void deparseExpr(Expr *expr, deparse_expr_cxt *context);
@@ -162,7 +162,7 @@ static void deparseAggref(Aggref *node, deparse_expr_cxt *context);
 static void appendGroupByClause(List *tlist, deparse_expr_cxt *context);
 static void appendAggOrderBy(List *orderList, List *targetList,
 				 deparse_expr_cxt *context);
-static CustomFunctionDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context);
+static CustomObjectDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context);
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 					   deparse_expr_cxt *context);
 
@@ -1039,6 +1039,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 	context.foreignrel = rel;
 	context.scanrel = IS_UPPER_REL(rel) ? fpinfo->outerrel : rel;
 	context.params_list = params_list;
+	context.custom_funcdef = NULL;
 
 	/* Construct SELECT clause */
 	deparseSelectSql(tlist, is_subquery, retrieved_attrs, &context);
@@ -1213,6 +1214,7 @@ deparseTargetList(StringInfo buf,
 	first = true;
 	for (i = 1; i <= tupdesc->natts; i++)
 	{
+		CustomObjectDef	*cdef;
 		Form_pg_attribute attr = TupleDescAttr(tupdesc, i - 1);
 
 		/* Ignore dropped attributes. */
@@ -1228,61 +1230,24 @@ deparseTargetList(StringInfo buf,
 
 			first = false;
 
-			deparseColumnRef(buf, NULL, rtindex, i, rte, qualify_col);
+			cdef = checkForCustomType(attr->atttypid);
+			deparseColumnRef(buf, cdef, rtindex, i, rte, qualify_col);
 
 			*retrieved_attrs = lappend_int(*retrieved_attrs, i);
 		}
 	}
 
 	/*
-	 * Add ctid and oid if needed.  We currently don't support retrieving any
-	 * other system columns.
+	 * check for ctid and oid
 	 */
 	if (bms_is_member(SelfItemPointerAttributeNumber -
 	                  FirstLowInvalidHeapAttributeNumber,
 	                  attrs_used))
-	{
-		if (!first)
-		{
-			appendStringInfoString(buf, ", ");
-		}
-		else if (is_returning)
-		{
-			appendStringInfoString(buf, " RETURNING ");
-		}
-		first = false;
+		elog(ERROR, "clickhouse does not support system columns");
 
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, rtindex);
-		}
-		appendStringInfoString(buf, "ctid");
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs,
-		                               SelfItemPointerAttributeNumber);
-	}
 	if (bms_is_member(ObjectIdAttributeNumber - FirstLowInvalidHeapAttributeNumber,
 	                  attrs_used))
-	{
-		if (!first)
-		{
-			appendStringInfoString(buf, ", ");
-		}
-		else if (is_returning)
-		{
-			appendStringInfoString(buf, " RETURNING ");
-		}
-		first = false;
-
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, rtindex);
-		}
-		appendStringInfoString(buf, "oid");
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs,
-		                               ObjectIdAttributeNumber);
-	}
+		elog(ERROR, "clickhouse does not support system columns");
 
 	/* Don't generate bad syntax if no undropped columns */
 	if (first && !is_returning)
@@ -1581,6 +1546,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			context.scanrel = foreignrel;
 			context.root = root;
 			context.params_list = params_list;
+			context.custom_funcdef = NULL;
 
 			appendStringInfoChar(buf, '(');
 			appendConditions(fpinfo->joinclauses, &context);
@@ -1818,7 +1784,7 @@ deparseAnalyzeSql(StringInfo buf, Relation rel, List **retrieved_attrs)
  * If qualify_col is true, qualify column name with the alias of relation.
  */
 static void
-deparseColumnRef(StringInfo buf, CustomFunctionDef *cdef,
+deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 				 int varno, int varattno, RangeTblEntry *rte,
                  bool qualify_col)
 {
@@ -1855,23 +1821,46 @@ deparseColumnRef(StringInfo buf, CustomFunctionDef *cdef,
 	if (colname == NULL)
 		colname = get_attname(rte->relid, varattno, false);
 
-	if (qualify_col)
-		ADD_REL_QUALIFIER(buf, varno);
-
 	if (cdef && cdef->cf_type == CF_ISTORE_SUM)
 	{
 		char *col1 = psprintf("%s_ids", colname);
 		char *col2 = psprintf("%s_values", colname);
 
+		if (qualify_col)
+			ADD_REL_QUALIFIER(buf, varno);
 		appendStringInfoString(buf, quote_identifier(col1));
 		appendStringInfoChar(buf, ',');
+		if (qualify_col)
+			ADD_REL_QUALIFIER(buf, varno);
 		appendStringInfoString(buf, quote_identifier(col2));
 
 		pfree(col1);
 		pfree(col2);
 	}
+	else if (cdef && cdef->cf_arg_type == CF_ISTORE_ARR)
+	{
+		char *col1 = psprintf("%s_ids", colname);
+		char *col2 = psprintf("%s_values", colname);
+
+		appendStringInfoChar(buf, '(');
+		if (qualify_col)
+			ADD_REL_QUALIFIER(buf, varno);
+		appendStringInfoString(buf, quote_identifier(col1));
+		appendStringInfoChar(buf, ',');
+		if (qualify_col)
+			ADD_REL_QUALIFIER(buf, varno);
+		appendStringInfoString(buf, quote_identifier(col2));
+		appendStringInfoChar(buf, ')');
+
+		pfree(col1);
+		pfree(col2);
+	}
 	else
+	{
+		if (qualify_col)
+			ADD_REL_QUALIFIER(buf, varno);
 		appendStringInfoString(buf, quote_identifier(colname));
+	}
 }
 
 /*
@@ -2035,6 +2024,7 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 static void
 deparseVar(Var *node, deparse_expr_cxt *context)
 {
+	CustomObjectDef	*cdef;
 	Relids		relids = context->scanrel->relids;
 	int			relno;
 	int			colno;
@@ -2055,8 +2045,12 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 		return;
 	}
 
+	cdef = context->custom_funcdef;
+	if (!cdef)
+		cdef = checkForCustomType(node->vartype);
+
 	if (bms_is_member(node->varno, relids) && node->varlevelsup == 0)
-		deparseColumnRef(context->buf, context->custom_funcdef,
+		deparseColumnRef(context->buf, cdef,
 						 node->varno, node->varattno,
 						 planner_rt_fetch(node->varno, context->root),
 		                 qualify_col);
@@ -2090,27 +2084,6 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 		{
 			printRemotePlaceholder(node->vartype, node->vartypmod, context);
 		}
-	}
-}
-
-void deparseCustomVar(StringInfo buf, CustomFunctionDef *def, Node *node)
-{
-	Assert(IsA(node, Var));
-
-	switch (def->cf_type)
-	{
-		case CF_USUAL:
-			Assert(false);
-			break;
-		case CF_ISTORE_SUM:
-			switch (def->cf_arg_type)
-			{
-				case CF_ISTORE_ARR:
-					break;
-				case CF_ISTORE_COLS:
-					elog(ERROR, "not implemented");
-			}
-			break;
 	}
 }
 
@@ -2638,7 +2611,7 @@ static void
 deparseAggref(Aggref *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
-	CustomFunctionDef	*cdef;
+	CustomObjectDef	*cdef;
 
 	/* Only basic, non-split aggregation accepted. */
 	Assert(node->aggsplit == AGGSPLIT_SIMPLE);
@@ -2893,14 +2866,14 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
  *		Deparses function name from given function oid.
  *		Returns was custom or not.
  */
-static CustomFunctionDef *
+static CustomObjectDef *
 appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	proctup;
 	Form_pg_proc procform;
 	const char *proname;
-	CustomFunctionDef	*def;
+	CustomObjectDef	*def;
 
 	def = checkForCustomName(funcid);
 	if (def && def->cf_type != CF_USUAL)

@@ -50,7 +50,7 @@ exec_program(${PG_CONFIG} ARGS --libs OUTPUT_VARIABLE PGSQL_LIBS)
 find_program(PG_REGRESS pg_regress ${PGSQL_PKGLIBDIR}/pgxs/src/test/regress/
 		   REQUIRED)
 add_custom_target(installcheck
-	COMMAND ${PG_REGRESS} --inputdir=${PROJECT_SOURCE_DIR}/tests/pgsql --outputdir=${PROJECT_SOURCE_DIR}/tests/pgsql \${EXTRA_REGRESS_OPTS} clickhouse_fdw)
+	COMMAND ${PG_REGRESS} --inputdir=${PROJECT_SOURCE_DIR}/tests/pgsql --outputdir=${PROJECT_SOURCE_DIR}/tests/pgsql \${EXTRA_REGRESS_OPTS} clickhouse_fdw istore)
 
 #------------------------------------------------------------------------------
 # use default install location if not specified
