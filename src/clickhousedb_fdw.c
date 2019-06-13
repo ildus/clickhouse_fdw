@@ -365,8 +365,8 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	CHFdwRelationInfo *fpinfo;
 	ListCell   *lc;
 	RangeTblEntry *rte = planner_rt_fetch(baserel->relid, root);
-	char *refname;
-	char *relname;
+	char *relname,
+		 *refname;
 
 	/*
 	 * We use CHFdwRelationInfo to pass various information to subsequent
@@ -390,7 +390,7 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	fpinfo->fdw_tuple_cost = DEFAULT_FDW_TUPLE_COST;
 	fpinfo->shippable_extensions = NIL;
 
-	ApplyCustomTableOptions(fpinfo);
+	ApplyCustomTableOptions(fpinfo, foreigntableid);
 
 	fpinfo->user = NULL;
 

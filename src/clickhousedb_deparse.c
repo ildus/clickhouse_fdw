@@ -82,6 +82,7 @@ typedef struct deparse_expr_cxt
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
 	CustomObjectDef	*custom_funcdef;	/* custom function deparse */
+	CHFdwRelationInfo *fpinfo;			/* fdw relation info */
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -1789,8 +1790,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
                  bool qualify_col)
 {
 	char	   *colname = NULL;
-	List	   *options;
-	ListCell   *lc;
+	CustomColumnInfo	*cinfo;
 
 	/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
 	Assert(!IS_SPECIAL_VARNO(varno));
@@ -1798,21 +1798,10 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 	if (varattno <= 0)
 		elog(ERROR, "ClickHouse does not support system attributes");
 
-	/*
-	 * If it's a column of a foreign table, and it has the column_name FDW
-	 * option, use that value.
-	 */
-	options = GetForeignColumnOptions(rte->relid, varattno);
-	foreach (lc, options)
-	{
-		DefElem    *def = (DefElem *) lfirst(lc);
-
-		if (strcmp(def->defname, "column_name") == 0)
-		{
-			colname = defGetString(def);
-			break;
-		}
-	}
+	/* Get FDW specific options for this column */
+	cinfo = GetCustomColumnInfo(rte->relid, varattno);
+	if (cinfo)
+		colname = cinfo->colname;
 
 	/*
 	 * If it's a column of a regular table or it doesn't have column_name
@@ -1821,39 +1810,51 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 	if (colname == NULL)
 		colname = get_attname(rte->relid, varattno, false);
 
-	if (cdef && cdef->cf_type == CF_ISTORE_SUM)
+	if (cinfo && cinfo->coltype == CF_ISTORE_ARR)
 	{
-		char *col1 = psprintf("%s_ids", colname);
-		char *col2 = psprintf("%s_values", colname);
+		char *colkey = psprintf("%s_ids", colname);
+		char *colval = psprintf("%s_values", colname);
 
-		if (qualify_col)
-			ADD_REL_QUALIFIER(buf, varno);
-		appendStringInfoString(buf, quote_identifier(col1));
-		appendStringInfoChar(buf, ',');
-		if (qualify_col)
-			ADD_REL_QUALIFIER(buf, varno);
-		appendStringInfoString(buf, quote_identifier(col2));
+		if (cdef && cdef->cf_type == CF_ISTORE_SUM)
+		{
+			/* SUM context */
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colkey));
+			appendStringInfoChar(buf, ',');
 
-		pfree(col1);
-		pfree(col2);
-	}
-	else if (cdef && cdef->cf_arg_type == CF_ISTORE_ARR)
-	{
-		char *col1 = psprintf("%s_ids", colname);
-		char *col2 = psprintf("%s_values", colname);
+			if (cinfo->table_engine == CH_COLLAPSING_MERGE_TREE)
+			{
+				appendStringInfoString(buf, "arrayMap(x -> x * ");
+				appendStringInfoString(buf, cinfo->signfield);
+				appendStringInfoChar(buf, ',');
+				if (qualify_col)
+					ADD_REL_QUALIFIER(buf, varno);
+				appendStringInfoString(buf, quote_identifier(colval));
+				appendStringInfoChar(buf, ')');
+			}
+			else
+			{
+				if (qualify_col)
+					ADD_REL_QUALIFIER(buf, varno);
+				appendStringInfoString(buf, quote_identifier(colval));
+			}
+		}
+		else
+		{
+			appendStringInfoChar(buf, '(');
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colkey));
+			appendStringInfoChar(buf, ',');
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colval));
+			appendStringInfoChar(buf, ')');
+		}
 
-		appendStringInfoChar(buf, '(');
-		if (qualify_col)
-			ADD_REL_QUALIFIER(buf, varno);
-		appendStringInfoString(buf, quote_identifier(col1));
-		appendStringInfoChar(buf, ',');
-		if (qualify_col)
-			ADD_REL_QUALIFIER(buf, varno);
-		appendStringInfoString(buf, quote_identifier(col2));
-		appendStringInfoChar(buf, ')');
-
-		pfree(col1);
-		pfree(col2);
+		pfree(colkey);
+		pfree(colval);
 	}
 	else
 	{
@@ -2875,7 +2876,7 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	const char *proname;
 	CustomObjectDef	*def;
 
-	def = checkForCustomName(funcid);
+	def = checkForCustomFunction(funcid);
 	if (def && def->cf_type != CF_USUAL)
 	{
 		appendStringInfoString(buf, quote_identifier(def->custom_name));

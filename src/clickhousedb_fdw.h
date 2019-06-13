@@ -114,6 +114,7 @@ typedef struct CHFdwRelationInfo
 
 	/* Custom */
 	CHRemoteTableEngine		ch_table_engine;
+	char					ch_table_sign_field[NAMEDATALEN];
 } CHFdwRelationInfo;
 
 /* in clickhouse_fdw.c */
@@ -222,28 +223,37 @@ typedef struct
 
 extern libclickhouse_methods *clickhouse_gate;
 
-/* custom */
+/* Custom things we should support */
 typedef enum {
 	CF_USUAL = 0,
-	CF_ISTORE_SUM
-} custom_function_type;
-
-typedef enum {
-	CF_USUAL_ARG = 0,
-	CF_ISTORE_ARR
-} custom_argument_type;
+	CF_ISTORE_TYPE,		/* istore type */
+	CF_ISTORE_SUM,		/* SUM on istore column */
+	CF_ISTORE_ARR,		/* COLUMN splitted to array */
+	CF_ISTORE_COL		/* COLUMN splitted to columns by key */
+} custom_object_type;
 
 typedef struct CustomObjectDef
 {
 	Oid						cf_oid;
-	custom_function_type	cf_type;
-	custom_argument_type	cf_arg_type;
+	custom_object_type		cf_type;
 	char					custom_name[NAMEDATALEN];
 } CustomObjectDef;
 
-extern CustomObjectDef *checkForCustomName(Oid funcid);
+typedef struct CustomColumnInfo
+{
+	Oid		relid;
+	int		varattno;
+	char	colname[NAMEDATALEN];
+	custom_object_type coltype;
+
+	CHRemoteTableEngine	table_engine;
+	char	signfield[NAMEDATALEN];
+} CustomColumnInfo;
+
+extern CustomObjectDef *checkForCustomFunction(Oid funcid);
 extern CustomObjectDef *checkForCustomType(Oid typeoid);
 extern void modifyCustomVar(CustomObjectDef *def, Node *node);
-void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo);
+extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
+extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
 
 #endif							/* POSTGRES_FDW_H */

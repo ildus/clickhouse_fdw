@@ -167,7 +167,7 @@ is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 	if (is_builtin(objectId))
 		return true;
 
-	if (classId == ProcedureRelationId && checkForCustomName(objectId) != NULL)
+	if (classId == ProcedureRelationId && checkForCustomFunction(objectId) != NULL)
 		return true;
 
 	if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)

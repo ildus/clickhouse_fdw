@@ -39,9 +39,82 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.t2 VALUES (''2019-10-11'',
  
 (1 row)
 
--- TODO:sign column
-CREATE FOREIGN TABLE t2 (dt date NOT NULL, a istore) SERVER ch_default
-	OPTIONS (table_name 't2', engine 'collapsingmergetree');
+-- without sign
+CREATE FOREIGN TABLE t2 (dt date NOT NULL, a istore) SERVER ch_default;
+-- default sign
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3
+		(`dt` Date, `a_ids` Array(Int32), `a_values` Array(Int32), `sign` Int8)
+		ENGINE = CollapsingMergeTree(sign)
+		PARTITION BY dt
+		ORDER BY dt SETTINGS index_granularity = 8192');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t3 VALUES (''2019-10-10'', [1,2,3], [11, 22, 33], 1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t3 VALUES (''2019-10-11'', [3,4,5], [33, 44, 55], 1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t3 VALUES (''2019-10-11'', [3,4,5], [33, 44, 55], -1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t3 VALUES (''2019-10-11'', [3,4,5], [33, 44, 66], 1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+CREATE FOREIGN TABLE t3 (dt date NOT NULL, a istore) SERVER ch_default
+	OPTIONS (table_name 't3', engine 'CollapsingMergeTree');
+-- custom sign
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4
+		(`dt` Date, `a_ids` Array(Int32), `a_values` Array(Int32), `Sign` Int8)
+		ENGINE = CollapsingMergeTree(Sign)
+		PARTITION BY dt
+		ORDER BY dt SETTINGS index_granularity = 8192');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+CREATE FOREIGN TABLE t4 (dt date NOT NULL, a istore) SERVER ch_default
+	OPTIONS (engine 'CollapsingMergeTree(Sign)');
+SELECT clickhousedb_raw_query('INSERT INTO regression.t4 VALUES (''2019-10-10'', [1,2,3], [11, 22, 33], 1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t4 VALUES (''2019-10-10'', [1,2,3], [11, 22, 33], -1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t4 VALUES (''2019-10-10'', [1,2,3,4], [11,22, 33,44], 1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t4 VALUES (''2019-10-11'', [3,4,5], [33, 44, 55], 1)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 -- check all good
 EXPLAIN (VERBOSE) SELECT * FROM t2 ORDER BY dt;
                                   QUERY PLAN                                  
@@ -54,8 +127,8 @@ EXPLAIN (VERBOSE) SELECT * FROM t2 ORDER BY dt;
 SELECT * FROM t2 ORDER BY dt;
      dt     |                     a                      
 ------------+--------------------------------------------
- 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33", "4"=>"44"
  10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33", "4"=>"44"
  10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
 (3 rows)
 
@@ -78,15 +151,73 @@ SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
  10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
 (2 rows)
 
+EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Sort  (cost=-0.99..-0.98 rows=2 width=36)
+   Output: dt, (sum(a))
+   Sort Key: t3.dt
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=36)
+         Output: dt, (sum(a))
+         Relations: Aggregate on (t3)
+         Remote SQL: SELECT dt, "sumMap"(a_ids,arrayMap(x -> x * sign,a_values)) FROM regression.t3 GROUP BY dt
+(7 rows)
+
+SELECT * FROM t3 ORDER BY dt;
+     dt     |                a                
+------------+---------------------------------
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"66"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+(4 rows)
+
+SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;
+     dt     |               sum               
+------------+---------------------------------
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"66"
+(2 rows)
+
+EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t4 GROUP BY dt ORDER BY dt;
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Sort  (cost=-0.99..-0.98 rows=2 width=36)
+   Output: dt, (sum(a))
+   Sort Key: t4.dt
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=36)
+         Output: dt, (sum(a))
+         Relations: Aggregate on (t4)
+         Remote SQL: SELECT dt, "sumMap"(a_ids,arrayMap(x -> x * Sign,a_values)) FROM regression.t4 GROUP BY dt
+(7 rows)
+
+SELECT * FROM t4 ORDER BY dt;
+     dt     |                     a                      
+------------+--------------------------------------------
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33", "4"=>"44"
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+(4 rows)
+
+SELECT dt, sum(a) FROM t4 GROUP BY dt ORDER BY dt;
+     dt     |                    sum                     
+------------+--------------------------------------------
+ 10-10-2019 | "1"=>"11", "2"=>"22", "3"=>"33", "4"=>"44"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+(2 rows)
+
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
 ------------------------
  
 (1 row)
 
-DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 3 other objects
+DROP EXTENSION clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 5 other objects
 DETAIL:  drop cascades to server ch_default
 drop cascades to user mapping for ildus on server ch_default
 drop cascades to foreign table t2
-DROP EXTENSION IF EXISTS istore CASCADE;
+drop cascades to foreign table t3
+drop cascades to foreign table t4
+DROP EXTENSION istore CASCADE;
