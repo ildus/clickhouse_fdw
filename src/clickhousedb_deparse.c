@@ -81,7 +81,7 @@ typedef struct deparse_expr_cxt
 								 * a base relation. */
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
-	CustomObjectDef	*custom_funcdef;	/* custom function deparse */
+	CustomObjectDef	*func;	/* custom function deparse */
 	CHFdwRelationInfo *fpinfo;			/* fdw relation info */
 } deparse_expr_cxt;
 
@@ -1040,7 +1040,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 	context.foreignrel = rel;
 	context.scanrel = IS_UPPER_REL(rel) ? fpinfo->outerrel : rel;
 	context.params_list = params_list;
-	context.custom_funcdef = NULL;
+	context.func = NULL;
 
 	/* Construct SELECT clause */
 	deparseSelectSql(tlist, is_subquery, retrieved_attrs, &context);
@@ -1547,7 +1547,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			context.scanrel = foreignrel;
 			context.root = root;
 			context.params_list = params_list;
-			context.custom_funcdef = NULL;
+			context.func = NULL;
 
 			appendStringInfoChar(buf, '(');
 			appendConditions(fpinfo->joinclauses, &context);
@@ -2046,7 +2046,7 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 		return;
 	}
 
-	cdef = context->custom_funcdef;
+	cdef = context->func;
 	if (!cdef)
 		cdef = checkForCustomType(node->vartype);
 
@@ -2613,14 +2613,27 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	CustomObjectDef	*cdef;
+	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
+	bool	aggfilter = false;
+	bool	sign_count_filter = false;
 
 	/* Only basic, non-split aggregation accepted. */
 	Assert(node->aggsplit == AGGSPLIT_SIMPLE);
 
 	/* Find aggregate name from aggfnoid which is a pg_proc entry */
-	context->custom_funcdef = appendFunctionName(node->aggfnoid, context);
-	if (node->aggfilter)
+	cdef = context->func;
+	context->func = appendFunctionName(node->aggfnoid, context);
+
+	/* 'If' part */
+	if (context->func && context->func->cf_type == CF_SIGN_COUNT && !node->aggstar)
+		sign_count_filter = true;
+
+	if (node->aggfilter || sign_count_filter)
+	{
+		aggfilter = true;
 		appendStringInfoString(buf, "If");
+	}
+
 	appendStringInfoChar(buf, '(');
 
 	/* Add DISTINCT */
@@ -2629,42 +2642,93 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	/* aggstar can be set only in zero-argument aggregates */
 	if (node->aggstar)
 	{
-		appendStringInfoChar(buf, '*');
+		if (context->func && context->func->cf_type == CF_SIGN_COUNT)
+		{
+			Assert(fpinfo && fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE);
+			appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+		}
+		else
+			appendStringInfoChar(buf, '*');
 	}
 	else
 	{
 		ListCell   *arg;
 		bool		first = true;
+		bool		signMultiply = (context->func &&
+						(context->func->cf_type == CF_SIGN_AVG ||
+						 context->func->cf_type == CF_SIGN_SUM));
 
 		/* Add all the arguments */
-		foreach (arg, node->args)
+		if (sign_count_filter)
+			/* in case if COUNT(col) we should get countIf(sign, col is not null) */
+			appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+		else
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(arg);
-			Node	   *n = (Node *) tle->expr;
+			/* default columns output */
+			foreach (arg, node->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(arg);
+				Node	   *n = (Node *) tle->expr;
 
-			if (tle->resjunk)
-				continue;
+				if (tle->resjunk)
+					continue;
 
-			if (!first)
-				appendStringInfoString(buf, ", ");
+				if (!first)
+					appendStringInfoString(buf, ", ");
 
-			first = false;
+				first = false;
 
-			deparseExpr((Expr *) n, context);
+				deparseExpr((Expr *) n, context);
+			}
+
+			if (signMultiply)
+			{
+				Assert(fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE);
+				appendStringInfoString(buf, " * ");
+				appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+			}
 		}
 	}
 
-	/* Add FILTER (WHERE ..) */
-	if (node->aggfilter != NULL)
+	/* Add 'If' part condition */
+	if (aggfilter)
 	{
 		appendStringInfoChar(buf, ',');
-		deparseExpr((Expr *) node->aggfilter, context);
+
+		if (node->aggfilter)
+			deparseExpr((Expr *) node->aggfilter, context);
+
+		if (sign_count_filter)
+		{
+			if (node->aggfilter)
+				appendStringInfoString(buf, " AND ");
+
+			appendStringInfoChar(buf, '(');
+			deparseExpr((Expr *) ((TargetEntry *) linitial(node->args))->expr, context);
+			appendStringInfoString(buf, ") IS NOT NULL");
+		}
 	}
 
 	appendStringInfoChar(buf, ')');
 
-	/* cleanup */
-	context->custom_funcdef = NULL;
+	/* AVG stuff */
+	if (context->func && context->func->cf_type == CF_SIGN_AVG)
+	{
+		appendStringInfoString(buf, " / sumIf(");
+		appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+		appendStringInfoChar(buf, ',');
+		if (node->aggfilter)
+		{
+			deparseExpr((Expr *) node->aggfilter, context);
+			appendStringInfoString(buf, " AND ");
+		}
+		deparseExpr((Expr *) ((TargetEntry *) linitial(node->args))->expr, context);
+		appendStringInfoString(buf, " IS NOT NULL");
+		appendStringInfoChar(buf, ')');
+	}
+
+	/* original */
+	context->func = cdef;
 }
 
 static void
@@ -2849,13 +2913,9 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 		appendStringInfoString(buf, delim);
 		deparseExpr(em_expr, context);
 		if (pathkey->pk_strategy == BTLessStrategyNumber)
-		{
 			appendStringInfoString(buf, " ASC");
-		}
 		else
-		{
 			appendStringInfoString(buf, " DESC");
-		}
 
 		delim = ", ";
 	}
@@ -2874,13 +2934,14 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	HeapTuple	proctup;
 	Form_pg_proc procform;
 	const char *proname;
-	CustomObjectDef	*def;
+	CustomObjectDef	*cdef;
+	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 
-	def = checkForCustomFunction(funcid);
-	if (def && def->cf_type != CF_USUAL)
+	cdef = checkForCustomFunction(funcid);
+	if (cdef && cdef->custom_name[0] != '\0')
 	{
-		appendStringInfoString(buf, quote_identifier(def->custom_name));
-		return def;
+		appendStringInfoString(buf, quote_identifier(cdef->custom_name));
+		return cdef;
 	}
 
 	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
@@ -2888,14 +2949,40 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 		elog(ERROR, "cache lookup failed for function %u", funcid);
 
 	procform = (Form_pg_proc) GETSTRUCT(proctup);
+	proname = NameStr(procform->proname);
+
+	/* we have some additional conditions on aggregation functions */
+	if (is_builtin(funcid) && procform->prokind == PROKIND_AGGREGATE
+			&& fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE)
+	{
+		cdef = palloc(sizeof(CHFdwRelationInfo));
+		cdef->cf_oid = funcid;
+
+		if (strcmp(proname, "sum") == 0)
+			cdef->cf_type = CF_SIGN_SUM;
+		else if (strcmp(proname, "avg") == 0)
+		{
+			cdef->cf_type = CF_SIGN_AVG;;
+			proname = "sum";
+		}
+		else if (strcmp(proname, "count") == 0)
+		{
+			cdef->cf_type = CF_SIGN_COUNT;
+			proname = "sum";
+		}
+		else
+		{
+			pfree(cdef);
+			cdef = NULL;
+		}
+	}
 
 	/* Always print the function name */
-	proname = NameStr(procform->proname);
 	appendStringInfoString(buf, quote_identifier(proname));
 
 	ReleaseSysCache(proctup);
 
-	return NULL;
+	return cdef;
 }
 
 /*

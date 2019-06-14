@@ -63,37 +63,40 @@ create_custom_columns_cache(void)
 
 CustomObjectDef *checkForCustomFunction(Oid funcid)
 {
-	const char *proname;
-
 	CustomObjectDef	*entry;
-	if (!custom_objects_cache)
-		custom_objects_cache = create_custom_objects_cache();
 
 	if (is_builtin(funcid))
 		return NULL;
 
+	if (!custom_objects_cache)
+		custom_objects_cache = create_custom_objects_cache();
+
 	entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_FIND, NULL);
 	if (!entry)
 	{
-		HeapTuple	proctup;
-		Form_pg_proc procform;
-
-		Oid extoid = getExtensionOfObject(ProcedureRelationId, funcid);
-		char *extname = get_extension_name(extoid);
+		Oid			extoid;
+		char	   *extname;
+		char	   *proname;
 
 		entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
+		entry->custom_name[0] = '\0';
+
+		extoid = getExtensionOfObject(ProcedureRelationId, funcid);
+		extname = get_extension_name(extoid);
 
 		if (extname && strcmp(extname, "istore") == 0)
 		{
+			HeapTuple	proctup;
+			Form_pg_proc procform;
+
 			proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
 			if (!HeapTupleIsValid(proctup))
 				elog(ERROR, "cache lookup failed for function %u", funcid);
 
 			procform = (Form_pg_proc) GETSTRUCT(proctup);
 
-			proname = NameStr(procform->proname);
-			if (strcmp(proname, "sum") == 0)
+			if (strcmp(NameStr(procform->proname), "sum") == 0)
 			{
 				entry->cf_type = CF_ISTORE_SUM;
 				strcpy(entry->custom_name, "sumMap");

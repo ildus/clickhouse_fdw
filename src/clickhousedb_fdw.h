@@ -223,9 +223,12 @@ typedef struct
 
 extern libclickhouse_methods *clickhouse_gate;
 
-/* Custom things we should support */
+/* Custom behavior types */
 typedef enum {
 	CF_USUAL = 0,
+	CF_SIGN_SUM,		/* SUM aggregation */
+	CF_SIGN_AVG,		/* AVG aggregation */
+	CF_SIGN_COUNT,		/* COUNT aggregation */
 	CF_ISTORE_TYPE,		/* istore type */
 	CF_ISTORE_SUM,		/* SUM on istore column */
 	CF_ISTORE_ARR,		/* COLUMN splitted to array */
