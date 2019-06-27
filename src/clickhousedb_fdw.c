@@ -2167,7 +2167,7 @@ is_simple_join_clause(Expr *expr)
 	if (IsA(expr, OpExpr))
 	{
 		OpExpr	*opexpr = (OpExpr *) expr;
-		if (is_equal_op(opexpr->opno)
+		if (is_equal_op(opexpr->opno) == 1
 				&& list_length(opexpr->args) == 2
 				&& IsA(list_nth(opexpr->args, 0), Var)
 				&& IsA(list_nth(opexpr->args, 1), Var))

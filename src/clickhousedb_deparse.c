@@ -261,19 +261,25 @@ is_foreign_expr(PlannerInfo *root,
 	return true;
 }
 
-bool
+/* 1: '=', 2: '<>', 0 - false */
+int
 is_equal_op(Oid opno)
 {
-	Form_pg_operator operform;
-	HeapTuple	opertup;
-	bool res;
+	Form_pg_operator	operform;
+	HeapTuple			opertup;
+	int					res = 0;
 
 	opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(opno));
 	if (!HeapTupleIsValid(opertup))
 		elog(ERROR, "cache lookup failed for operator %u", opno);
 
 	operform = (Form_pg_operator) GETSTRUCT(opertup);
-	res = (NameStr(operform->oprname)[0] == '=' && NameStr(operform->oprname)[1] == '\0');
+
+	if (NameStr(operform->oprname)[0] == '=' && NameStr(operform->oprname)[1] == '\0')
+		res = 1;
+	else if (NameStr(operform->oprname)[0] == '<' && NameStr(operform->oprname)[1] == '>')
+		res = 2;
+
 	ReleaseSysCache(opertup);
 	return res;
 }
@@ -2457,24 +2463,22 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	tuple;
-	Form_pg_operator form;
 	Expr	   *arg1;
 	Expr	   *arg2;
 
 	/* Retrieve information about the operator from system catalog. */
-	tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(node->opno));
-	if (!HeapTupleIsValid(tuple))
-	{
-		elog(ERROR, "cache lookup failed for operator %u", node->opno);
-	}
-	form = (Form_pg_operator) GETSTRUCT(tuple);
+	int			optype = is_equal_op(node->opno);
 
 	/* Sanity check. */
 	Assert(list_length(node->args) == 2);
 
+	appendStringInfoChar(buf, '(');
 	if (node->useOr)
 	{
-		appendStringInfoString(buf, " has (");
+		if (optype == 1)
+			appendStringInfoString(buf, "has(");
+		else
+			appendStringInfoString(buf, "not has(");
 
 		/* Deparse right operand. */
 		arg2 = lsecond(node->args);
@@ -2490,7 +2494,7 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 	}
 	else
 	{
-		appendStringInfoString(buf, " countEqual (");
+		appendStringInfoString(buf, "countEqual(");
 
 		/* Deparse right operand. */
 		arg2 = lsecond(node->args);
@@ -2502,14 +2506,18 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 		deparseExpr(arg1, context);
 
 		/* Close function call */
-		appendStringInfoString(buf, ") = length(");
+		if (optype == 1)
+		{
+			appendStringInfoString(buf, ") = length(");
 
-		/* Deparse right operand again */
-		deparseExpr(arg2, context);
-		appendStringInfoChar(buf, ')');
+			/* Deparse right operand again */
+			deparseExpr(arg2, context);
+			appendStringInfoChar(buf, ')');
+		} else {
+			appendStringInfoString(buf, ") = 0");
+		}
 	}
-
-	ReleaseSysCache(tuple);
+	appendStringInfoChar(buf, ')');
 }
 
 /*
