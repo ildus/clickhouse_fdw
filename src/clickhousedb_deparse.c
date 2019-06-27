@@ -35,6 +35,7 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#include "utils/fmgroids.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -166,6 +167,7 @@ static void appendAggOrderBy(List *orderList, List *targetList,
 static CustomObjectDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context);
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 					   deparse_expr_cxt *context);
+static void deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context);
 
 /*
  * Helper functions
@@ -861,6 +863,14 @@ foreign_expr_walker(Node *node,
 		{
 			state = FDW_COLLATE_UNSAFE;
 		}
+	}
+	break;
+	case T_CoalesceExpr:
+	{
+		CoalesceExpr   *ce = (CoalesceExpr *) node;
+
+		if (!foreign_expr_walker((Node *) ce->args, glob_cxt, &inner_cxt))
+			return false;
 	}
 	break;
 	default:
@@ -1913,8 +1923,8 @@ deparseRelation(StringInfo buf, Relation rel)
 /*
  * Append a SQL string literal representing "val" to buf.
  */
-void
-deparseStringLiteral(StringInfo buf, const char *val)
+static void
+deparseStringLiteral(StringInfo buf, const char *val, bool quote)
 {
 	const char *valptr;
 
@@ -1928,7 +1938,8 @@ deparseStringLiteral(StringInfo buf, const char *val)
 	{
 		appendStringInfoChar(buf, ESCAPE_STRING_SYNTAX);
 	}
-	appendStringInfoChar(buf, '\'');
+	if (quote)
+		appendStringInfoChar(buf, '\'');
 	for (valptr = val; *valptr; valptr++)
 	{
 		char		ch = *valptr;
@@ -1939,7 +1950,8 @@ deparseStringLiteral(StringInfo buf, const char *val)
 		}
 		appendStringInfoChar(buf, ch);
 	}
-	appendStringInfoChar(buf, '\'');
+	if (quote)
+		appendStringInfoChar(buf, '\'');
 }
 
 /*
@@ -2006,6 +2018,9 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 		break;
 	case T_CaseWhen:
 		deparseCaseWhen((CaseWhen *) node, context);
+		break;
+	case T_CoalesceExpr:
+		deparseCoalesceExpr((CoalesceExpr *) node, context);
 		break;
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
@@ -2112,7 +2127,15 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 
 	getTypeOutputInfo(node->consttype,
 	                  &typoutput, &typIsVarlena);
+
 	extval = OidOutputFunctionCall(typoutput, node->constvalue);
+	if (typoutput == F_ARRAY_OUT)
+	{
+		extval[0] = '[';
+		extval[strlen(extval) - 1] = ']';
+		deparseStringLiteral(buf, extval, false);
+		return;
+	}
 
 	switch (node->consttype)
 	{
@@ -2160,7 +2183,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		}
 		break;
 	default:
-		deparseStringLiteral(buf, extval);
+		deparseStringLiteral(buf, extval, true);
 		break;
 	}
 	pfree(extval);
@@ -2765,6 +2788,28 @@ deparseCaseWhen(CaseWhen *node, deparse_expr_cxt *context)
 	deparseExpr(node->expr, context);
 	appendStringInfoString(buf, " THEN ");
 	deparseExpr(node->result, context);
+}
+
+static void
+deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+	bool		first;
+
+	appendStringInfoString(buf, "COALESCE(");
+
+	first = true;
+	foreach (lc, node->args)
+	{
+		if (!first)
+			appendStringInfoString(buf, ", ");
+
+		first = false;
+
+		deparseExpr(lfirst(lc), context);
+	}
+	appendStringInfoChar(buf, ')');
 }
 
 /*
