@@ -2349,6 +2349,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	Form_pg_operator form;
 	char		oprkind;
 	ListCell   *arg;
+	CustomObjectDef	*cdef;
 
 	/* Retrieve information about the operator from system catalog. */
 	tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(node->opno));
@@ -2376,7 +2377,11 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	}
 
 	/* Deparse operator name. */
-	deparseOperatorName(buf, form);
+	cdef = checkForCustomOperator(node->opno);
+	if (cdef && cdef->cf_type == CF_AJTIME_OPERATOR)
+		appendStringInfoString(buf, NameStr(form->oprname));
+	else
+		deparseOperatorName(buf, form);
 
 	/* Deparse right operand. */
 	if (oprkind == 'l' || oprkind == 'b')

@@ -19,6 +19,7 @@
 #include "catalog/dependency.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_operator.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 #include "utils/syscache.h"
@@ -169,8 +170,9 @@ is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 
 	if (classId == ProcedureRelationId && checkForCustomFunction(objectId) != NULL)
 		return true;
-
-	if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
+	else if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
+		return true;
+	else if (classId == OperatorRelationId && checkForCustomOperator(objectId) != NULL)
 		return true;
 
 	/* Otherwise, give up if user hasn't specified any shippable extensions. */

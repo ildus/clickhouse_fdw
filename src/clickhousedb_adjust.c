@@ -5,6 +5,7 @@
 #include "access/heapam.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_operator.h"
 #include "commands/extension.h"
 #include "commands/defrem.h"
 #include "utils/hsearch.h"
@@ -131,6 +132,33 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 
 		if (extname && strcmp(extname, "istore") == 0)
 			entry->cf_type = CF_ISTORE_TYPE; /* bigistore or istore */
+	}
+
+	return entry;
+}
+
+CustomObjectDef *checkForCustomOperator(Oid opoid)
+{
+	const char *proname;
+
+	CustomObjectDef	*entry;
+	if (!custom_objects_cache)
+		custom_objects_cache = create_custom_objects_cache();
+
+	if (is_builtin(opoid))
+		return NULL;
+
+	entry = hash_search(custom_objects_cache, (void *) &opoid, HASH_FIND, NULL);
+	if (!entry)
+	{
+		Oid extoid = getExtensionOfObject(OperatorRelationId, opoid);
+		char *extname = get_extension_name(extoid);
+
+		entry = hash_search(custom_objects_cache, (void *) &opoid, HASH_ENTER, NULL);
+		entry->cf_type = CF_USUAL;
+
+		if (extname && strcmp(extname, "ajtime") == 0)
+			entry->cf_type = CF_AJTIME_OPERATOR;
 	}
 
 	return entry;

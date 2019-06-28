@@ -231,7 +231,8 @@ typedef enum {
 	CF_ISTORE_TYPE,		/* istore type */
 	CF_ISTORE_SUM,		/* SUM on istore column */
 	CF_ISTORE_ARR,		/* COLUMN splitted to array */
-	CF_ISTORE_COL		/* COLUMN splitted to columns by key */
+	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
+	CF_AJTIME_OPERATOR,	/* ajtime operation */
 } custom_object_type;
 
 typedef struct CustomObjectDef
@@ -257,5 +258,6 @@ extern CustomObjectDef *checkForCustomType(Oid typeoid);
 extern void modifyCustomVar(CustomObjectDef *def, Node *node);
 extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
 extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
+extern CustomObjectDef *checkForCustomOperator(Oid opoid);
 
 #endif							/* POSTGRES_FDW_H */
