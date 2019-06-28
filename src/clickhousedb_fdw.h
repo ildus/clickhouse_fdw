@@ -233,6 +233,7 @@ typedef enum {
 	CF_ISTORE_ARR,		/* COLUMN splitted to array */
 	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
 	CF_AJTIME_OPERATOR,	/* ajtime operation */
+	CF_AJTIME_TO_TIMESTAMP,	/* ajtime to timestamp */
 } custom_object_type;
 
 typedef struct CustomObjectDef

@@ -13,6 +13,7 @@
 #include "utils/inval.h"
 #include "utils/rel.h"
 #include "catalog/dependency.h"
+#include "utils/fmgroids.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -67,7 +68,15 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 	CustomObjectDef	*entry;
 
 	if (is_builtin(funcid))
-		return NULL;
+	{
+		switch (funcid)
+		{
+			case F_TIMESTAMPTZ_TRUNC:
+				break;
+			default:
+				return NULL;
+		}
+	}
 
 	if (!custom_objects_cache)
 		custom_objects_cache = create_custom_objects_cache();
@@ -85,8 +94,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 
 		extoid = getExtensionOfObject(ProcedureRelationId, funcid);
 		extname = get_extension_name(extoid);
-
-		if (extname && strcmp(extname, "istore") == 0)
+		if (extname)
 		{
 			HeapTuple	proctup;
 			Form_pg_proc procform;
@@ -97,12 +105,19 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 
 			procform = (Form_pg_proc) GETSTRUCT(proctup);
 
-			if (strcmp(NameStr(procform->proname), "sum") == 0)
+			if (strcmp(extname, "istore") == 0)
 			{
-				entry->cf_type = CF_ISTORE_SUM;
-				strcpy(entry->custom_name, "sumMap");
+				if (strcmp(NameStr(procform->proname), "sum") == 0)
+				{
+					entry->cf_type = CF_ISTORE_SUM;
+					strcpy(entry->custom_name, "sumMap");
+				}
 			}
-
+			else if (strcmp(extname, "ajtime") == 0)
+			{
+				if (strcmp(NameStr(procform->proname), "ajtime_to_timestamp") == 0)
+					entry->cf_type = CF_AJTIME_TO_TIMESTAMP;
+			}
 			ReleaseSysCache(proctup);
 		}
 	}
