@@ -36,6 +36,7 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 #include "utils/fmgroids.h"
+#include "utils/datetime.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -1762,6 +1763,32 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 	}
 }
 
+#define USE_ISO_DATES			1
+
+static Datum
+ch_timestamp_out(PG_FUNCTION_ARGS)
+{
+	Timestamp	timestamp = PG_GETARG_TIMESTAMP(0);
+	char	   *result;
+	struct pg_tm tt,
+			   *tm = &tt;
+	fsec_t		fsec;
+	char		buf[MAXDATELEN + 1];
+
+	if (TIMESTAMP_NOT_FINITE(timestamp))
+		EncodeSpecialTimestamp(timestamp, buf);
+	else if (timestamp2tm(timestamp, NULL, tm, &fsec, NULL, NULL) == 0)
+		/* we ignore ftractional seconds */
+		EncodeDateTime(tm, 0, false, 0, NULL, USE_ISO_DATES, buf);
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	result = pstrdup(buf);
+	PG_RETURN_CSTRING(result);
+}
+
 /*
  * Deparse given constant value into context->buf.
  *
@@ -1787,13 +1814,21 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	getTypeOutputInfo(node->consttype,
 	                  &typoutput, &typIsVarlena);
 
-	extval = OidOutputFunctionCall(typoutput, node->constvalue);
-	if (typoutput == F_ARRAY_OUT)
+	if (typoutput == F_TIMESTAMPTZ_OUT || typoutput == F_TIMESTAMP_OUT)
 	{
-		extval[0] = '[';
-		extval[strlen(extval) - 1] = ']';
-		deparseStringLiteral(buf, extval, false);
-		return;
+		extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, node->constvalue));
+	}
+	else
+	{
+		extval = OidOutputFunctionCall(typoutput, node->constvalue);
+
+		if (typoutput == F_ARRAY_OUT)
+		{
+			extval[0] = '[';
+			extval[strlen(extval) - 1] = ']';
+			deparseStringLiteral(buf, extval, false);
+			return;
+		}
 	}
 
 	switch (node->consttype)
@@ -1945,6 +1980,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	StringInfo	buf = context->buf;
 	bool		first;
 	ListCell   *arg;
+	CustomObjectDef	*cdef;
 
 	/*
 	 * If the function call came from an implicit coercion, then just show the
@@ -1974,7 +2010,30 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	/*
 	 * Normal function: display as proname(args).
 	 */
-	appendFunctionName(node->funcid, context);
+	cdef = appendFunctionName(node->funcid, context);
+	if (cdef && cdef->cf_type == CF_DATE_TRUNC)
+	{
+		Const *arg = (Const *) linitial(node->args);
+		char *trunctype = TextDatumGetCString(arg->constvalue);
+		if (strcmp(trunctype, "week") == 0)
+			appendStringInfoString(buf, "toMonday");
+		else if (strcmp(trunctype, "hour") == 0)
+			appendStringInfoString(buf, "toStartOfHour");
+		else if (strcmp(trunctype, "day") == 0)
+			appendStringInfoString(buf, "toStartOfDay");
+		else if (strcmp(trunctype, "month") == 0)
+			appendStringInfoString(buf, "toStartOfMonth");
+		else if (strcmp(trunctype, "year") == 0)
+			appendStringInfoString(buf, "toStartOfYear");
+		else
+			elog(ERROR, "date_trunc cannot be exported for: %s", trunctype);
+
+		pfree(trunctype);
+		appendStringInfoChar(buf, '(');
+		deparseExpr(list_nth(node->args, 1), context);
+		appendStringInfoChar(buf, ')');
+		return;
+	}
 	appendStringInfoChar(buf, '(');
 
 	/* ... and all the arguments */
@@ -2651,7 +2710,8 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	cdef = checkForCustomFunction(funcid);
 	if (cdef && cdef->custom_name[0] != '\0')
 	{
-		appendStringInfoString(buf, quote_identifier(cdef->custom_name));
+		if (cdef->custom_name[0] != '\1')
+			appendStringInfoString(buf, quote_identifier(cdef->custom_name));
 		return cdef;
 	}
 

@@ -71,6 +71,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 	{
 		switch (funcid)
 		{
+			case F_TIMESTAMP_TRUNC:
 			case F_TIMESTAMPTZ_TRUNC:
 				break;
 			default:
@@ -82,7 +83,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 		custom_objects_cache = create_custom_objects_cache();
 
 	entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_FIND, NULL);
-	if (!entry)
+	while (!entry)
 	{
 		Oid			extoid;
 		char	   *extname;
@@ -91,6 +92,13 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 		entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
 		entry->custom_name[0] = '\0';
+
+		if (funcid == F_TIMESTAMPTZ_TRUNC || funcid == F_TIMESTAMP_OUT)
+		{
+			entry->cf_type = CF_DATE_TRUNC;
+			entry->custom_name[0] = '\1';
+			break;
+		}
 
 		extoid = getExtensionOfObject(ProcedureRelationId, funcid);
 		extname = get_extension_name(extoid);
@@ -120,6 +128,8 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 			}
 			ReleaseSysCache(proctup);
 		}
+
+		break;
 	}
 
 	return entry;

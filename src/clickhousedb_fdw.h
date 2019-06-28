@@ -234,13 +234,14 @@ typedef enum {
 	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
 	CF_AJTIME_OPERATOR,	/* ajtime operation */
 	CF_AJTIME_TO_TIMESTAMP,	/* ajtime to timestamp */
+	CF_DATE_TRUNC		/* date_trunc function */
 } custom_object_type;
 
 typedef struct CustomObjectDef
 {
 	Oid						cf_oid;
 	custom_object_type		cf_type;
-	char					custom_name[NAMEDATALEN];
+	char					custom_name[NAMEDATALEN];	/* \0 - no custom name, \1 - many names */
 } CustomObjectDef;
 
 typedef struct CustomColumnInfo
