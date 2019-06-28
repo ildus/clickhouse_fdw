@@ -93,7 +93,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 		entry->cf_type = CF_USUAL;
 		entry->custom_name[0] = '\0';
 
-		if (funcid == F_TIMESTAMPTZ_TRUNC || funcid == F_TIMESTAMP_OUT)
+		if (funcid == F_TIMESTAMPTZ_TRUNC || funcid == F_TIMESTAMP_TRUNC)
 		{
 			entry->cf_type = CF_DATE_TRUNC;
 			entry->custom_name[0] = '\1';
