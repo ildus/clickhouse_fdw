@@ -234,7 +234,10 @@ typedef enum {
 	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
 	CF_AJTIME_OPERATOR,	/* ajtime operation */
 	CF_AJTIME_TO_TIMESTAMP,	/* ajtime to timestamp */
-	CF_DATE_TRUNC		/* date_trunc function */
+	CF_DATE_TRUNC,		/* date_trunc function */
+	CF_TIMESTAMPTZ_PL_INTERVAL,	/* timestamptz + interval */
+	CF_AJTIME_PL_INTERVAL,
+	CF_AJTIME_MI_INTERVAL
 } custom_object_type;
 
 typedef struct CustomObjectDef

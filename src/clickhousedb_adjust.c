@@ -124,7 +124,20 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 			else if (strcmp(extname, "ajtime") == 0)
 			{
 				if (strcmp(NameStr(procform->proname), "ajtime_to_timestamp") == 0)
+				{
 					entry->cf_type = CF_AJTIME_TO_TIMESTAMP;
+					strcpy(entry->custom_name, "");
+				}
+				else if (strcmp(NameStr(procform->proname), "ajtime_pl_interval") == 0)
+				{
+					entry->cf_type = CF_AJTIME_PL_INTERVAL;
+					strcpy(entry->custom_name, "addSeconds");
+				}
+				else if (strcmp(NameStr(procform->proname), "ajtime_mi_interval") == 0)
+				{
+					entry->cf_type = CF_AJTIME_MI_INTERVAL;
+					strcpy(entry->custom_name, "subtractSeconds");
+				}
 			}
 			ReleaseSysCache(proctup);
 		}
@@ -171,19 +184,34 @@ CustomObjectDef *checkForCustomOperator(Oid opoid)
 		custom_objects_cache = create_custom_objects_cache();
 
 	if (is_builtin(opoid))
-		return NULL;
+	{
+		switch (opoid) {
+			/* timestamptz + interval */
+			case F_TIMESTAMPTZ_PL_INTERVAL:
+				break;
+			default:
+				return NULL;
+		}
+	}
 
 	entry = hash_search(custom_objects_cache, (void *) &opoid, HASH_FIND, NULL);
 	if (!entry)
 	{
-		Oid extoid = getExtensionOfObject(OperatorRelationId, opoid);
-		char *extname = get_extension_name(extoid);
-
 		entry = hash_search(custom_objects_cache, (void *) &opoid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
 
-		if (extname && strcmp(extname, "ajtime") == 0)
-			entry->cf_type = CF_AJTIME_OPERATOR;
+		if (opoid == F_TIMESTAMPTZ_PL_INTERVAL)
+			entry->cf_type = CF_TIMESTAMPTZ_PL_INTERVAL;
+		else
+		{
+			Oid		extoid = getExtensionOfObject(OperatorRelationId, opoid);
+			char   *extname = get_extension_name(extoid);
+
+			if (extname && strcmp(extname, "ajtime") == 0)
+			{
+				entry->cf_type = CF_AJTIME_OPERATOR;
+			}
+		}
 	}
 
 	return entry;

@@ -40,6 +40,8 @@
 
 #include "clickhousedb_fdw.h"
 
+#define MAXINT8LEN		25
+
 /*
  * Global context for foreign_expr_walker's search of an expression tree.
  */
@@ -1816,7 +1818,30 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 
 	if (typoutput == F_TIMESTAMPTZ_OUT || typoutput == F_TIMESTAMP_OUT)
 	{
+		/*
+		 * We use our own function here, that removes fractional seconds since
+		 * there are not supported in clickhouse
+		 * */
 		extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, node->constvalue));
+	}
+	else if (typoutput == F_INTERVAL_OUT)
+	{
+		/* basicly we can't convert month part since we should know about
+		 * related timestamp first.
+		 *
+		 * for other types we just convert to seconds.
+		 * */
+		uint64		sec;
+		Interval   *ival = DatumGetIntervalP(node->constvalue);
+		char		bufint8[MAXINT8LEN + 1];
+
+		if (ival->month != 0)
+			elog(ERROR, "we can't convert interval with months into clickhouse");
+
+		sec = 86400 /* sec in day */ * ival->day + (int64) (ival->time / 1000000);
+		pg_lltoa(sec, bufint8);
+		appendStringInfoString(buf, bufint8);
+		return;
 	}
 	else
 	{
@@ -2049,6 +2074,78 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, ')');
 }
 
+static void
+deparseIntervalOp(Node *first, Node *second, deparse_expr_cxt *context, bool plus)
+{
+	StringInfo	buf = context->buf;
+	Const	   *constval;
+	Interval   *span;
+	char		ibuf[MAXINT8LEN + 1];
+
+	if (!IsA(second, Const))
+		elog(ERROR, "only operations with const interval are exported to clickhouse");
+
+	constval = (Const *) second;
+	span = DatumGetIntervalP(constval->constvalue);
+
+	/* top function is always addSeconds */
+	appendStringInfoString(buf, "addSeconds(");
+
+	if (span->day)
+		appendStringInfoString(buf, "addDays(");
+
+	if (span->month)
+		appendStringInfoString(buf, "addMonths(");
+
+	/* first argument here */
+	deparseExpr((Expr *) first, context);
+
+	if (span->month)
+	{
+		/* addMonths arg */
+		appendStringInfoChar(buf, ',');
+		snprintf(ibuf, sizeof(ibuf), "%d", span->month);
+		if (!plus)
+		{
+			appendStringInfoString(buf, "-(");
+			appendStringInfoString(buf, ibuf);
+			appendStringInfoChar(buf, ')');
+		}
+		else
+			appendStringInfoString(buf, ibuf);
+		appendStringInfoChar(buf, ')');
+	}
+
+	if (span->day)
+	{
+		/* addDays arg */
+		appendStringInfoChar(buf, ',');
+		snprintf(ibuf, sizeof(ibuf), "%d", span->day);
+		if (!plus)
+		{
+			appendStringInfoString(buf, "-(");
+			appendStringInfoString(buf, ibuf);
+			appendStringInfoChar(buf, ')');
+		}
+		else
+			appendStringInfoString(buf, ibuf);
+		appendStringInfoChar(buf, ')');
+	}
+
+	/* addSeconds arg */
+	appendStringInfoChar(buf, ',');
+	pg_lltoa((int64)(span->time / 1000000), ibuf);
+	if (!plus)
+	{
+		appendStringInfoString(buf, "-(");
+		appendStringInfoString(buf, ibuf);
+		appendStringInfoChar(buf, ')');
+	}
+	else
+		appendStringInfoString(buf, ibuf);
+	appendStringInfoChar(buf, ')');
+}
+
 /*
  * Deparse given operator expression.   To avoid problems around
  * priority of operations, we always parenthesize the arguments.
@@ -2077,6 +2174,31 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	       (oprkind == 'l' && list_length(node->args) == 1) ||
 	       (oprkind == 'b' && list_length(node->args) == 2));
 
+	cdef = checkForCustomOperator(node->opno);
+	if (cdef && cdef->cf_type == CF_AJTIME_OPERATOR)
+	{
+		/* intervals with ajtime */
+		CustomObjectDef	*fdef = checkForCustomFunction(form->oprcode);
+		if (fdef && fdef->cf_type == CF_AJTIME_PL_INTERVAL)
+		{
+			deparseIntervalOp(linitial(node->args),
+				list_nth(node->args, 1), context, true);
+			goto cleanup;
+		}
+		else if (fdef && fdef->cf_type == CF_AJTIME_MI_INTERVAL)
+		{
+			deparseIntervalOp(linitial(node->args),
+				list_nth(node->args, 1), context, false);
+			goto cleanup;
+		}
+	}
+	else if (cdef && cdef->cf_type == CF_TIMESTAMPTZ_PL_INTERVAL)
+	{
+		deparseIntervalOp(linitial(node->args),
+			list_nth(node->args, 1), context, true);
+		goto cleanup;
+	}
+
 	/* Always parenthesize the expression. */
 	appendStringInfoChar(buf, '(');
 
@@ -2089,7 +2211,6 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	}
 
 	/* Deparse operator name. */
-	cdef = checkForCustomOperator(node->opno);
 	if (cdef && cdef->cf_type == CF_AJTIME_OPERATOR)
 		appendStringInfoString(buf, NameStr(form->oprname));
 	else
@@ -2105,6 +2226,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 
 	appendStringInfoChar(buf, ')');
 
+cleanup:
 	ReleaseSysCache(tuple);
 }
 
