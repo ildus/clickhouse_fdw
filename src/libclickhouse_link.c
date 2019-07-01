@@ -43,7 +43,7 @@ http_connect(char *connstring)
 	if (!initialized)
 	{
 		initialized = true;
-		ch_http_init(1, (uint32_t) MyProcPid);
+		ch_http_init(0, (uint32_t) MyProcPid);
 	}
 
 	if (conn == NULL)

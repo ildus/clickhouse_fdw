@@ -37,6 +37,7 @@
 #include "utils/typcache.h"
 #include "utils/fmgroids.h"
 #include "utils/datetime.h"
+#include "utils/arrayaccess.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -1791,6 +1792,100 @@ ch_timestamp_out(PG_FUNCTION_ARGS)
 	PG_RETURN_CSTRING(result);
 }
 
+static void
+deparseArray(Datum arr, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	AnyArrayType *array = DatumGetAnyArrayP(arr);
+	int			ndims = AARR_NDIM(array);
+	int		   *dims = AARR_DIMS(array);
+	Oid			element_type = AARR_ELEMTYPE(array);
+
+	int16		typlen;
+	bool		typbyval;
+	char		typalign;
+	char		typdelim;
+	Oid			typioparam;
+	Oid			typiofunc;
+	int			nitems;
+	array_iter	iter;
+	int			i;
+	bool		first;
+
+	if (ndims > 1)
+		elog(ERROR, "only one dimension of arrays supported by clickhouse_fdw");
+
+	get_type_io_data(element_type, IOFunc_output,
+					 &typlen, &typbyval,
+					 &typalign, &typdelim,
+					 &typioparam, &typiofunc);
+
+	/* Loop over source data */
+	nitems = ArrayGetNItems(ndims, dims);
+	array_iter_setup(&iter, array);
+	first = true;
+
+	appendStringInfoChar(buf, '[');
+	for (i = 0; i < nitems; i++)
+	{
+		Datum		elt;
+		bool		isnull;
+
+		if (!first)
+			appendStringInfoChar(buf, ',');
+		first = false;
+
+		/* Get element, checking for NULL */
+		elt = array_iter_next(&iter, &isnull, i, typlen, typbyval, typalign);
+
+		if (isnull)
+		{
+			appendStringInfoString(buf, "NULL");
+		}
+		else
+		{
+			char *extval = OidOutputFunctionCall(typiofunc, elt);
+			switch (element_type)
+			{
+			case INT2OID:
+			case INT4OID:
+			case INT8OID:
+			case OIDOID:
+			case FLOAT4OID:
+			case FLOAT8OID:
+			case NUMERICOID:
+			{
+				/*
+				 * No need to quote unless it's a special value such as 'NaN'.
+				 * See comments in get_const_expr().
+				 */
+				if (strspn(extval, "0123456789+-eE.") == strlen(extval))
+				{
+					if (extval[0] == '+' || extval[0] == '-')
+						appendStringInfo(buf, "(%s)", extval);
+					else
+						appendStringInfoString(buf, extval);
+				}
+				else
+					appendStringInfo(buf, "'%s'", extval);
+			}
+			break;
+			case BOOLOID:
+				if (strcmp(extval, "t") == 0)
+					appendStringInfoString(buf, "true");
+				else
+					appendStringInfoString(buf, "false");
+				break;
+			default:
+				deparseStringLiteral(buf, extval, true);
+				break;
+			}
+			pfree(extval);
+		}
+	}
+	appendStringInfoChar(buf, ']');
+}
+
 /*
  * Deparse given constant value into context->buf.
  *
@@ -1843,18 +1938,13 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		appendStringInfoString(buf, bufint8);
 		return;
 	}
-	else
+	else if (typoutput == F_ARRAY_OUT)
 	{
-		extval = OidOutputFunctionCall(typoutput, node->constvalue);
-
-		if (typoutput == F_ARRAY_OUT)
-		{
-			extval[0] = '[';
-			extval[strlen(extval) - 1] = ']';
-			deparseStringLiteral(buf, extval, false);
-			return;
-		}
+		deparseArray(node->constvalue, context);
+		return;
 	}
+	else
+		extval = OidOutputFunctionCall(typoutput, node->constvalue);
 
 	switch (node->consttype)
 	{

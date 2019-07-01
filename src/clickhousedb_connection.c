@@ -54,29 +54,6 @@ static bool pgfdw_cancel_query(ch_connection conn);
 static bool pgfdw_exec_cleanup_query(ch_connection conn, const char *query,
                                      bool ignore_errors);
 
-/*
- * For non-superusers, insist that the connstr specify a password.  This
- * prevents a password from being picked up from .pgpass, a service file,
- * the environment, etc.  We don't want the postgres user's passwords
- * to be accessible to non-superusers.  (See also dblink_connstr_check in
- * contrib/dblink.)
- */
-static void
-check_conn_params(const char *password, UserMapping *user)
-{
-	/* no check required if superuser */
-	if (superuser_arg(user->userid))
-	{
-		return;
-	}
-
-	if (password == NULL)
-		ereport(ERROR,
-		        (errcode(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED),
-		         errmsg("password is required"),
-		         errdetail("Non-superusers must provide a password in the user mapping.")));
-}
-
 static ch_connection
 clickhouse_connect(ForeignServer *server, UserMapping *user)
 {
@@ -92,8 +69,6 @@ clickhouse_connect(ForeignServer *server, UserMapping *user)
 							 &username, &password);
 	ExtractConnectionOptions(user->options, &driver, &host, &port, &dbname,
 							 &username, &password);
-
-	check_conn_params(password, user);
 
 	if (strcmp(driver, "http") == 0)
 	{
