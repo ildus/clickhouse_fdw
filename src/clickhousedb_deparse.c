@@ -71,8 +71,9 @@ typedef struct deparse_expr_cxt
 								 * a base relation. */
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
-	CustomObjectDef	*func;	/* custom function deparse */
-	CHFdwRelationInfo *fpinfo;			/* fdw relation info */
+	CustomObjectDef	*func;		/* custom function deparse */
+	void		*func_arg;		/* custom function context args */
+	CHFdwRelationInfo *fpinfo;	/* fdw relation info */
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -1485,7 +1486,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 
 	if (cinfo && cinfo->coltype == CF_ISTORE_ARR)
 	{
-		char *colkey = psprintf("%s_ids", colname);
+		char *colkey = psprintf("%s_keys", colname);
 		char *colval = psprintf("%s_values", colname);
 
 		if (cdef && cdef->cf_type == CF_ISTORE_SUM)
@@ -1512,6 +1513,18 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 					ADD_REL_QUALIFIER(buf, varno);
 				appendStringInfoString(buf, quote_identifier(colval));
 			}
+		}
+		else if (cdef && cdef->cf_type == CF_ISTORE_FETCHVAL)
+		{
+			/* values[indexOf(ids, 0)] */
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colval));
+			appendStringInfoString(buf, "[indexOf(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colkey));
+			appendStringInfoChar(buf, ',');
 		}
 		else
 		{
@@ -2253,9 +2266,8 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	/* Retrieve information about the operator from system catalog. */
 	tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(node->opno));
 	if (!HeapTupleIsValid(tuple))
-	{
 		elog(ERROR, "cache lookup failed for operator %u", node->opno);
-	}
+
 	form = (Form_pg_operator) GETSTRUCT(tuple);
 	oprkind = form->oprkind;
 
@@ -2264,29 +2276,63 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	       (oprkind == 'l' && list_length(node->args) == 1) ||
 	       (oprkind == 'b' && list_length(node->args) == 2));
 
-	cdef = checkForCustomOperator(node->opno);
-	if (cdef && cdef->cf_type == CF_AJTIME_OPERATOR)
+	cdef = checkForCustomOperator(node->opno, form);
+	if (cdef)
 	{
-		/* intervals with ajtime */
-		CustomObjectDef	*fdef = checkForCustomFunction(form->oprcode);
-		if (fdef && fdef->cf_type == CF_AJTIME_PL_INTERVAL)
+		switch (cdef->cf_type)
 		{
-			deparseIntervalOp(linitial(node->args),
-				list_nth(node->args, 1), context, true);
-			goto cleanup;
+			case CF_AJTIME_OPERATOR:
+			{
+				/* intervals with ajtime */
+				CustomObjectDef	*fdef = checkForCustomFunction(form->oprcode);
+				if (fdef && fdef->cf_type == CF_AJTIME_PL_INTERVAL)
+				{
+					deparseIntervalOp(linitial(node->args),
+						list_nth(node->args, 1), context, true);
+					goto cleanup;
+				}
+				else if (fdef && fdef->cf_type == CF_AJTIME_MI_INTERVAL)
+				{
+					deparseIntervalOp(linitial(node->args),
+						list_nth(node->args, 1), context, false);
+					goto cleanup;
+				}
+			}
+			break;
+			case CF_TIMESTAMPTZ_PL_INTERVAL:
+			{
+				deparseIntervalOp(linitial(node->args),
+					list_nth(node->args, 1), context, true);
+				goto cleanup;
+			}
+			break;
+			case CF_ISTORE_FETCHVAL:
+			{
+				Node *arg = linitial(node->args);
+
+				if (IsA(arg, Var))
+				{
+					CustomObjectDef	*temp;
+
+					temp = context->func;
+					context->func = cdef;
+
+					/* values[indexOf(ids, ... 0)] */
+					deparseExpr((Expr *) arg, context);
+					deparseExpr((Expr *) list_nth(node->args, 1), context);
+					appendStringInfoString(buf, ")]");
+
+					context->func = temp;
+				}
+				else
+					elog(ERROR, "clickhouse_fdw supports fetchval only for columns");
+
+				goto cleanup;
+			}
+			break;
+			default:
+				elog(ERROR, "invalid custom type");
 		}
-		else if (fdef && fdef->cf_type == CF_AJTIME_MI_INTERVAL)
-		{
-			deparseIntervalOp(linitial(node->args),
-				list_nth(node->args, 1), context, false);
-			goto cleanup;
-		}
-	}
-	else if (cdef && cdef->cf_type == CF_TIMESTAMPTZ_PL_INTERVAL)
-	{
-		deparseIntervalOp(linitial(node->args),
-			list_nth(node->args, 1), context, true);
-		goto cleanup;
 	}
 
 	/* Always parenthesize the expression. */

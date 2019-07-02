@@ -5,7 +5,6 @@
 #include "access/heapam.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
-#include "catalog/pg_operator.h"
 #include "commands/extension.h"
 #include "commands/defrem.h"
 #include "utils/hsearch.h"
@@ -140,6 +139,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 				}
 			}
 			ReleaseSysCache(proctup);
+			pfree(extname);
 		}
 
 		break;
@@ -168,15 +168,20 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 		entry = hash_search(custom_objects_cache, (void *) &typeoid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
 
-		if (extname && strcmp(extname, "istore") == 0)
-			entry->cf_type = CF_ISTORE_TYPE; /* bigistore or istore */
+		if (extname)
+		{
+			if (strcmp(extname, "istore") == 0)
+				entry->cf_type = CF_ISTORE_TYPE; /* bigistore or istore */
+			pfree(extname);
+		}
 	}
 
 	return entry;
 }
 
-CustomObjectDef *checkForCustomOperator(Oid opoid)
+CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
 {
+	HeapTuple	tuple = NULL;
 	const char *proname;
 
 	CustomObjectDef	*entry;
@@ -194,6 +199,14 @@ CustomObjectDef *checkForCustomOperator(Oid opoid)
 		}
 	}
 
+	if (!form)
+	{
+		tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(opoid));
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for operator %u", opoid);
+		form = (Form_pg_operator) GETSTRUCT(tuple);
+	}
+
 	entry = hash_search(custom_objects_cache, (void *) &opoid, HASH_FIND, NULL);
 	if (!entry)
 	{
@@ -207,12 +220,24 @@ CustomObjectDef *checkForCustomOperator(Oid opoid)
 			Oid		extoid = getExtensionOfObject(OperatorRelationId, opoid);
 			char   *extname = get_extension_name(extoid);
 
-			if (extname && strcmp(extname, "ajtime") == 0)
+			if (extname)
 			{
-				entry->cf_type = CF_AJTIME_OPERATOR;
+				if (strcmp(extname, "ajtime") == 0)
+				{
+					entry->cf_type = CF_AJTIME_OPERATOR;
+				}
+				else if (strcmp(extname, "istore") == 0)
+				{
+					if (form && strcmp(NameStr(form->oprname), "->") == 0)
+						entry->cf_type = CF_ISTORE_FETCHVAL;
+				}
+				pfree(extname);
 			}
 		}
 	}
+
+	if (tuple)
+		ReleaseSysCache(tuple);
 
 	return entry;
 }

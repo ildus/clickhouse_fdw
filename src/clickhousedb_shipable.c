@@ -172,7 +172,7 @@ is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 		return true;
 	else if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
 		return true;
-	else if (classId == OperatorRelationId && checkForCustomOperator(objectId) != NULL)
+	else if (classId == OperatorRelationId && checkForCustomOperator(objectId, NULL) != NULL)
 		return true;
 
 	/* Otherwise, give up if user hasn't specified any shippable extensions. */

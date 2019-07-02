@@ -15,6 +15,7 @@
 #include "lib/stringinfo.h"
 #include "nodes/relation.h"
 #include "utils/relcache.h"
+#include "catalog/pg_operator.h"
 
 typedef void *ch_connection;
 
@@ -232,6 +233,7 @@ typedef enum {
 	CF_ISTORE_SUM,		/* SUM on istore column */
 	CF_ISTORE_ARR,		/* COLUMN splitted to array */
 	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
+	CF_ISTORE_FETCHVAL,		/* -> operation on istore */
 	CF_AJTIME_OPERATOR,	/* ajtime operation */
 	CF_AJTIME_TO_TIMESTAMP,	/* ajtime to timestamp */
 	CF_DATE_TRUNC,		/* date_trunc function */
@@ -263,6 +265,6 @@ extern CustomObjectDef *checkForCustomType(Oid typeoid);
 extern void modifyCustomVar(CustomObjectDef *def, Node *node);
 extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
 extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
-extern CustomObjectDef *checkForCustomOperator(Oid opoid);
+extern CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form);
 
 #endif							/* POSTGRES_FDW_H */
