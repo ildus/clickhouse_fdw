@@ -119,6 +119,16 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 					entry->cf_type = CF_ISTORE_SUM;
 					strcpy(entry->custom_name, "sumMap");
 				}
+				else if (strcmp(NameStr(procform->proname), "istore_seed") == 0)
+				{
+					entry->cf_type = CF_ISTORE_SEED;
+					entry->custom_name[0] = '\1';	/* complex */
+				}
+				else if (strcmp(NameStr(procform->proname), "accumulate") == 0)
+				{
+					entry->cf_type = CF_ISTORE_ACCUMULATE;
+					entry->custom_name[0] = '\1';	/* complex */
+				}
 			}
 			else if (strcmp(extname, "ajtime") == 0)
 			{
@@ -136,6 +146,11 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 				{
 					entry->cf_type = CF_AJTIME_MI_INTERVAL;
 					strcpy(entry->custom_name, "subtractSeconds");
+				}
+				else if (strcmp(NameStr(procform->proname), "day_diff") == 0)
+				{
+					entry->cf_type = CF_AJTIME_DAY_DIFF;
+					strcpy(entry->custom_name, "dateDiff");
 				}
 			}
 			ReleaseSysCache(proctup);

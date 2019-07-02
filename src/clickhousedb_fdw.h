@@ -234,12 +234,15 @@ typedef enum {
 	CF_ISTORE_ARR,		/* COLUMN splitted to array */
 	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
 	CF_ISTORE_FETCHVAL,		/* -> operation on istore */
+	CF_ISTORE_SEED,		/* istore_seed */
+	CF_ISTORE_ACCUMULATE,	/* accumulate */
 	CF_AJTIME_OPERATOR,	/* ajtime operation */
 	CF_AJTIME_TO_TIMESTAMP,	/* ajtime to timestamp */
 	CF_DATE_TRUNC,		/* date_trunc function */
 	CF_TIMESTAMPTZ_PL_INTERVAL,	/* timestamptz + interval */
 	CF_AJTIME_PL_INTERVAL,
-	CF_AJTIME_MI_INTERVAL
+	CF_AJTIME_MI_INTERVAL,
+	CF_AJTIME_DAY_DIFF
 } custom_object_type;
 
 typedef struct CustomObjectDef

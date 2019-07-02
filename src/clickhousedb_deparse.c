@@ -1542,6 +1542,10 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 		pfree(colkey);
 		pfree(colval);
 	}
+	else if (cinfo && cinfo->coltype == CF_ISTORE_COL)
+	{
+		elog(ERROR, "not implemented CF_ISTORE_COL");
+	}
 	else
 	{
 		if (qualify_col)
@@ -1656,9 +1660,6 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_Const:
 		deparseConst((Const *) node, context, 0);
 		break;
-	case T_Param:
-		deparseParam((Param *) node, context);
-		break;
 	case T_ArrayRef:
 		deparseArrayRef((ArrayRef *) node, context);
 		break;
@@ -1747,36 +1748,7 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 						 planner_rt_fetch(node->varno, context->root),
 		                 qualify_col);
 	else
-	{
-		/* Treat like a Param */
-		if (context->params_list)
-		{
-			int			pindex = 0;
-			ListCell   *lc;
-
-			/* find its index in params_list */
-			foreach (lc, *context->params_list)
-			{
-				pindex++;
-				if (equal(node, (Node *) lfirst(lc)))
-				{
-					break;
-				}
-			}
-			if (lc == NULL)
-			{
-				/* not in list, so add it */
-				pindex++;
-				*context->params_list = lappend(*context->params_list, node);
-			}
-
-			printRemoteParam(pindex, node->vartype, node->vartypmod, context);
-		}
-		else
-		{
-			printRemotePlaceholder(node->vartype, node->vartypmod, context);
-		}
-	}
+		elog(ERROR, "clickhouse_fdw does not support params");
 }
 
 #define USE_ISO_DATES			1
@@ -2012,46 +1984,6 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 }
 
 /*
- * Deparse given Param node.
- *
- * If we're generating the query "for real", add the Param to
- * context->params_list if it's not already present, and then use its index
- * in that list as the remote parameter number.  During EXPLAIN, there's
- * no need to identify a parameter number.
- */
-static void
-deparseParam(Param *node, deparse_expr_cxt *context)
-{
-	if (context->params_list)
-	{
-		int			pindex = 0;
-		ListCell   *lc;
-
-		/* find its index in params_list */
-		foreach (lc, *context->params_list)
-		{
-			pindex++;
-			if (equal(node, (Node *) lfirst(lc)))
-			{
-				break;
-			}
-		}
-		if (lc == NULL)
-		{
-			/* not in list, so add it */
-			pindex++;
-			*context->params_list = lappend(*context->params_list, node);
-		}
-
-		printRemoteParam(pindex, node->paramtype, node->paramtypmod, context);
-	}
-	else
-	{
-		printRemotePlaceholder(node->paramtype, node->paramtypmod, context);
-	}
-}
-
-/*
  * Deparse an array subscript expression.
  */
 static void
@@ -2109,6 +2041,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	bool		first;
 	ListCell   *arg;
 	CustomObjectDef	*cdef;
+	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 
 	/*
 	 * If the function call came from an implicit coercion, then just show the
@@ -2162,7 +2095,123 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		appendStringInfoChar(buf, ')');
 		return;
 	}
+	else if (cdef && cdef->cf_type == CF_ISTORE_SEED)
+	{
+		if (!context->func)
+		{
+			/* not aggregation */
+			appendStringInfoChar(buf, '(');
+		}
+
+		appendStringInfoString(buf, "range(toUInt16(");
+		deparseExpr(list_nth(node->args, 1), context);
+		appendStringInfoString(buf, ")), arrayResize(emptyArrayInt64(),toUInt16(");
+		deparseExpr(list_nth(node->args, 1), context);
+		appendStringInfoString(buf, "), coalesce(");
+		deparseExpr(list_nth(node->args, 2), context);
+		appendStringInfoString(buf, ", 0)");
+
+		if (context->func && context->func->cf_type == CF_ISTORE_SUM
+			&& fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE)
+			appendStringInfo(buf, " * %s", fpinfo->ch_table_sign_field);
+
+		appendStringInfoChar(buf, ')');
+
+		if (!context->func)
+			appendStringInfoChar(buf, ')');
+
+		return;
+	}
+	else if (cdef && cdef->cf_type == CF_ISTORE_ACCUMULATE)
+	{
+		Relids		relids = context->scanrel->relids;
+		Var		   *var = linitial(node->args);
+		bool		qualify_col = (bms_num_members(relids) > 1);
+		char	   *colname = NULL;
+		RangeTblEntry *rte;
+		CustomColumnInfo *cinfo;
+
+		if (!IsA(linitial(node->args), Var))
+			elog(ERROR, "clickhouse_fdw supports simple accumulate with column as first parameter");
+
+		if (bms_is_member(var->varno, relids) && var->varlevelsup == 0)
+			rte = planner_rt_fetch(var->varno, context->root);
+		else
+			elog(ERROR, "unidentified first parameter in accumulate");
+
+		/* Get FDW specific options for this column */
+		cinfo = GetCustomColumnInfo(rte->relid, var->varattno);
+		if (!cinfo)
+			elog(ERROR, "unidentified first parameter in accumulate");
+
+		if (!context->func)
+		{
+			/* not aggregation */
+			appendStringInfoChar(buf, '(');
+		}
+
+		colname = cinfo->colname;
+		if (cinfo->coltype == CF_ISTORE_ARR)
+		{
+			char *colkey = psprintf("%s_keys", colname);
+			char *colval = psprintf("%s_values", colname);
+
+			/* first block
+			 *	if(a_keys[1] < max_key, arrayMap(x -> a_keys[1] + x - 1,
+			 *		arrayEnumerate(arrayResize(emptyArrayInt32(), (max_key) - a_keys[1] + 1))), []),
+			 */
+			appendStringInfoString(buf, "if(");
+			appendStringInfoString(buf, colkey);
+			appendStringInfoString(buf, "[1] < (");
+			deparseExpr((Expr *) list_nth(node->args, 1), context);
+			appendStringInfoString(buf, "), arrayMap(x -> ");
+			appendStringInfoString(buf, colkey);
+			appendStringInfoString(buf, "[1] + x - 1, arrayEnumerate(arrayResize(emptyArrayInt32(), (");
+			deparseExpr((Expr *) list_nth(node->args, 1), context);
+			appendStringInfoString(buf, ") - ");
+			appendStringInfoString(buf, colkey);
+			appendStringInfoString(buf, "[1] + 1))), []),");
+
+			/* second block:
+			 *	if(a_keys[1] < max_key, arrayCumSum(arrayMap(x -> sign * (a_values[indexOf(a_keys, a_keys[1] + x - 1)]),
+			 *		arrayEnumerate(arrayResize(emptyArrayInt32(), (max_key) -a_keys[1] + 1)))), [])
+			 */
+			appendStringInfoString(buf, "if(");
+			appendStringInfoString(buf, colkey);
+			appendStringInfoString(buf, "[1] < (");
+			deparseExpr((Expr *) list_nth(node->args, 1), context);
+			appendStringInfoString(buf, "), arrayCumSum(arrayMap(x ->");
+
+			if (context->func && context->func->cf_type == CF_ISTORE_SUM
+				&& fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE)
+				appendStringInfo(buf, "%s * ", fpinfo->ch_table_sign_field);
+
+			appendStringInfoChar(buf, '(');
+			appendStringInfoString(buf, colval);
+			appendStringInfoString(buf, "[indexOf(");
+			appendStringInfoString(buf, colkey);
+			appendStringInfoChar(buf, ',');
+			appendStringInfoString(buf, colkey);
+			appendStringInfoString(buf, "[1] + x - 1)]), arrayEnumerate(arrayResize(emptyArrayInt32(), (");
+			deparseExpr((Expr *) list_nth(node->args, 1), context);
+			appendStringInfoString(buf, ") - ");
+			appendStringInfoString(buf, colkey);
+			appendStringInfoString(buf, "[1] + 1)))), [])");
+
+			pfree(colkey);
+			pfree(colval);
+
+			return;
+		}
+		else
+			elog(ERROR, "accumulate for this kind of istore not implemented");
+
+		if (!context->func)
+			appendStringInfoChar(buf, ')');
+	}
 	appendStringInfoChar(buf, '(');
+	if (cdef && cdef->cf_type == CF_AJTIME_DAY_DIFF)
+		appendStringInfoString(buf, "'day', ");
 
 	/* ... and all the arguments */
 	first = true;
@@ -2837,44 +2886,6 @@ appendAggOrderBy(List *orderList, List *targetList, deparse_expr_cxt *context)
 }
 
 /*
- * Print the representation of a parameter to be sent to the remote side.
- *
- * Note: we always label the Param's type explicitly rather than relying on
- * transmitting a numeric type OID in PQexecParams().  This allows us to
- * avoid assuming that types have the same OIDs on the remote side as they
- * do locally --- they need only have the same names.
- */
-static void
-printRemoteParam(int paramindex, Oid paramtype, int32 paramtypmod,
-                 deparse_expr_cxt *context)
-{
-	StringInfo	buf = context->buf;
-	appendStringInfo(buf, "?");
-}
-
-/*
- * Print the representation of a placeholder for a parameter that will be
- * sent to the remote side at execution time.
- *
- * This is used when we're just trying to EXPLAIN the remote query.
- * We don't have the actual value of the runtime parameter yet, and we don't
- * want the remote planner to generate a plan that depends on such a value
- * anyway.  Thus, we can't do something simple like "$1::paramtype".
- * Instead, we emit "((SELECT null::paramtype)::paramtype)".
- * In all extant versions of Postgres, the planner will see that as an unknown
- * constant value, which is what we want.  This might need adjustment if we
- * ever make the planner flatten scalar subqueries.  Note: the reason for the
- * apparently useless outer cast is to ensure that the representation as a
- * whole will be parsed as an a_expr and not a select_with_parens; the latter
- * would do the wrong thing in the context "x = ANY(...)".
- */
-static void
-printRemotePlaceholder(Oid paramtype, int32 paramtypmod,
-                       deparse_expr_cxt *context)
-{
-}
-
-/*
  * Deparse GROUP BY clause.
  */
 static void
@@ -2970,7 +2981,7 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	if (cdef && cdef->custom_name[0] != '\0')
 	{
 		if (cdef->custom_name[0] != '\1')
-			appendStringInfoString(buf, quote_identifier(cdef->custom_name));
+			appendStringInfoString(buf, cdef->custom_name);
 		return cdef;
 	}
 
@@ -2985,7 +2996,7 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	if (is_builtin(funcid) && procform->prokind == PROKIND_AGGREGATE
 			&& fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE)
 	{
-		cdef = palloc(sizeof(CHFdwRelationInfo));
+		cdef = palloc(sizeof(CustomObjectDef));
 		cdef->cf_oid = funcid;
 
 		if (strcmp(proname, "sum") == 0)
@@ -3008,7 +3019,7 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	}
 
 	/* Always print the function name */
-	appendStringInfoString(buf, quote_identifier(proname));
+	appendStringInfoString(buf, proname);
 
 	ReleaseSysCache(proctup);
 
