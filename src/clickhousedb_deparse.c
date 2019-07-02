@@ -1516,7 +1516,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 		}
 		else if (cdef && cdef->cf_type == CF_ISTORE_FETCHVAL)
 		{
-			/* values[indexOf(ids, 0)] */
+			/* values[indexOf(ids, */
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colval));
@@ -2317,9 +2317,10 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					temp = context->func;
 					context->func = cdef;
 
-					/* values[indexOf(ids, ... 0)] */
+					/* values[indexOf(ids, ... */
 					deparseExpr((Expr *) arg, context);
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
+					/* ... 0)] */
 					appendStringInfoString(buf, ")]");
 
 					context->func = temp;
