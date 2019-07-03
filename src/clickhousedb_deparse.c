@@ -2443,9 +2443,9 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	{
 		appendStringInfoChar(buf, '(');
 		deparseExpr((Expr *) list_nth(node->args, 1), context);
-		appendStringInfoString(buf, " - ");
+		appendStringInfoString(buf, " - cast(");
 		deparseExpr((Expr *) linitial(node->args), context);
-		appendStringInfoString(buf, ") / 86400)");
+		appendStringInfoString(buf, ", 'DateTime')) / 86400)");
 		return;
 	}
 
