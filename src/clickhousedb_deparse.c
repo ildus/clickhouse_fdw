@@ -1715,6 +1715,12 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 			appendStringInfoString(buf, quote_identifier(colkey));
 			appendStringInfoChar(buf, ',');
 		}
+		else if (cdef && cdef->cf_type == CF_ISTORE_SUM_UP)
+		{
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colval));
+		}
 		else
 		{
 			appendStringInfoChar(buf, '(');
@@ -2232,7 +2238,8 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	StringInfo	buf = context->buf;
 	bool		first;
 	ListCell   *arg;
-	CustomObjectDef	*cdef;
+	CustomObjectDef	*cdef,
+					*old_cdef;
 	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 
 	/*
@@ -2433,6 +2440,13 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		return;
 	}
 
+
+	old_cdef = context->func;
+
+	/* sup_up requires only values part of array */
+	if (cdef && cdef->cf_type == CF_ISTORE_SUM_UP)
+		context->func = cdef;
+
 	/* ... and all the arguments */
 	first = true;
 	foreach (arg, node->args)
@@ -2443,6 +2457,8 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		deparseExpr((Expr *) lfirst(arg), context);
 		first = false;
 	}
+
+	context->func = old_cdef;
 	appendStringInfoChar(buf, ')');
 }
 

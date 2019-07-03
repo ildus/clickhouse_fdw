@@ -232,6 +232,7 @@ typedef enum {
 	CF_SIGN_COUNT,		/* COUNT aggregation */
 	CF_ISTORE_TYPE,		/* istore type */
 	CF_ISTORE_SUM,		/* SUM on istore column */
+	CF_ISTORE_SUM_UP,	/* SUM_UP on istore column */
 	CF_ISTORE_ARR,		/* COLUMN splitted to array */
 	CF_ISTORE_COL,		/* COLUMN splitted to columns by key */
 	CF_ISTORE_FETCHVAL,		/* -> operation on istore */

@@ -119,6 +119,11 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 					entry->cf_type = CF_ISTORE_SUM;
 					strcpy(entry->custom_name, "sumMap");
 				}
+				if (strcmp(NameStr(procform->proname), "sum_up") == 0)
+				{
+					entry->cf_type = CF_ISTORE_SUM_UP;
+					strcpy(entry->custom_name, "arraySum");
+				}
 				else if (strcmp(NameStr(procform->proname), "istore_seed") == 0)
 				{
 					entry->cf_type = CF_ISTORE_SEED;
