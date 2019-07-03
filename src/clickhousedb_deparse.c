@@ -2441,11 +2441,11 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, '(');
 	if (cdef && cdef->cf_type == CF_AJTIME_DAY_DIFF)
 	{
-		appendStringInfoString(buf, "'day', ");
-		deparseExpr((Expr *) linitial(node->args), context);
-		appendStringInfoString(buf, ", cast(");
+		appendStringInfoChar(buf, '(');
 		deparseExpr((Expr *) list_nth(node->args, 1), context);
-		appendStringInfoString(buf, " as DateTime))");
+		appendStringInfoString(buf, " - ");
+		deparseExpr((Expr *) linitial(node->args), context);
+		appendStringInfoString(buf, ") / 86400)");
 		return;
 	}
 

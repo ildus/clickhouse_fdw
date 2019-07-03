@@ -161,7 +161,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 				else if (strcmp(NameStr(procform->proname), "day_diff") == 0)
 				{
 					entry->cf_type = CF_AJTIME_DAY_DIFF;
-					strcpy(entry->custom_name, "dateDiff");
+					strcpy(entry->custom_name, "toInt32");
 				}
 			}
 			ReleaseSysCache(proctup);
