@@ -2531,6 +2531,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	char		oprkind;
 	ListCell   *arg;
 	CustomObjectDef	*cdef;
+	Oid			cast_to_int = InvalidOid;
 
 	/* Retrieve information about the operator from system catalog. */
 	tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(node->opno));
@@ -2605,6 +2606,15 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 		}
 	}
 
+	if ((node->opresulttype == INT2OID ||
+		 node->opresulttype == INT4OID ||
+		 node->opresulttype == INT8OID) &&
+			strcmp(NameStr(form->oprname), "/") == 0)
+	{
+		cast_to_int = node->opresulttype;
+		appendStringInfoString(buf, "cast");
+	}
+
 	/* Always parenthesize the expression. */
 	appendStringInfoChar(buf, '(');
 
@@ -2628,6 +2638,13 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 		arg = list_tail(node->args);
 		appendStringInfoChar(buf, ' ');
 		deparseExpr(lfirst(arg), context);
+	}
+
+	if (cast_to_int != InvalidOid)
+	{
+		char *s = ch_format_type_extended(cast_to_int, 0, 0);
+		appendStringInfo(buf, ", 'Nullable(%s)'", s);
+		pfree(s);
 	}
 
 	appendStringInfoChar(buf, ')');
