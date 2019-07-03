@@ -38,7 +38,8 @@ void ch_http_init(int verbose, uint32_t query_id_prefix);
 void ch_http_set_progress_func(void *progressfunc);
 ch_http_connection_t *ch_http_connection(char *connstring);
 void ch_http_close(ch_http_connection_t *conn);
-ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query);
+ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query,
+	uint32_t query_id);
 char *ch_http_last_error(void);
 void ch_http_read_state_init(ch_http_read_state *state, char *data, size_t datalen);
 void ch_http_read_state_free(ch_http_read_state *state);
