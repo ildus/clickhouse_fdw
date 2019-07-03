@@ -613,6 +613,180 @@ foreign_expr_walker(Node *node,
 }
 
 /*
+ * Add typmod decoration to the basic type name
+ */
+static char *
+printTypmod(const char *typname, int32 typmod, Oid typmodout)
+{
+	char	   *res;
+
+	/* Shouldn't be called if typmod is -1 */
+	Assert(typmod >= 0);
+
+	if (typmodout == InvalidOid)
+	{
+		/* Default behavior: just print the integer typmod with parens */
+		res = psprintf("%s(%d)", typname, (int) typmod);
+	}
+	else
+	{
+		/* Use the type-specific typmodout procedure */
+		char	   *tmstr;
+
+		tmstr = DatumGetCString(OidFunctionCall1(typmodout,
+												 Int32GetDatum(typmod)));
+		res = psprintf("%s%s", typname, tmstr);
+	}
+
+	return res;
+}
+
+static char *
+ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
+{
+	HeapTuple	tuple;
+	Form_pg_type typeform;
+	Oid			array_base_type;
+	bool		is_array;
+	char	   *buf;
+	bool		with_typemod;
+
+	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_oid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for type %u", type_oid);
+
+	typeform = (Form_pg_type) GETSTRUCT(tuple);
+
+	/*
+	 * Check if it's a regular (variable length) array type.  Fixed-length
+	 * array types such as "name" shouldn't get deconstructed.  As of Postgres
+	 * 8.1, rather than checking typlen we check the toast property, and don't
+	 * deconstruct "plain storage" array types --- this is because we don't
+	 * want to show oidvector as oid[].
+	 */
+	array_base_type = typeform->typelem;
+
+	if (array_base_type != InvalidOid && typeform->typstorage != 'p')
+	{
+		/* Switch our attention to the array element type */
+		ReleaseSysCache(tuple);
+		tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(array_base_type));
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for type %u", type_oid);
+
+		typeform = (Form_pg_type) GETSTRUCT(tuple);
+		type_oid = array_base_type;
+		is_array = true;
+	}
+	else
+		is_array = false;
+
+	with_typemod = (flags & FORMAT_TYPE_TYPEMOD_GIVEN) != 0 && (typemod >= 0);
+
+	/*
+	 * See if we want to special-case the output for certain built-in types.
+	 * Note that these special cases should all correspond to special
+	 * productions in gram.y, to ensure that the type name will be taken as a
+	 * system type, not a user type of the same name.
+	 *
+	 * If we do not provide a special-case output here, the type name will be
+	 * handled the same way as a user type name --- in particular, it will be
+	 * double-quoted if it matches any lexer keyword.  This behavior is
+	 * essential for some cases, such as types "bit" and "char".
+	 */
+	buf = NULL;					/* flag for no special case */
+
+	switch (type_oid)
+	{
+		case BOOLOID:
+			buf = pstrdup("Boolean");
+			break;
+
+		case BPCHAROID:
+			if (with_typemod)
+				buf = printTypmod("FixedString", typemod, typeform->typmodout);
+			else if ((flags & FORMAT_TYPE_TYPEMOD_GIVEN) != 0)
+			{
+				/*
+				 * bpchar with typmod -1 is not the same as CHARACTER, which
+				 * means CHARACTER(1) per SQL spec.  Report it as bpchar so
+				 * that parser will not assign a bogus typmod.
+				 */
+			}
+			else
+				buf = pstrdup("String");
+			break;
+
+		case FLOAT4OID:
+			buf = pstrdup("Float32");
+			break;
+
+		case FLOAT8OID:
+			buf = pstrdup("Float64");
+			break;
+
+		case INT2OID:
+			buf = pstrdup("Int16");
+			break;
+
+		case INT4OID:
+			buf = pstrdup("Int32");
+			break;
+
+		case INT8OID:
+			buf = pstrdup("Int64");
+			break;
+
+		case NUMERICOID:
+			if (with_typemod)
+				buf = printTypmod("Decimal", typemod, typeform->typmodout);
+			else
+				buf = pstrdup("Decimal");
+			break;
+
+		case INTERVALOID:
+			if (with_typemod)
+				buf = printTypmod("UInt64", typemod, typeform->typmodout);
+			else
+				buf = pstrdup("UInt64");
+			break;
+
+		case TIMESTAMPTZOID:
+		case TIMESTAMPOID:
+			buf = pstrdup("DateTime");
+			break;
+		case DATEOID:
+			buf = pstrdup("Date");
+			break;
+
+		case VARCHAROID:
+			if (with_typemod)
+				buf = printTypmod("FixedString", typemod, typeform->typmodout);
+			else
+				buf = pstrdup("String");
+			break;
+	}
+
+	if (buf == NULL)
+	{
+		char	   *typname;
+
+		typname = NameStr(typeform->typname);
+		buf = quote_qualified_identifier(NULL, typname);
+
+		if (with_typemod)
+			buf = printTypmod(buf, typemod, typeform->typmodout);
+	}
+
+	if (is_array)
+		buf = psprintf("Array(%s)", buf);
+
+	ReleaseSysCache(tuple);
+
+	return buf;
+}
+
+/*
  * Convert type OID + typmod info into a type name we can ship to the remote
  * server.  Someplace else had better have verified that this type name is
  * expected to be known on the remote end.
@@ -631,7 +805,7 @@ deparse_type_name(Oid type_oid, int32 typemod)
 	if (!is_builtin(type_oid))
 		flags |= FORMAT_TYPE_FORCE_QUALIFY;
 
-	return format_type_extended(type_oid, typemod, flags);
+	return ch_format_type_extended(type_oid, typemod, flags);
 }
 
 /*
@@ -2070,12 +2244,16 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	 */
 	if (node->funcformat == COERCE_EXPLICIT_CAST)
 	{
+		Oid			rettype = node->funcresulttype;
 		int32		coercedTypmod;
 
 		/* Get the typmod if this is a length-coercion function */
 		(void) exprIsLengthCoercion((Node *) node, &coercedTypmod);
 
+		appendStringInfoString(buf, "cast(");
 		deparseExpr((Expr *) linitial(node->args), context);
+		appendStringInfo(buf, ", '%s')",
+						 deparse_type_name(rettype, coercedTypmod));
 		return;
 	}
 
@@ -2172,14 +2350,21 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			 *		arrayEnumerate(arrayResize(emptyArrayInt32(), (max_key) - a_keys[1] + 1))), []),
 			 */
 			appendStringInfoString(buf, "if(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
+
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] < (");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
 			appendStringInfoString(buf, "), arrayMap(x -> ");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] + x - 1, arrayEnumerate(arrayResize(emptyArrayInt32(), (");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
 			appendStringInfoString(buf, ") - ");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] + 1))), []),");
 
@@ -2188,6 +2373,8 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			 *		arrayEnumerate(arrayResize(emptyArrayInt32(), (max_key) -a_keys[1] + 1)))), [])
 			 */
 			appendStringInfoString(buf, "if(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] < (");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
@@ -2198,15 +2385,23 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 				appendStringInfo(buf, "%s * ", fpinfo->ch_table_sign_field);
 
 			appendStringInfoChar(buf, '(');
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colval);
 			appendStringInfoString(buf, "[indexOf(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoChar(buf, ',');
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] + x - 1)]), arrayEnumerate(arrayResize(emptyArrayInt32(), (");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
 			appendStringInfoString(buf, ") - ");
 			appendStringInfoString(buf, colkey);
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, "[1] + 1)))), [])");
 
 			pfree(colkey);
