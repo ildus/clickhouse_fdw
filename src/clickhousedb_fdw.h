@@ -243,6 +243,7 @@ typedef enum {
 	CF_TIMESTAMPTZ_PL_INTERVAL,	/* timestamptz + interval */
 	CF_AJTIME_PL_INTERVAL,
 	CF_AJTIME_MI_INTERVAL,
+	CF_AJTIME_TYPE,		/* ajtime type */
 	CF_AJTIME_DAY_DIFF
 } custom_object_type;
 

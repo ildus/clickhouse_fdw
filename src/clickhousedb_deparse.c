@@ -769,13 +769,20 @@ ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
 
 	if (buf == NULL)
 	{
+		CustomObjectDef	*cdef;
 		char	   *typname;
 
-		typname = NameStr(typeform->typname);
-		buf = quote_qualified_identifier(NULL, typname);
+		cdef = checkForCustomType(type_oid);
+		if (cdef && cdef->custom_name[0] != '\0')
+			buf = pstrdup(cdef->custom_name);
+		else
+		{
+			typname = NameStr(typeform->typname);
+			buf = quote_qualified_identifier(NULL, typname);
 
-		if (with_typemod)
-			buf = printTypmod(buf, typemod, typeform->typmodout);
+			if (with_typemod)
+				buf = printTypmod(buf, typemod, typeform->typmodout);
+		}
 	}
 
 	if (is_array)

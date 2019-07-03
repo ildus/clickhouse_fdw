@@ -187,11 +187,20 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 
 		entry = hash_search(custom_objects_cache, (void *) &typeoid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
+		entry->custom_name[0] = '\0';
 
 		if (extname)
 		{
 			if (strcmp(extname, "istore") == 0)
+			{
 				entry->cf_type = CF_ISTORE_TYPE; /* bigistore or istore */
+				strcpy(entry->custom_name, "Tuple(Array(Int32), Array(Int64))");
+			}
+			else if (strcmp(extname, "ajtime") == 0)
+			{
+				entry->cf_type = CF_AJTIME_TYPE; /* ajtime */
+				strcpy(entry->custom_name, "DateTime");
+			}
 			pfree(extname);
 		}
 	}
