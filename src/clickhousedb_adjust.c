@@ -91,6 +91,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 		entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
 		entry->custom_name[0] = '\0';
+		entry->context = NULL;
 
 		if (funcid == F_TIMESTAMPTZ_TRUNC || funcid == F_TIMESTAMP_TRUNC)
 		{

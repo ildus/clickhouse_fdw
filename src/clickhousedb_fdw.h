@@ -253,6 +253,7 @@ typedef struct CustomObjectDef
 	Oid						cf_oid;
 	custom_object_type		cf_type;
 	char					custom_name[NAMEDATALEN];	/* \0 - no custom name, \1 - many names */
+	void				   *context;
 } CustomObjectDef;
 
 typedef struct CustomColumnInfo

@@ -1720,6 +1720,14 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colval));
+
+			if (cdef->context && list_length(cdef->context) == 2)
+			{
+				appendStringInfoChar(buf, ',');
+				if (qualify_col)
+					ADD_REL_QUALIFIER(buf, varno);
+				appendStringInfoString(buf, quote_identifier(colkey));
+			}
 		}
 		else
 		{
@@ -2240,6 +2248,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	ListCell   *arg;
 	CustomObjectDef	*cdef,
 					*old_cdef;
+	CustomObjectDef	 funcdef;
 	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 
 	/*
@@ -2445,7 +2454,35 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 
 	/* sup_up requires only values part of array */
 	if (cdef && cdef->cf_type == CF_ISTORE_SUM_UP)
-		context->func = cdef;
+	{
+		/* sum_up(daily_time_spent_cohort, 12)
+			=>
+			arraySum(arrayFilter((v, k) -> k <= 12,
+			daily_time_spent_cohort_values,
+			daily_time_spent_cohort_keys))
+
+			sum_up(daily_time_spent_cohort)
+			=>
+			arraySum(daily_time_spent_cohort_values)
+		*/
+		funcdef = *cdef;
+		funcdef.context = node->args;
+		context->func = &funcdef;
+
+		if (list_length(node->args) == 2)
+		{
+			appendStringInfoString(buf, "arrayFilter((v, k) -> k <= ");
+			appendStringInfoChar(buf, '(');
+			deparseExpr((Expr *) list_nth(node->args, 1), context);
+			appendStringInfoChar(buf, ')');
+			appendStringInfoChar(buf, ',');
+			deparseExpr((Expr *) linitial(node->args), context);
+			appendStringInfoChar(buf, ')');
+		}
+		else
+			deparseExpr((Expr *) linitial(node->args), context);
+		goto end;
+	}
 
 	/* ... and all the arguments */
 	first = true;
@@ -2458,6 +2495,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		first = false;
 	}
 
+end:
 	context->func = old_cdef;
 	appendStringInfoChar(buf, ')');
 }
