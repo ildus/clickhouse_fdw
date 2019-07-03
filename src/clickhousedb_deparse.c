@@ -2135,7 +2135,29 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		return;
 	}
 	else
+	{
+		CustomObjectDef *cdef = checkForCustomFunction(typoutput);
+
 		extval = OidOutputFunctionCall(typoutput, node->constvalue);
+		if (cdef && cdef->cf_type == CF_AJBOOL_OUT)
+		{
+			/* ajbool:
+				'f' => 0
+				't' => 1
+				'u' => 2
+			*/
+			if (strcmp(extval, "f") == 0)
+				appendStringInfoChar(buf, '0');
+			else if (strcmp(extval, "t") == 0)
+				appendStringInfoChar(buf, '1');
+			else if (strcmp(extval, "u") == 0)
+				appendStringInfoChar(buf, '2');
+			else
+				elog(ERROR, "unexpected output of ajbool");
+
+			goto cleanup;
+		}
+	}
 
 	switch (node->consttype)
 	{
@@ -2154,18 +2176,12 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		if (strspn(extval, "0123456789+-eE.") == strlen(extval))
 		{
 			if (extval[0] == '+' || extval[0] == '-')
-			{
 				appendStringInfo(buf, "(%s)", extval);
-			}
 			else
-			{
 				appendStringInfoString(buf, extval);
-			}
 		}
 		else
-		{
 			appendStringInfo(buf, "'%s'", extval);
-		}
 	}
 	break;
 	case BITOID:
@@ -2174,18 +2190,16 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		break;
 	case BOOLOID:
 		if (strcmp(extval, "t") == 0)
-		{
 			appendStringInfoString(buf, "true");
-		}
 		else
-		{
 			appendStringInfoString(buf, "false");
-		}
 		break;
 	default:
 		deparseStringLiteral(buf, extval, true);
 		break;
 	}
+
+cleanup:
 	pfree(extval);
 }
 
@@ -2654,8 +2668,10 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 				goto cleanup;
 			}
 			break;
+			case CF_AJBOOL_OPERATOR:
+			break;
 			default:
-				elog(ERROR, "invalid custom type");
+				elog(ERROR, "unsupported operator type");
 		}
 	}
 
@@ -2681,6 +2697,8 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 
 	/* Deparse operator name. */
 	if (cdef && cdef->cf_type == CF_AJTIME_OPERATOR)
+		appendStringInfoString(buf, NameStr(form->oprname));
+	else if (cdef && cdef->cf_type == CF_AJBOOL_OPERATOR)
 		appendStringInfoString(buf, NameStr(form->oprname));
 	else
 		deparseOperatorName(buf, form);

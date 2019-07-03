@@ -245,7 +245,9 @@ typedef enum {
 	CF_AJTIME_PL_INTERVAL,
 	CF_AJTIME_MI_INTERVAL,
 	CF_AJTIME_TYPE,		/* ajtime type */
-	CF_AJTIME_DAY_DIFF
+	CF_AJTIME_DAY_DIFF,
+	CF_AJBOOL_OUT,
+	CF_AJBOOL_OPERATOR	/* ajbool operation */
 } custom_object_type;
 
 typedef struct CustomObjectDef

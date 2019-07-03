@@ -164,6 +164,11 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 					strcpy(entry->custom_name, "toInt32");
 				}
 			}
+			else if (strcmp(extname, "ajbool") == 0)
+			{
+				if (strcmp(NameStr(procform->proname), "ajbool_out") == 0)
+					entry->cf_type = CF_AJBOOL_OUT;
+			}
 			ReleaseSysCache(proctup);
 			pfree(extname);
 		}
@@ -258,14 +263,15 @@ CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
 			if (extname)
 			{
 				if (strcmp(extname, "ajtime") == 0)
-				{
 					entry->cf_type = CF_AJTIME_OPERATOR;
-				}
 				else if (strcmp(extname, "istore") == 0)
 				{
 					if (form && strcmp(NameStr(form->oprname), "->") == 0)
 						entry->cf_type = CF_ISTORE_FETCHVAL;
 				}
+				else if (strcmp(extname, "ajbool") == 0)
+					entry->cf_type = CF_AJBOOL_OPERATOR;
+
 				pfree(extname);
 			}
 		}
