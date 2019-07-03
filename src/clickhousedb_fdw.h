@@ -166,7 +166,6 @@ extern const char *get_jointype_name(JoinType jointype);
 
 /* in shippable.c */
 extern bool is_builtin(Oid objectId);
-extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo);
 extern int is_equal_op(Oid opno);
 
 /*
@@ -275,5 +274,8 @@ extern void modifyCustomVar(CustomObjectDef *def, Node *node);
 extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
 extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
 extern CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form);
+
+extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
+		CustomObjectDef **outcdef);
 
 #endif							/* POSTGRES_FDW_H */

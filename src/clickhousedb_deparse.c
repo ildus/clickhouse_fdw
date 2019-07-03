@@ -38,6 +38,7 @@
 #include "utils/fmgroids.h"
 #include "utils/datetime.h"
 #include "utils/arrayaccess.h"
+#include "utils/catcache.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -313,9 +314,7 @@ foreign_expr_walker(Node *node,
 			if (var->varattno < 0 &&
 			        var->varattno != SelfItemPointerAttributeNumber &&
 			        var->varattno != ObjectIdAttributeNumber)
-			{
 				return false;
-			}
 		}
 	}
 	break;
@@ -333,9 +332,7 @@ foreign_expr_walker(Node *node,
 
 		/* Assignment should not be in restrictions. */
 		if (ar->refassgnexpr != NULL)
-		{
 			return false;
-		}
 
 		/*
 		 * Recurse to remaining subexpressions.  Since the array
@@ -344,23 +341,20 @@ foreign_expr_walker(Node *node,
 		 */
 		if (!foreign_expr_walker((Node *) ar->refupperindexpr,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
+
 		if (!foreign_expr_walker((Node *) ar->reflowerindexpr,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
+
 		if (!foreign_expr_walker((Node *) ar->refexpr,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
 	}
 	break;
 	case T_FuncExpr:
 	{
+		CustomObjectDef	*cdef = NULL;
 		FuncExpr   *fe = (FuncExpr *) node;
 
 		/* not in ClickHouse */
@@ -372,7 +366,11 @@ foreign_expr_walker(Node *node,
 		 * can't be sent to remote because it might have incompatible
 		 * semantics on remote side.
 		 */
-		if (!is_shippable(fe->funcid, ProcedureRelationId, fpinfo))
+		if (!is_shippable(fe->funcid, ProcedureRelationId, fpinfo, &cdef))
+			return false;
+
+		/* only simple Var as first argument for accumulate */
+		if (cdef && cdef->cf_type == CF_ISTORE_ACCUMULATE && (!IsA(linitial(fe->args), Var)))
 			return false;
 
 		/*
@@ -393,7 +391,7 @@ foreign_expr_walker(Node *node,
 		 * (If the operator is shippable, we assume its underlying
 		 * function is too.)
 		 */
-		if (!is_shippable(oe->opno, OperatorRelationId, fpinfo))
+		if (!is_shippable(oe->opno, OperatorRelationId, fpinfo, NULL))
 			return false;
 
 		/*
@@ -510,7 +508,7 @@ foreign_expr_walker(Node *node,
 			return false;
 
 		/* As usual, it must be shippable. */
-		if (!is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo))
+		if (!is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo, NULL))
 			return false;
 
 		/* Features that ClickHouse doesn't support */
@@ -603,7 +601,7 @@ foreign_expr_walker(Node *node,
 	 * If result type of given expression is not shippable, it can't be sent
 	 * to remote because it might have incompatible semantics on remote side.
 	 */
-	if (check_type && !is_shippable(exprType(node), TypeRelationId, fpinfo))
+	if (check_type && !is_shippable(exprType(node), TypeRelationId, fpinfo, NULL))
 	{
 		return false;
 	}
@@ -2190,9 +2188,9 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		break;
 	case BOOLOID:
 		if (strcmp(extval, "t") == 0)
-			appendStringInfoString(buf, "true");
+			appendStringInfoString(buf, "1");
 		else
-			appendStringInfoString(buf, "false");
+			appendStringInfoString(buf, "0");
 		break;
 	default:
 		deparseStringLiteral(buf, extval, true);
@@ -2586,6 +2584,33 @@ deparseIntervalOp(Node *first, Node *second, deparse_expr_cxt *context, bool plu
 	appendStringInfoChar(buf, ')');
 }
 
+static Oid
+findIStoreFunction(Oid isoid, char *name)
+{
+	int			i;
+	Oid			result = InvalidOid;
+	HeapTuple	proctup;
+	Form_pg_proc procform;
+	CatCList   *catlist;
+	catlist = SearchSysCacheList1(PROCNAMEARGSNSP,
+			CStringGetDatum(name));
+
+	if (catlist->n_members == 0)
+		elog(ERROR, "clickhouse_fdw requires istore extension to parse istore values");
+
+	for (i = 0; i < catlist->n_members; i++)
+	{
+		proctup = &catlist->members[i]->tuple;
+		procform = (Form_pg_proc) GETSTRUCT(proctup);
+		if (procform->proargtypes.values[0] == isoid)
+			result = HeapTupleGetOid(proctup);
+	}
+
+	ReleaseSysCacheList(catlist);
+
+	return result;
+}
+
 /*
  * Deparse given operator expression.   To avoid problems around
  * priority of operations, we always parenthesize the arguments.
@@ -2662,8 +2687,24 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 
 					context->func = temp;
 				}
+				else if (IsA(arg, Const))
+				{
+					Const	   *constval = (Const *) arg;
+					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
+					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
+
+					/* ([val1, val2][indexOf([key1, key2], arg] */
+					appendStringInfoChar(buf, '(');
+					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
+					appendStringInfoString(buf, "[indexOf(");
+					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
+					appendStringInfoString(buf, ", ");
+					deparseExpr((Expr *) list_nth(node->args, 1), context);
+					appendStringInfoString(buf, ")]");
+					appendStringInfoChar(buf, ')');
+				}
 				else
-					elog(ERROR, "clickhouse_fdw supports fetchval only for columns");
+					elog(ERROR, "clickhouse_fdw supports fetchval only for columns and consts only");
 
 				goto cleanup;
 			}

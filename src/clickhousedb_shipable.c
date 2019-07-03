@@ -159,7 +159,8 @@ is_builtin(Oid objectId)
  *	   Is this object (function/operator/type) shippable to foreign server?
  */
 bool
-is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
+is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
+		CustomObjectDef **outcdef)
 {
 	ShippableCacheKey key;
 	ShippableCacheEntry *entry;
@@ -171,6 +172,9 @@ is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 	if (classId == ProcedureRelationId)
 	{
 		CustomObjectDef *cdef = checkForCustomFunction(objectId);
+		if (outcdef != NULL)
+			*outcdef = cdef;
+
 		return (cdef && cdef->cf_type != CF_UNSHIPPABLE);
 	}
 	else if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
