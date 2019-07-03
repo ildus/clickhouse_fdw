@@ -226,6 +226,7 @@ extern libclickhouse_methods *clickhouse_gate;
 /* Custom behavior types */
 typedef enum {
 	CF_USUAL = 0,
+	CF_UNSHIPPABLE,		/* do not ship */
 	CF_SIGN_SUM,		/* SUM aggregation */
 	CF_SIGN_AVG,		/* AVG aggregation */
 	CF_SIGN_COUNT,		/* COUNT aggregation */

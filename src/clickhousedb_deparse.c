@@ -158,6 +158,7 @@ static CustomObjectDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 					   deparse_expr_cxt *context);
 static void deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context);
+static void deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context);
 
 /*
  * Helper functions
@@ -579,6 +580,13 @@ foreign_expr_walker(Node *node,
 		CoalesceExpr   *ce = (CoalesceExpr *) node;
 
 		if (!foreign_expr_walker((Node *) ce->args, glob_cxt, &inner_cxt))
+			return false;
+	}
+	break;
+	case T_MinMaxExpr:
+	{
+		MinMaxExpr	*me = (MinMaxExpr *) node;
+		if (!foreign_expr_walker((Node *) me->args, glob_cxt, &inner_cxt))
 			return false;
 	}
 	break;
@@ -1699,6 +1707,9 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_CoalesceExpr:
 		deparseCoalesceExpr((CoalesceExpr *) node, context);
 		break;
+	case T_MinMaxExpr:
+		deparseMinMaxExpr((MinMaxExpr *) node, context);
+		break;
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
 		     (int) nodeTag(node));
@@ -2211,7 +2222,14 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	}
 	appendStringInfoChar(buf, '(');
 	if (cdef && cdef->cf_type == CF_AJTIME_DAY_DIFF)
+	{
 		appendStringInfoString(buf, "'day', ");
+		deparseExpr((Expr *) linitial(node->args), context);
+		appendStringInfoString(buf, ", cast(");
+		deparseExpr((Expr *) list_nth(node->args, 1), context);
+		appendStringInfoString(buf, " as DateTime))");
+		return;
+	}
 
 	/* ... and all the arguments */
 	first = true;
@@ -2832,6 +2850,32 @@ deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context)
 
 	appendStringInfoString(buf, "COALESCE(");
 
+	first = true;
+	foreach (lc, node->args)
+	{
+		if (!first)
+			appendStringInfoString(buf, ", ");
+
+		first = false;
+
+		deparseExpr(lfirst(lc), context);
+	}
+	appendStringInfoChar(buf, ')');
+}
+
+static void
+deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+	bool		first;
+
+	if (node->op == IS_GREATEST)
+		appendStringInfoString(buf, "greatest");
+	else
+		appendStringInfoString(buf, "least");
+
+	appendStringInfoChar(buf, '(');
 	first = true;
 	foreach (lc, node->args)
 	{

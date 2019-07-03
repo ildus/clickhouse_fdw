@@ -168,8 +168,11 @@ is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 	if (is_builtin(objectId))
 		return true;
 
-	if (classId == ProcedureRelationId && checkForCustomFunction(objectId) != NULL)
-		return true;
+	if (classId == ProcedureRelationId)
+	{
+		CustomObjectDef *cdef = checkForCustomFunction(objectId);
+		return (cdef && cdef->cf_type != CF_UNSHIPPABLE);
+	}
 	else if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
 		return true;
 	else if (classId == OperatorRelationId && checkForCustomOperator(objectId, NULL) != NULL)

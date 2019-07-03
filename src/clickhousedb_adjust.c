@@ -129,6 +129,11 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 					entry->cf_type = CF_ISTORE_ACCUMULATE;
 					entry->custom_name[0] = '\1';	/* complex */
 				}
+				else if (strcmp(NameStr(procform->proname), "slice") == 0)
+				{
+					entry->cf_type = CF_UNSHIPPABLE;
+					entry->custom_name[0] = '\0';	/* complex */
+				}
 			}
 			else if (strcmp(extname, "ajtime") == 0)
 			{
