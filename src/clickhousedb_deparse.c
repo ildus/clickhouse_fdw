@@ -2329,9 +2329,9 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 
 		appendStringInfoString(buf, "range(toUInt16(");
 		deparseExpr(list_nth(node->args, 1), context);
-		appendStringInfoString(buf, ")), arrayResize(emptyArrayInt64(),toUInt16(");
+		appendStringInfoString(buf, ") + 1), arrayResize(emptyArrayInt64(),toUInt16(");
 		deparseExpr(list_nth(node->args, 1), context);
-		appendStringInfoString(buf, "), coalesce(");
+		appendStringInfoString(buf, ") + 1, coalesce(");
 		deparseExpr(list_nth(node->args, 2), context);
 		appendStringInfoString(buf, ", 0)");
 
