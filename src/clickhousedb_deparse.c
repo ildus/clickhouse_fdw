@@ -2389,7 +2389,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 				ADD_REL_QUALIFIER(buf, var->varno);
 
 			appendStringInfoString(buf, colkey);
-			appendStringInfoString(buf, "[1] < (");
+			appendStringInfoString(buf, "[1] <= (");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
 			appendStringInfoString(buf, "), arrayMap(x -> ");
 			if (qualify_col)
@@ -2411,7 +2411,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
-			appendStringInfoString(buf, "[1] < (");
+			appendStringInfoString(buf, "[1] <= (");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
 			appendStringInfoString(buf, "), arrayCumSum(arrayMap(x ->");
 
