@@ -1817,7 +1817,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 					appendStringInfo(&sql, ", ");
 				}
 				first = false;
-				appendStringInfo(&sql, "%ll", (int64) value);
+				appendStringInfo(&sql, INT64_FORMAT, (int64) value);
 				break;
 			}
 			case FLOAT4OID:
