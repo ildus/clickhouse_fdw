@@ -212,6 +212,11 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 				entry->cf_type = CF_AJTIME_TYPE; /* ajtime */
 				strcpy(entry->custom_name, "DateTime");
 			}
+			else if (strcmp(extname, "country") == 0)
+			{
+				entry->cf_type = CF_COUNTRY_TYPE; /* adjust country type */
+				strcpy(entry->custom_name, "text");
+			}
 			pfree(extname);
 		}
 	}
@@ -271,6 +276,8 @@ CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
 				}
 				else if (strcmp(extname, "ajbool") == 0)
 					entry->cf_type = CF_AJBOOL_OPERATOR;
+				else if (strcmp(extname, "country") == 0)
+					entry->cf_type = CF_COUNTRY_OPERATOR;
 
 				pfree(extname);
 			}

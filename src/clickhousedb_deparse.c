@@ -2704,6 +2704,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 			}
 			break;
 			case CF_AJBOOL_OPERATOR:
+			case CF_COUNTRY_OPERATOR:
 			break;
 			default:
 				elog(ERROR, "unsupported operator type");
@@ -2731,9 +2732,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	}
 
 	/* Deparse operator name. */
-	if (cdef && cdef->cf_type == CF_AJTIME_OPERATOR)
-		appendStringInfoString(buf, NameStr(form->oprname));
-	else if (cdef && cdef->cf_type == CF_AJBOOL_OPERATOR)
+	if (cdef)
 		appendStringInfoString(buf, NameStr(form->oprname));
 	else
 		deparseOperatorName(buf, form);
