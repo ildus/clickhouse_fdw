@@ -1515,16 +1515,11 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 
 /*
  * deparse remote INSERT statement
- *
- * The statement text is appended to buf, and we also create an integer List
- * of the columns being retrieved by RETURNING (if any), which is returned
- * to *retrieved_attrs.
  */
 void
 deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
                  Index rtindex, Relation rel,
-                 List *targetAttrs, bool doNothing,
-                 List *returningList, List **retrieved_attrs)
+                 List *targetAttrs)
 {
 	bool    first;
 	ListCell   *lc;
@@ -1542,9 +1537,8 @@ deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
 			int			attnum = lfirst_int(lc);
 
 			if (!first)
-			{
 				appendStringInfoString(buf, ", ");
-			}
+
 			first = false;
 
 			deparseColumnRef(buf, NULL, rtindex, attnum, rte, false);

@@ -92,11 +92,7 @@ enum FdwModifyPrivateIndex
 	/* SQL statement to execute remotely (as a String node) */
 	FdwModifyPrivateUpdateSql,
 	/* Integer list of target attribute numbers for INSERT/UPDATE */
-	FdwModifyPrivateTargetAttnums,
-	/* has-returning flag (as an integer Value node) */
-	FdwModifyPrivateHasReturning,
-	/* Integer list of attribute numbers retrieved by RETURNING */
-	FdwModifyPrivateRetrievedAttrs
+	FdwModifyPrivateTargetAttnums
 };
 
 
@@ -142,16 +138,14 @@ typedef struct CHFdwModifyState
 
 	/* for remote query execution */
 	ch_connection	conn;			/* connection for the scan */
-	char	   *p_name;			/* name of prepared statement, if created */
 	char	   *result_query;
+	bool		csv;
 
 	/* extracted fdw_private data */
 	char	   *query;			/* text of INSERT/UPDATE/DELETE command */
 	List	   *target_attrs;	/* list of target attribute numbers */
-	List	   *retrieved_attrs;	/* attr numbers retrieved by RETURNING */
 
 	/* info about parameters for prepared statement */
-	AttrNumber	ctidAttno;		/* attnum of input resjunk ctid column */
 	int			p_nums;			/* number of parameters to transmit */
 	FmgrInfo   *p_flinfo;		/* output conversion functions for them */
 
@@ -283,8 +277,7 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
         Plan *subplan,
         char *query,
         List *target_attrs,
-        bool has_returning,
-        List *retrieved_attrs);
+		bool csv);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
 static const char **convert_prep_stmt_params(CHFdwModifyState *fmstate,
@@ -325,10 +318,8 @@ static void merge_fdw_options(CHFdwRelationInfo *fpinfo,
                               const CHFdwRelationInfo *fpinfo_o,
                               const CHFdwRelationInfo *fpinfo_i);
 
-void
-_PG_init(void)
-{
-}
+/* empty _PG_init_ function */
+void _PG_init(void){}
 
 
 /* Make one query and close the connection */
@@ -1246,10 +1237,6 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	Relation	rel;
 	StringInfoData sql;
 	List	   *targetAttrs = NIL;
-	List	   *returningList = NIL;
-	List	   *retrieved_attrs = NIL;
-	bool		doNothing = false;
-
 
 	initStringInfo(&sql);
 
@@ -1268,9 +1255,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 			Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
 
 			if (!attr->attisdropped)
-			{
 				targetAttrs = lappend_int(targetAttrs, attnum);
-			}
 		}
 	}
 
@@ -1280,10 +1265,10 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	switch (operation)
 	{
 	case CMD_INSERT:
-		deparseInsertSql(&sql, rte, resultRelation, rel,
-		                 targetAttrs, doNothing, returningList,
-		                 &retrieved_attrs);
+		deparseInsertSql(&sql, rte, resultRelation, rel, targetAttrs);
 		break;
+	case CMD_UPDATE:
+		elog(ERROR, "ClickHouse does not support updates");
 	default:
 		elog(ERROR, "unexpected operation: %d", (int) operation);
 		break;
@@ -1296,10 +1281,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	 * Build the fdw_private list that will be available to the executor.
 	 * Items in the list must match enum FdwModifyPrivateIndex, above.
 	 */
-	return list_make4(makeString(sql.data),
-	                  targetAttrs,
-	                  makeInteger((retrieved_attrs != NIL)),
-	                  retrieved_attrs);
+	return list_make2(makeString(sql.data), targetAttrs);
 }
 
 /*
@@ -1324,14 +1306,10 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	 * stays NULL.
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
-	{
 		return;
-	}
 
 	/* Deconstruct fdw_private data. */
-	query = strVal(list_nth(fdw_private,
-	                        FdwModifyPrivateUpdateSql));
-
+	query = strVal(list_nth(fdw_private, FdwModifyPrivateUpdateSql));
 	target_attrs = (List *) list_nth(fdw_private, FdwModifyPrivateTargetAttnums);
 
 	/* Find RTE. */
@@ -1346,8 +1324,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	                                mtstate->mt_plans[subplan_index]->plan,
 	                                query,
 	                                target_attrs,
-	                                false,
-	                                NULL);
+									false);
 
 	resultRelInfo->ri_FdwState = fmstate;
 	fmstate->result_query = NULL;
@@ -1366,7 +1343,6 @@ clickhouseExecForeignInsert(EState *estate,
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
 	convert_prep_stmt_params(fmstate, NULL, slot);
-	prepare_foreign_modify(slot, fmstate);
 
 	/* actual query */
 	clickhouse_gate->simple_insert(fmstate->conn, fmstate->result_query);
@@ -1388,9 +1364,7 @@ clickhouseEndForeignModify(EState *estate,
 
 	/* If fmstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fmstate == NULL)
-	{
 		return;
-	}
 
 	/* Destroy the execution state */
 	finish_foreign_modify(fmstate);
@@ -1401,6 +1375,7 @@ get_foreign_server(Relation rel)
 {
 	ForeignServer       *server;
 	ForeignTable        *table;
+
 	table = GetForeignTable(RelationGetRelid(rel));
 	server = GetForeignServer(table->serverid);
 	return server;
@@ -1435,24 +1410,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 		Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
 
 		if (!attr->attisdropped)
-		{
 			targetAttrs = lappend_int(targetAttrs, attnum);
-		}
-	}
-
-	/* Check if we add the ON CONFLICT clause to the remote query. */
-	if (plan)
-	{
-		OnConflictAction onConflictAction = plan->onConflictAction;
-
-		/* We only support DO NOTHING without an inference specification. */
-		if (onConflictAction == ONCONFLICT_NOTHING)
-		{
-			doNothing = true;
-		}
-		else if (onConflictAction != ONCONFLICT_NONE)
-			elog(ERROR, "unexpected ON CONFLICT specification: %d",
-			     (int) onConflictAction);
 	}
 
 	/*
@@ -1471,9 +1429,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 		rte->relid = RelationGetRelid(rel);
 		rte->relkind = RELKIND_FOREIGN_TABLE;
 	}
-	deparseInsertSql(&sql, rte, resultRelation, rel,
-	                 targetAttrs, doNothing, resultRelInfo->ri_returningList,
-	                 &retrieved_attrs);
+	deparseInsertSql(&sql, rte, resultRelation, rel, targetAttrs);
 
 	/* Construct an execution state. */
 	fmstate = create_foreign_modify(mtstate->ps.state,
@@ -1483,8 +1439,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                NULL,
 	                                sql.data,
 	                                targetAttrs,
-	                                retrieved_attrs != NIL,
-	                                retrieved_attrs);
+									true);
 
 	fmstate->result_query = sql.data;
 	resultRelInfo->ri_FdwState = fmstate;
@@ -1617,17 +1572,13 @@ ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
 	 * want to match that expression.
 	 */
 	if (state->current != NULL)
-	{
 		return equal(expr, state->current);
-	}
 
 	/*
 	 * Otherwise, ignore anything we've already processed.
 	 */
 	if (list_member(state->already_used, expr))
-	{
 		return false;
-	}
 
 	/* This is the new target to process. */
 	state->current = expr;
@@ -1670,8 +1621,7 @@ create_foreign_modify(EState *estate,
                       Plan *subplan,
                       char *query,
                       List *target_attrs,
-                      bool has_returning,
-                      List *retrieved_attrs)
+					  bool csv)
 {
 	CHFdwModifyState *fmstate;
 	Relation	rel = resultRelInfo->ri_RelationDesc;
@@ -1700,12 +1650,11 @@ create_foreign_modify(EState *estate,
 
 	/* Open connection; report that we'll create a prepared statement. */
 	fmstate->conn = GetConnection(user, true, false);
-	fmstate->p_name = NULL;		/* prepared statement not made yet */
 
 	/* Set up remote query information. */
 	fmstate->query = query;
 	fmstate->target_attrs = target_attrs;
-	fmstate->retrieved_attrs = retrieved_attrs;
+	fmstate->csv = csv;
 
 	/* Create context for per-tuple temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
@@ -1736,16 +1685,6 @@ create_foreign_modify(EState *estate,
 	Assert(fmstate->p_nums <= n_params);
 
 	return fmstate;
-}
-
-/*
- * prepare_foreign_modify
- *		Establish a prepared statement for execution of INSERT/DELETE
- */
-static void
-prepare_foreign_modify(TupleTableSlot *slot, CHFdwModifyState *fmstate)
-{
-	fmstate->p_name = "clickhousedb_fdw";
 }
 
 /*

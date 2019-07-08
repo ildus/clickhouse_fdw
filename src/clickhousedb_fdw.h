@@ -151,8 +151,7 @@ extern bool is_foreign_expr(PlannerInfo *root,
                             Expr *expr);
 extern void deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
                              Index rtindex, Relation rel,
-                             List *targetAttrs, bool doNothing, List *returningList,
-                             List **retrieved_attrs);
+                             List *targetAttrs);
 extern void deparseAnalyzeSizeSql(StringInfo buf, Relation rel);
 extern void deparseAnalyzeSql(StringInfo buf, Relation rel,
                               List **retrieved_attrs);
