@@ -10,7 +10,7 @@ CREATE USER MAPPING FOR user1 SERVER loopback2;
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t1 (c1 Int, c2 Int, c3 String, c4 DateTime, c5 DateTime, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t1 (c1 Int, c2 Int, c3 String, c4 Date, c5 Date, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
@@ -28,7 +28,6 @@ CREATE FOREIGN TABLE ft1 (
 ) SERVER loopback OPTIONS (table_name 't1');
 
 ALTER FOREIGN TABLE ft1 DROP COLUMN c0;
-
 
 CREATE FOREIGN TABLE ft2 (
 	c1 int NOT NULL,

@@ -7,7 +7,7 @@ CREATE USER MAPPING FOR CURRENT_USER SERVER ch_default;
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
 SELECT clickhousedb_raw_query('
-	CREATE TABLE regression.t2 (`dt` Date, id Int32, `a_ids` Array(Int32), `a_values` Array(Int32))
+	CREATE TABLE regression.t2 (`dt` Date, id Int32, `a_keys` Array(Int32), `a_values` Array(Int32))
 	ENGINE = MergeTree()
 	PARTITION BY dt
 	ORDER BY (dt, id)
@@ -24,11 +24,11 @@ CREATE FOREIGN TABLE t2 (dt date NOT NULL, id int, a istore) SERVER ch_default;
 
 -- default sign
 SELECT clickhousedb_raw_query('
-	CREATE TABLE regression.t3(`dt` Date, id Int32, `a_ids` Array(Int32),
+	CREATE TABLE regression.t3(`dt` Date, id Int32, `a_keys` Array(Int32),
 		`a_values` Array(Int32), `sign` Int8)
 	ENGINE = CollapsingMergeTree(sign)
 	PARTITION BY dt
-	ORDER BY (dt, a_ids)
+	ORDER BY (dt, a_keys)
 	SETTINGS index_granularity = 8192');
 
 SELECT clickhousedb_raw_query('INSERT INTO regression.t3
@@ -45,10 +45,10 @@ CREATE FOREIGN TABLE t3 (dt date NOT NULL, id int, a istore) SERVER ch_default
 
 -- custom sign
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t4
-		(`dt` Date, `id` Int32, `a_ids` Array(Int32), `a_values` Array(Int32), `Sign` Int8)
+		(`dt` Date, `id` Int32, `a_keys` Array(Int32), `a_values` Array(Int32), `Sign` Int8)
 		ENGINE = CollapsingMergeTree(Sign)
 		PARTITION BY dt
-		ORDER BY (dt, a_ids) SETTINGS index_granularity = 8192');
+		ORDER BY (dt, a_keys) SETTINGS index_granularity = 8192');
 CREATE FOREIGN TABLE t4 (dt date NOT NULL, id int, a istore) SERVER ch_default
 	OPTIONS (engine 'CollapsingMergeTree(Sign)');
 SELECT clickhousedb_raw_query('INSERT INTO regression.t4 VALUES (''2019-10-10'', 1, [1,2,3], [11, 22, 33], 1)');
@@ -62,6 +62,9 @@ SELECT * FROM t2 ORDER BY id;
 
 EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
 SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
+
+EXPLAIN (VERBOSE) SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
+SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
 
 EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;
 SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;

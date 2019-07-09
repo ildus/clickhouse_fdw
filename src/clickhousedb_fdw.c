@@ -284,9 +284,8 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
 		bool tsv);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
-static const char **convert_prep_stmt_params(CHFdwModifyState *fmstate,
-        ItemPointer tupleid,
-        TupleTableSlot *slot);
+static const char **make_insert_query(CHFdwModifyState *fmstate,
+	ItemPointer tupleid, TupleTableSlot *slot);
 static void finish_foreign_modify(CHFdwModifyState *fmstate);
 static void prepare_query_params(PlanState *node,
                                  List *fdw_exprs,
@@ -1343,7 +1342,7 @@ clickhouseExecForeignInsert(EState *estate,
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
-	convert_prep_stmt_params(fmstate, NULL, slot);
+	make_insert_query(fmstate, NULL, slot);
 
 	if (!fmstate->tsv)
 		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
@@ -1690,15 +1689,14 @@ create_foreign_modify(EState *estate,
 }
 
 /*
- * convert_prep_stmt_params
+ * make_insert_query
  *		Create array of text strings representing parameter values
  *
  * Data is constructed in temp_cxt; caller should reset that after use.
  */
 static const char **
-convert_prep_stmt_params(CHFdwModifyState *fmstate,
-                         ItemPointer tupleid,
-                         TupleTableSlot *slot)
+make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
+					TupleTableSlot *slot)
 {
 	int			pindex = 0;
 	MemoryContext oldcontext;
