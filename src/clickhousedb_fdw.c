@@ -294,10 +294,6 @@ static void prepare_query_params(PlanState *node,
                                  FmgrInfo **param_flinfo,
                                  List **param_exprs,
                                  const char ***param_values);
-static void process_query_params(ExprContext *econtext,
-                                 FmgrInfo *param_flinfo,
-                                 List *param_exprs,
-                                 const char **param_values);
 static int postgresAcquireSampleRowsFunc(Relation relation, int elevel,
         HeapTuple *rows, int targrows,
         double *totalrows,
@@ -1273,6 +1269,8 @@ clickhousePlanForeignModify(PlannerInfo *root,
 		break;
 	case CMD_UPDATE:
 		elog(ERROR, "ClickHouse does not support updates");
+	case CMD_DELETE:
+		elog(ERROR, "ClickHouse does not support deletes");
 	default:
 		elog(ERROR, "unexpected operation: %d", (int) operation);
 		break;
@@ -1331,7 +1329,6 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 									false);
 
 	resultRelInfo->ri_FdwState = fmstate;
-	fmstate->result_query = NULL;
 }
 
 /*
@@ -1348,8 +1345,8 @@ clickhouseExecForeignInsert(EState *estate,
 
 	convert_prep_stmt_params(fmstate, NULL, slot);
 
-	/* actual query */
-	clickhouse_gate->simple_insert(fmstate->conn, fmstate->result_query);
+	if (!fmstate->tsv)
+		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
 
 	MemoryContextReset(fmstate->temp_cxt);
 
@@ -1366,11 +1363,6 @@ clickhouseEndForeignModify(EState *estate,
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
-	/* If fmstate is NULL, we are in EXPLAIN; nothing to do */
-	if (fmstate == NULL)
-		return;
-
-	/* Destroy the execution state */
 	finish_foreign_modify(fmstate);
 }
 
@@ -1401,12 +1393,10 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	RangeTblEntry *rte;
 	TupleDesc	tupdesc = RelationGetDescr(rel);
 	int			attnum;
-	StringInfoData sql;
 	List	   *targetAttrs = NIL;
 	List	   *retrieved_attrs = NIL;
 	bool		doNothing = false;
-
-	initStringInfo(&sql);
+	StringInfoData	sql;
 
 	/* We transmit all columns that are defined in the foreign table. */
 	for (attnum = 1; attnum <= tupdesc->natts; attnum++)
@@ -1433,8 +1423,9 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 		rte->relid = RelationGetRelid(rel);
 		rte->relkind = RELKIND_FOREIGN_TABLE;
 	}
+
+	initStringInfo(&sql);
 	deparseInsertSql(&sql, rte, resultRelation, rel, targetAttrs);
-	appendStringInfoString(sql.data, " FORMAT TSV");
 
 	/* Construct an execution state. */
 	fmstate = create_foreign_modify(mtstate->ps.state,
@@ -1446,8 +1437,8 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                targetAttrs,
 									true);
 
-	appendStringInfoString(&fmstate->data, sql.data);
-	appendStringInfoChar(&fmstate->data, '\n');
+	appendStringInfoString(&fmstate->sql, sql.data);
+	appendStringInfoString(&fmstate->sql, " FORMAT TSV\n");
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1463,6 +1454,9 @@ clickhouseEndForeignInsert(EState *estate,
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
 	Assert(fmstate != NULL);
+
+	if (fmstate->tsv)
+		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
 
 	/* Destroy the execution state */
 	finish_foreign_modify(fmstate);
@@ -1662,8 +1656,9 @@ create_foreign_modify(EState *estate,
 	fmstate->query = query;
 	fmstate->target_attrs = target_attrs;
 	fmstate->tsv = tsv;
+	initStringInfo(&fmstate->sql);
 
-	/* Create context for per-tuple temp workspace. */
+	/* Create context for per-query temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
 	                    "postgres_fdw temporary data",
 	                    ALLOCSET_SMALL_SIZES);
@@ -1710,7 +1705,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 	bool first = true;
 	char delim;
 
-	initStringInfo(&fmstate->sql);
+	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
 
 	if (!fmstate->tsv)
 	{
@@ -1721,8 +1716,6 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 	}
 	else
 		delim = '\t';
-
-	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
 
 	/* get following parameters from slot */
 	if (slot != NULL && fmstate->target_attrs != NIL)
@@ -1763,10 +1756,10 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 				appendStringInfo(&fmstate->sql, INT64_FORMAT, DatumGetInt64(value));
 			break;
 			case FLOAT4OID:
-				appendStringInfo(&sql, "%f", DatumGetFloat4(value));
+				appendStringInfo(&fmstate->sql, "%f", DatumGetFloat4(value));
 			break;
 			case FLOAT8OID:
-				appendStringInfo(&sql, "%f", DatumGetFloat8(value));
+				appendStringInfo(&fmstate->sql, "%f", DatumGetFloat8(value));
 			break;
 			case NUMERICOID:
 			{
@@ -1775,7 +1768,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 
 				valueDatum = DirectFunctionCall1(numeric_float8, value);
 				f = DatumGetFloat8(valueDatum);
-				appendStringInfo(&sql, "%f", f);
+				appendStringInfo(&fmstate->sql, "%f", f);
 			}
 			break;
 			case BPCHAROID:
@@ -1790,7 +1783,7 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 
 				if (isnull && value == 0)
 				{
-					appendStringInfo(&sql, "%s", "''");
+					appendStringInfo(&fmstate->sql, "%s", "''");
 				}
 				else
 				{
@@ -1798,33 +1791,47 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 					bool tl = false;
 					getTypeOutputInfo(type, &foid, &tl);
 					str = OidOutputFunctionCall(foid, value);
-					appendStringInfo(&sql, "'%s'", str);
+					appendStringInfo(&fmstate->sql, "'%s'", str);
 				}
 			}
 			break;
 			case DATEOID:
+			{
+				/* we expect Date on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(date_out, value));
+				appendStringInfo(&fmstate->sql, "'%s'", extval);
+				pfree(extval);
+				break;
+			}
 			case TIMEOID:
-				value = DirectFunctionCall1(date_timestamp, value);
-				/* fallthrough */
+			{
+				/* we expect DateTime on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(time_out, value));
+				appendStringInfo(&fmstate->sql, "'0001-01-01 %s'", extval);
+				pfree(extval);
+				break;
+			}
 			case TIMESTAMPOID:
 			case TIMESTAMPTZOID:
 			{
-				extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
-				appendStringInfoString(&fmstate->sql, extval);
+				/* we expect DateTime on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
+				appendStringInfo(&fmstate->sql, "'%s'", extval);
 				pfree(extval);
 				break;
 			}
 			default:
-			{
 				ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
 				                errmsg("cannot convert constant value to clickhouse value"),
 				                errhint("Constant value data type: %u", type)));
-				break;
-			}
 			}
 			pindex++;
 		}
-		appendStringInfo(&sql, ")");
+		if (fmstate->tsv)
+			appendStringInfoChar(&fmstate->sql, '\n');
+		else
+			appendStringInfoChar(&fmstate->sql, ')');
+
 		reset_transmission_modes(nestlevel);
 	}
 
@@ -1891,50 +1898,6 @@ prepare_query_params(PlanState *node,
 
 	/* Allocate buffer for text form of query parameters. */
 	*param_values = (const char **) palloc0(numParams * sizeof(char *));
-}
-
-/*
- * Construct array of query parameter values in text format.
- */
-static void
-process_query_params(ExprContext *econtext,
-                     FmgrInfo *param_flinfo,
-                     List *param_exprs,
-                     const char **param_values)
-{
-	int			nestlevel;
-	int			i;
-	ListCell   *lc;
-
-	nestlevel = set_transmission_modes();
-
-	i = 0;
-	foreach (lc, param_exprs)
-	{
-		ExprState  *expr_state = (ExprState *) lfirst(lc);
-		Datum		expr_value;
-		bool		isNull;
-
-		/* Evaluate the parameter expression */
-		expr_value = ExecEvalExpr(expr_state, econtext, &isNull);
-
-		/*
-		 * Get string representation of each parameter value by invoking
-		 * type-specific output function, unless the value is null.
-		 */
-		if (isNull)
-		{
-			param_values[i] = NULL;
-		}
-		else
-		{
-			param_values[i] = OutputFunctionCall(&param_flinfo[i], expr_value);
-		}
-
-		i++;
-	}
-
-	reset_transmission_modes(nestlevel);
 }
 
 /*

@@ -1951,7 +1951,7 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 
 #define USE_ISO_DATES			1
 
-static Datum
+Datum
 ch_timestamp_out(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestamp = PG_GETARG_TIMESTAMP(0);

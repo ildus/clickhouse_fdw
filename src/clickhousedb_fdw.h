@@ -275,6 +275,7 @@ extern void modifyCustomVar(CustomObjectDef *def, Node *node);
 extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
 extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
 extern CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form);
+extern Datum ch_timestamp_out(PG_FUNCTION_ARGS);
 
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);
