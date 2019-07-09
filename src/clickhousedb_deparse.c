@@ -31,6 +31,7 @@
 #include "optimizer/var.h"
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
+#include "utils/date.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
@@ -1950,6 +1951,48 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 }
 
 #define USE_ISO_DATES			1
+
+Datum
+ch_time_out(PG_FUNCTION_ARGS)
+{
+	TimeADT		time = PG_GETARG_TIMEADT(0);
+	char	   *result;
+	struct pg_tm tt,
+			   *tm = &tt;
+	fsec_t		fsec;
+	char		buf[MAXDATELEN + 1];
+
+	time2tm(time, tm, &fsec);
+	EncodeTimeOnly(tm, fsec, false, 0, USE_ISO_DATES, buf);
+
+	result = pstrdup(buf);
+	PG_RETURN_CSTRING(result);
+}
+
+/* date_out()
+ * Given internal format date, convert to text string.
+ */
+Datum
+ch_date_out(PG_FUNCTION_ARGS)
+{
+	DateADT		date = PG_GETARG_DATEADT(0);
+	char	   *result;
+	struct pg_tm tt,
+			   *tm = &tt;
+	char		buf[MAXDATELEN + 1];
+
+	if (DATE_NOT_FINITE(date))
+		EncodeSpecialDate(date, buf);
+	else
+	{
+		j2date(date + POSTGRES_EPOCH_JDATE,
+			   &(tm->tm_year), &(tm->tm_mon), &(tm->tm_mday));
+		EncodeDateOnly(tm, USE_ISO_DATES, buf);
+	}
+
+	result = pstrdup(buf);
+	PG_RETURN_CSTRING(result);
+}
 
 Datum
 ch_timestamp_out(PG_FUNCTION_ARGS)

@@ -1074,29 +1074,39 @@ make_tuple_from_result_row(Relation rel,
 
 	j = 0;
 
-	/* Parse clickhouse result */
-	row_values = clickhouse_gate->fetch_row(res_cursor, list_length(retrieved_attrs));
-	if (row_values == NULL)
-		goto cleanup;
-
-	/*
-	 * i indexes columns in the relation, j indexes columns in the PGresult.
-	 */
-
-	foreach(lc, retrieved_attrs)
+	if (list_length(retrieved_attrs))
 	{
-		int		i = lfirst_int(lc);
-		char   *valstr = row_values[j];
+		/* Parse clickhouse result */
+		row_values = clickhouse_gate->fetch_row(res_cursor, list_length(retrieved_attrs));
+		if (row_values == NULL)
+			goto cleanup;
 
-		Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+		/*
+		 * i indexes columns in the relation, j indexes columns in the PGresult.
+		 */
 
-		/* Apply the input function even to nulls, to support domains */
-		nulls[i - 1] = (valstr == NULL);
-		values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
-									  valstr,
-									  attinmeta->attioparams[i - 1],
-									  attinmeta->atttypmods[i - 1]);
-		j++;
+		foreach(lc, retrieved_attrs)
+		{
+			int		i = lfirst_int(lc);
+			char   *valstr = row_values[j];
+
+			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+
+			/* Apply the input function even to nulls, to support domains */
+			nulls[i - 1] = (valstr == NULL);
+			values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
+										  valstr,
+										  attinmeta->attioparams[i - 1],
+										  attinmeta->atttypmods[i - 1]);
+			j++;
+		}
+	}
+	else
+	{
+		/* parse result of something like SELECT NULL */
+		row_values = clickhouse_gate->fetch_row(res_cursor, 1);
+		if (row_values == NULL)
+			goto cleanup;
 	}
 
 	MemoryContextSwitchTo(oldcontext);
@@ -1344,6 +1354,7 @@ clickhouseExecForeignInsert(EState *estate,
 
 	make_insert_query(fmstate, NULL, slot);
 
+	elog(LOG, "DEPARSED: %s", fmstate->sql.data);
 	if (!fmstate->tsv)
 		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
 
@@ -1796,7 +1807,7 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			case DATEOID:
 			{
 				/* we expect Date on other side */
-				char *extval = DatumGetCString(DirectFunctionCall1(date_out, value));
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_date_out, value));
 				appendStringInfo(&fmstate->sql, "'%s'", extval);
 				pfree(extval);
 				break;
@@ -1804,7 +1815,7 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			case TIMEOID:
 			{
 				/* we expect DateTime on other side */
-				char *extval = DatumGetCString(DirectFunctionCall1(time_out, value));
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_time_out, value));
 				appendStringInfo(&fmstate->sql, "'0001-01-01 %s'", extval);
 				pfree(extval);
 				break;

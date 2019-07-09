@@ -215,7 +215,7 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 			values[i] = NULL;
 	}
 
-	if (rc != CH_EOL && rc != CH_EOF)
+	if (attcount > 0 && rc != CH_EOL && rc != CH_EOF)
 	{
 		char *resval = pnstrdup(state->data, state->maxpos + 1);
 
