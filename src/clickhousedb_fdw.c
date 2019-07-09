@@ -138,8 +138,12 @@ typedef struct CHFdwModifyState
 
 	/* for remote query execution */
 	ch_connection	conn;			/* connection for the scan */
-	char	   *result_query;
-	bool		csv;
+
+	/* multi insert */
+	bool			tsv;
+
+	/* constructed query */
+	StringInfoData	sql;
 
 	/* extracted fdw_private data */
 	char	   *query;			/* text of INSERT/UPDATE/DELETE command */
@@ -277,7 +281,7 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
         Plan *subplan,
         char *query,
         List *target_attrs,
-		bool csv);
+		bool tsv);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
 static const char **convert_prep_stmt_params(CHFdwModifyState *fmstate,
@@ -1430,6 +1434,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 		rte->relkind = RELKIND_FOREIGN_TABLE;
 	}
 	deparseInsertSql(&sql, rte, resultRelation, rel, targetAttrs);
+	appendStringInfoString(sql.data, " FORMAT TSV");
 
 	/* Construct an execution state. */
 	fmstate = create_foreign_modify(mtstate->ps.state,
@@ -1441,7 +1446,9 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                targetAttrs,
 									true);
 
-	fmstate->result_query = sql.data;
+	appendStringInfoString(&fmstate->data, sql.data);
+	appendStringInfoChar(&fmstate->data, '\n');
+
 	resultRelInfo->ri_FdwState = fmstate;
 }
 
@@ -1621,7 +1628,7 @@ create_foreign_modify(EState *estate,
                       Plan *subplan,
                       char *query,
                       List *target_attrs,
-					  bool csv)
+					  bool tsv)
 {
 	CHFdwModifyState *fmstate;
 	Relation	rel = resultRelInfo->ri_RelationDesc;
@@ -1654,7 +1661,7 @@ create_foreign_modify(EState *estate,
 	/* Set up remote query information. */
 	fmstate->query = query;
 	fmstate->target_attrs = target_attrs;
-	fmstate->csv = csv;
+	fmstate->tsv = tsv;
 
 	/* Create context for per-tuple temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
@@ -1700,13 +1707,20 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 {
 	int			pindex = 0;
 	MemoryContext oldcontext;
-	StringInfoData sql;
 	bool first = true;
+	char delim;
 
-	initStringInfo(&sql);
+	initStringInfo(&fmstate->sql);
 
-	appendStringInfo(&sql, "%s", fmstate->query);
-	appendStringInfo(&sql, "%s", " VALUES (");
+	if (!fmstate->tsv)
+	{
+		initStringInfo(&fmstate->sql);
+		appendStringInfo(&fmstate->sql, "%s", fmstate->query);
+		appendStringInfo(&fmstate->sql, "%s", " VALUES (");
+		delim = ',';
+	}
+	else
+		delim = '\t';
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
 
@@ -1728,105 +1742,40 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 			value = slot_getattr(slot, attnum, &isnull);
 			type = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid;
 
+			if (!first)
+				appendStringInfoChar(&fmstate->sql, delim);
+			first = false;
+
+			if (isnull)
+			{
+				appendStringInfoString(&fmstate->sql, "NULL");
+				continue;
+			}
+
 			switch (type)
 			{
+			case BOOLOID:
 			case INT2OID:
 			case INT4OID:
-			{
-				if (isnull)
-				{
-					value = 0;
-				}
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				first = false;
-				appendStringInfo(&sql, "%d", (int)value);
-				break;
-			}
+				appendStringInfo(&fmstate->sql, "%d", DatumGetInt32(value));
+			break;
 			case INT8OID:
-			{
-				if (isnull)
-				{
-					value = 0;
-				}
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				first = false;
-				appendStringInfo(&sql, INT64_FORMAT, (int64) value);
-				break;
-			}
+				appendStringInfo(&fmstate->sql, INT64_FORMAT, DatumGetInt64(value));
+			break;
 			case FLOAT4OID:
-			{
-				float4 f;
-				if (isnull)
-				{
-					value = 0;
-				}
-				f = DatumGetFloat4(value);
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				first = false;
-				appendStringInfo(&sql, "%f", f);
-				break;
-			}
+				appendStringInfo(&sql, "%f", DatumGetFloat4(value));
+			break;
 			case FLOAT8OID:
-			{
-				float8 f;
-				if (isnull)
-				{
-					value = 0;
-				}
-				f = DatumGetFloat8(value);
-
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				first = false;
-				appendStringInfo(&sql, "%f", f);
-			}
+				appendStringInfo(&sql, "%f", DatumGetFloat8(value));
 			break;
 			case NUMERICOID:
 			{
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				if (isnull)
-				{
-					appendStringInfo(&sql, "%f", 0.0);
-				}
-				else
-				{
-					Datum  valueDatum;
-					float8 f;
-					valueDatum = DirectFunctionCall1(numeric_float8, value);
-					f = DatumGetFloat8(valueDatum);
-					first = false;
-					appendStringInfo(&sql, "%f", f);
-				}
-			}
-			break;
-			case BOOLOID:
-			{
-				int i;
-				if (isnull)
-				{
-					value = 0;
-				}
-				i = DatumGetInt32(value);
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				appendStringInfo(&sql, "%d", i);
-				first = false;
+				Datum  valueDatum;
+				float8 f;
+
+				valueDatum = DirectFunctionCall1(numeric_float8, value);
+				f = DatumGetFloat8(valueDatum);
+				appendStringInfo(&sql, "%f", f);
 			}
 			break;
 			case BPCHAROID:
@@ -1839,11 +1788,6 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 			{
 				char *str = NULL;
 
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				first = false;
 				if (isnull && value == 0)
 				{
 					appendStringInfo(&sql, "%s", "''");
@@ -1859,76 +1803,15 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 			}
 			break;
 			case DATEOID:
-			{
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				if (isnull && value == 0)
-				{
-					appendStringInfo(&sql, "'%04d-%02d-%02d'", 0, 0, 0);
-				}
-				else
-				{
-					int tz;
-					struct pg_tm tt, *tm = &tt;
-					fsec_t fsec;
-					const char *tzn;
-					Datum d = DirectFunctionCall1(date_timestamp, value);
-					Timestamp valueTimestamp = DatumGetTimestamp(d);
-					first = false;
-					timestamp2tm(valueTimestamp, &tz, tm, &fsec, &tzn, pg_tzset("UTC"));
-					appendStringInfo(&sql, "'%04d-%02d-%02d'", tt.tm_year, tt.tm_mon, tt.tm_mday);
-				}
-				break;
-			}
 			case TIMEOID:
-			{
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				if (isnull && value == 0)
-				{
-					appendStringInfo(&sql, "'%02d:%02d:%02d'", 0, 0, 0);
-				}
-				else
-				{
-					int tz;
-					struct pg_tm tt, *tm = &tt;
-					fsec_t fsec;
-					const char *tzn;
-					Datum d = DirectFunctionCall1(date_timestamp, value);
-					Timestamp valueTimestamp = DatumGetTimestamp(d);
-					first = false;
-					timestamp2tm(valueTimestamp, &tz, tm, &fsec, &tzn, pg_tzset("UTC"));
-					appendStringInfo(&sql, "'%02d:%02d:%02d'", tt.tm_hour, tt.tm_min, tt.tm_sec);
-				}
-				break;
-			}
+				value = DirectFunctionCall1(date_timestamp, value);
+				/* fallthrough */
 			case TIMESTAMPOID:
 			case TIMESTAMPTZOID:
 			{
-				if (!first)
-				{
-					appendStringInfo(&sql, ", ");
-				}
-				if (isnull && value == 0)
-				{
-					appendStringInfo(&sql, "'%04d-%02d-%02d %02d:%02d:%02d'", 0, 0, 0, 0, 0, 0);
-				}
-				else
-				{
-					int tz;
-					struct pg_tm tt, *tm = &tt;
-					fsec_t fsec;
-					const char *tzn;
-					TimestampTz valueTimestamp = DatumGetTimestampTz(value);
-					first = false;
-					timestamp2tm(valueTimestamp, &tz, tm, &fsec, &tzn, pg_tzset("UTC"));
-					appendStringInfo(&sql, "'%04d-%02d-%02d %02d:%02d:%02d'", tt.tm_year, tt.tm_mon,
-					                 tt.tm_mday, tt.tm_hour, tt.tm_min, tt.tm_sec);
-				}
+				extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
+				appendStringInfoString(&fmstate->sql, extval);
+				pfree(extval);
 				break;
 			}
 			default:
@@ -1946,9 +1829,6 @@ convert_prep_stmt_params(CHFdwModifyState *fmstate,
 	}
 
 	Assert(pindex == fmstate->p_nums);
-
-	fmstate->result_query = pstrdup(sql.data);
-
 	MemoryContextSwitchTo(oldcontext);
 
 	return NULL;
