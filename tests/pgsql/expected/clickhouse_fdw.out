@@ -20,25 +20,43 @@ SELECT clickhousedb_raw_query('CREATE DATABASE regression');
  
 (1 row)
 
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t1 (c1 Int, c2 Int, c3 String, c4 Date, c5 Date, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t1
+	(c1 Int, c2 Int, c3 String, c4 Date, c5 Date, c6 String, c7 String, c8 String)
+	ENGINE = MergeTree PARTITION BY c4 ORDER BY (c1);
+');
  clickhousedb_raw_query 
 ------------------------
  
 (1 row)
 
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String)
+	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
  clickhousedb_raw_query 
 ------------------------
  
 (1 row)
 
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String)
+	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
  clickhousedb_raw_query 
 ------------------------
  
 (1 row)
 
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String)
+	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	CREATE TABLE regression.tcopy
+		(c1 Int32, c2 Int64, c3 Date, c4 DateTime, c5 DateTime, c6 String)
+	ENGINE = MergeTree
+	PARTITION BY c3
+	ORDER BY (c1, c2, c3);
+');
  clickhousedb_raw_query 
 ------------------------
  
@@ -80,6 +98,14 @@ CREATE FOREIGN TABLE ft6 (
 	c2 int NOT NULL,
 	c3 text
 ) SERVER loopback2 OPTIONS (table_name 't4');
+CREATE FOREIGN TABLE ftcopy (
+	c1 int,
+	c2 int8,
+	c3 date,
+	c4 timestamp without time zone,
+	c5 time,
+	c6 text
+) SERVER loopback OPTIONS (table_name 'tcopy');
 INSERT INTO ft1
 	SELECT id,
 	       id % 10,
@@ -104,19 +130,41 @@ INSERT INTO ft4
 	       id + 1,
 	       'AAA' || to_char(id, 'FM000')
 	FROM generate_series(1, 100) id;
+COPY ftcopy FROM stdin;
+INSERT INTO ftcopy VALUES
+	(3, 4, '1990-03-03', '1990-03-03 12:02:02', '12:02:02', 'val3'),
+	(4, 5, '1991-04-04', '1990-04-04 12:04:04', '12:02:04', 'val4');
+EXPLAIN (VERBOSE) SELECT * FROM ftcopy ORDER BY c1;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Foreign Scan on public.ftcopy  (cost=1.00..-1.00 rows=2 width=64)
+   Output: c1, c2, c3, c4, c5, c6
+   Remote SQL: SELECT c1, c2, c3, c4, c5, c6 FROM regression.tcopy ORDER BY c1 ASC
+(3 rows)
+
+SELECT * FROM ftcopy ORDER BY c1;
+ c1 | c2 |     c3     |         c4          |    c5    |  c6  
+----+----+------------+---------------------+----------+------
+  1 |  2 | 1990-01-01 | 1990-01-01 10:01:02 | 10:01:02 | val1
+  2 |  3 | 1990-02-02 | 1990-02-02 11:02:03 | 11:01:02 | val2
+  3 |  4 | 1990-03-03 | 1990-03-03 12:02:02 | 12:02:02 | val3
+  4 |  5 | 1991-04-04 | 1990-04-04 12:04:04 | 12:02:04 | val4
+(4 rows)
+
 ALTER USER MAPPING FOR public SERVER testserver1
 	OPTIONS (DROP user, DROP password);
 \det+
-                    List of foreign tables
- Schema | Table |  Server   |    FDW options    | Description 
---------+-------+-----------+-------------------+-------------
- public | ft1   | loopback  | (table_name 't1') | 
- public | ft2   | loopback  | (table_name 't2') | 
- public | ft3   | loopback  | (table_name 't3') | 
- public | ft4   | loopback  | (table_name 't4') | 
- public | ft5   | loopback  | (table_name 't4') | 
- public | ft6   | loopback2 | (table_name 't4') | 
-(6 rows)
+                      List of foreign tables
+ Schema | Table  |  Server   |     FDW options      | Description 
+--------+--------+-----------+----------------------+-------------
+ public | ft1    | loopback  | (table_name 't1')    | 
+ public | ft2    | loopback  | (table_name 't2')    | 
+ public | ft3    | loopback  | (table_name 't3')    | 
+ public | ft4    | loopback  | (table_name 't4')    | 
+ public | ft5    | loopback  | (table_name 't4')    | 
+ public | ft6    | loopback2 | (table_name 't4')    | 
+ public | ftcopy | loopback  | (table_name 'tcopy') | 
+(7 rows)
 
 \set VERBOSITY terse
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
@@ -660,17 +708,20 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be
 (3 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
-	sum(length(c2)) FROM ft2 GROUP BY a;
-                                                                                         QUERY PLAN                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Foreign Scan
+	sum(length(c2)) FROM ft2 GROUP BY a ORDER BY a;
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Output: (CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END), (sum(length(c2)))
-   Relations: Aggregate on (ft2)
-   Remote SQL: SELECT CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END, sum(length(c2)) FROM regression.t2 GROUP BY (CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END)
-(4 rows)
+   Sort Key: (CASE WHEN (ft2.c1 < 10) THEN 1 WHEN (ft2.c1 < 50) THEN 2 ELSE 3 END)
+   ->  Foreign Scan
+         Output: (CASE WHEN (c1 < 10) THEN 1 WHEN (c1 < 50) THEN 2 ELSE 3 END), (sum(length(c2)))
+         Relations: Aggregate on (ft2)
+         Remote SQL: SELECT CASE WHEN (c1 < 10) THEN toInt32(1) WHEN (c1 < 50) THEN toInt32(2) ELSE toInt32(3) END, sum(length(c2)) FROM regression.t2 GROUP BY (CASE WHEN (c1 < 10) THEN toInt32(1) WHEN (c1 < 50) THEN toInt32(2) ELSE toInt32(3) END)
+(7 rows)
 
 SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
-	sum(length(c2)) FROM ft2 GROUP BY a;
+	sum(length(c2)) FROM ft2 GROUP BY a ORDER BY a;
  a | sum 
 ---+-----
  1 |  54
@@ -726,7 +777,7 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 12 other objects
+NOTICE:  drop cascades to 13 other objects
 DETAIL:  drop cascades to server testserver1
 drop cascades to user mapping for public on server testserver1
 drop cascades to server loopback
@@ -736,6 +787,7 @@ drop cascades to foreign table ft2
 drop cascades to foreign table ft3
 drop cascades to foreign table ft4
 drop cascades to foreign table ft5
+drop cascades to foreign table ftcopy
 drop cascades to server loopback2
 drop cascades to user mapping for user1 on server loopback2
 drop cascades to foreign table ft6

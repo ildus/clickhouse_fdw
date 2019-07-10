@@ -90,7 +90,7 @@ enum FdwScanPrivateIndex
 enum FdwModifyPrivateIndex
 {
 	/* SQL statement to execute remotely (as a String node) */
-	FdwModifyPrivateUpdateSql,
+	FdwModifyPrivateInsertSQL,
 	/* Integer list of target attribute numbers for INSERT/UPDATE */
 	FdwModifyPrivateTargetAttnums
 };
@@ -138,9 +138,6 @@ typedef struct CHFdwModifyState
 
 	/* for remote query execution */
 	ch_connection	conn;			/* connection for the scan */
-
-	/* multi insert */
-	bool			tsv;
 
 	/* constructed query */
 	StringInfoData	sql;
@@ -280,11 +277,10 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
         CmdType operation,
         Plan *subplan,
         char *query,
-        List *target_attrs,
-		bool tsv);
+        List *target_attrs);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
-static const char **make_insert_query(CHFdwModifyState *fmstate,
+static const char **extend_insert_query(CHFdwModifyState *fmstate,
 	ItemPointer tupleid, TupleTableSlot *slot);
 static void finish_foreign_modify(CHFdwModifyState *fmstate);
 static void prepare_query_params(PlanState *node,
@@ -1320,7 +1316,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 		return;
 
 	/* Deconstruct fdw_private data. */
-	query = strVal(list_nth(fdw_private, FdwModifyPrivateUpdateSql));
+	query = strVal(list_nth(fdw_private, FdwModifyPrivateInsertSQL));
 	target_attrs = (List *) list_nth(fdw_private, FdwModifyPrivateTargetAttnums);
 
 	/* Find RTE. */
@@ -1334,8 +1330,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	                                mtstate->operation,
 	                                mtstate->mt_plans[subplan_index]->plan,
 	                                query,
-	                                target_attrs,
-									false);
+	                                target_attrs);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1352,28 +1347,11 @@ clickhouseExecForeignInsert(EState *estate,
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
-	make_insert_query(fmstate, NULL, slot);
-
-	elog(LOG, "DEPARSED: %s", fmstate->sql.data);
-	if (!fmstate->tsv)
-		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
+	extend_insert_query(fmstate, NULL, slot);
 
 	MemoryContextReset(fmstate->temp_cxt);
 
 	return slot;
-}
-
-/*
- * clickhouseEndForeignModify
- *		Finish an insert operation on a foreign table
- */
-static void
-clickhouseEndForeignModify(EState *estate,
-                           ResultRelInfo *resultRelInfo)
-{
-	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
-
-	finish_foreign_modify(fmstate);
 }
 
 ForeignServer *
@@ -1444,11 +1422,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                CMD_INSERT,
 	                                NULL,
 	                                sql.data,
-	                                targetAttrs,
-									true);
-
-	appendStringInfoString(&fmstate->sql, sql.data);
-	appendStringInfoString(&fmstate->sql, " FORMAT TSV\n");
+	                                targetAttrs);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1463,13 +1437,13 @@ clickhouseEndForeignInsert(EState *estate,
 {
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
-	Assert(fmstate != NULL);
-
-	if (fmstate->tsv)
+	if (fmstate)
+	{
 		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
 
-	/* Destroy the execution state */
-	finish_foreign_modify(fmstate);
+		/* Destroy the execution state */
+		finish_foreign_modify(fmstate);
+	}
 }
 
 /*
@@ -1631,8 +1605,7 @@ create_foreign_modify(EState *estate,
                       CmdType operation,
                       Plan *subplan,
                       char *query,
-                      List *target_attrs,
-					  bool tsv)
+                      List *target_attrs)
 {
 	CHFdwModifyState *fmstate;
 	Relation	rel = resultRelInfo->ri_RelationDesc;
@@ -1665,8 +1638,11 @@ create_foreign_modify(EState *estate,
 	/* Set up remote query information. */
 	fmstate->query = query;
 	fmstate->target_attrs = target_attrs;
-	fmstate->tsv = tsv;
+
+	/* Init query prefix */
 	initStringInfo(&fmstate->sql);
+	appendStringInfoString(&fmstate->sql, query);
+	appendStringInfoString(&fmstate->sql, " FORMAT TSV\n");
 
 	/* Create context for per-query temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
@@ -1700,31 +1676,18 @@ create_foreign_modify(EState *estate,
 }
 
 /*
- * make_insert_query
- *		Create array of text strings representing parameter values
- *
- * Data is constructed in temp_cxt; caller should reset that after use.
+ * extend_insert_query
+ *		Construct values part of INSERT query
  */
 static const char **
-make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
+extend_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 					TupleTableSlot *slot)
 {
 	int			pindex = 0;
 	MemoryContext oldcontext;
 	bool first = true;
-	char delim;
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
-
-	if (!fmstate->tsv)
-	{
-		initStringInfo(&fmstate->sql);
-		appendStringInfo(&fmstate->sql, "%s", fmstate->query);
-		appendStringInfo(&fmstate->sql, "%s", " VALUES (");
-		delim = ',';
-	}
-	else
-		delim = '\t';
 
 	/* get following parameters from slot */
 	if (slot != NULL && fmstate->target_attrs != NIL)
@@ -1745,7 +1708,7 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			type = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid;
 
 			if (!first)
-				appendStringInfoChar(&fmstate->sql, delim);
+				appendStringInfoChar(&fmstate->sql, '\t');
 			first = false;
 
 			if (isnull)
@@ -1788,27 +1751,20 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			case BITOID:
 			case BYTEAOID:
 			{
-				char *str = NULL;
+				char   *str = NULL;
+				bool	tl = false;
+				Oid		typoutput = InvalidOid;
 
-				if (isnull && value == 0)
-				{
-					appendStringInfo(&fmstate->sql, "%s", "''");
-				}
-				else
-				{
-					Oid foid = InvalidOid;
-					bool tl = false;
-					getTypeOutputInfo(type, &foid, &tl);
-					str = OidOutputFunctionCall(foid, value);
-					appendStringInfo(&fmstate->sql, "'%s'", str);
-				}
+				getTypeOutputInfo(type, &typoutput, &tl);
+				str = OidOutputFunctionCall(typoutput, value);
+				appendStringInfo(&fmstate->sql, "%s", str);
 			}
 			break;
 			case DATEOID:
 			{
 				/* we expect Date on other side */
 				char *extval = DatumGetCString(DirectFunctionCall1(ch_date_out, value));
-				appendStringInfo(&fmstate->sql, "'%s'", extval);
+				appendStringInfoString(&fmstate->sql, extval);
 				pfree(extval);
 				break;
 			}
@@ -1816,7 +1772,7 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			{
 				/* we expect DateTime on other side */
 				char *extval = DatumGetCString(DirectFunctionCall1(ch_time_out, value));
-				appendStringInfo(&fmstate->sql, "'0001-01-01 %s'", extval);
+				appendStringInfo(&fmstate->sql, "0001-01-01 %s", extval);
 				pfree(extval);
 				break;
 			}
@@ -1825,7 +1781,7 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			{
 				/* we expect DateTime on other side */
 				char *extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
-				appendStringInfo(&fmstate->sql, "'%s'", extval);
+				appendStringInfoString(&fmstate->sql, extval);
 				pfree(extval);
 				break;
 			}
@@ -1836,11 +1792,7 @@ make_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			}
 			pindex++;
 		}
-		if (fmstate->tsv)
-			appendStringInfoChar(&fmstate->sql, '\n');
-		else
-			appendStringInfoChar(&fmstate->sql, ')');
-
+		appendStringInfoChar(&fmstate->sql, '\n');
 		reset_transmission_modes(nestlevel);
 	}
 
@@ -2855,7 +2807,9 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 	routine->BeginForeignModify = clickhouseBeginForeignModify;
 	routine->ExecForeignInsert = clickhouseExecForeignInsert;
 	routine->BeginForeignInsert = clickhouseBeginForeignInsert;
+
 	routine->EndForeignInsert = clickhouseEndForeignInsert;
+	routine->EndForeignModify = clickhouseEndForeignInsert;
 
 	/* Function for EvalPlanQual rechecks */
 	routine->RecheckForeignScan = clickhouseRecheckForeignScan;

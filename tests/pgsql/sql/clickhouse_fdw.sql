@@ -11,10 +11,23 @@ CREATE USER MAPPING FOR user1 SERVER loopback2;
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t1 (c1 Int, c2 Int, c3 String, c4 Date, c5 Date, c6 String, c7 String, c8 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t1
+	(c1 Int, c2 Int, c3 String, c4 Date, c5 Date, c6 String, c7 String, c8 String)
+	ENGINE = MergeTree PARTITION BY c4 ORDER BY (c1);
+');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String)
+	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String)
+	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String)
+	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('
+	CREATE TABLE regression.tcopy
+		(c1 Int32, c2 Int64, c3 Date, c4 DateTime, c5 DateTime, c6 String)
+	ENGINE = MergeTree
+	PARTITION BY c3
+	ORDER BY (c1, c2, c3);
+');
 
 CREATE FOREIGN TABLE ft1 (
 	c0 int,
@@ -59,6 +72,15 @@ CREATE FOREIGN TABLE ft6 (
 	c3 text
 ) SERVER loopback2 OPTIONS (table_name 't4');
 
+CREATE FOREIGN TABLE ftcopy (
+	c1 int,
+	c2 int8,
+	c3 date,
+	c4 timestamp without time zone,
+	c5 time,
+	c6 text
+) SERVER loopback OPTIONS (table_name 'tcopy');
+
 INSERT INTO ft1
 	SELECT id,
 	       id % 10,
@@ -86,6 +108,18 @@ INSERT INTO ft4
 	       id + 1,
 	       'AAA' || to_char(id, 'FM000')
 	FROM generate_series(1, 100) id;
+
+COPY ftcopy FROM stdin;
+1	2	1990-01-01	1990-01-01 10:01:02	10:01:02	val1
+2	3	1990-02-02	1990-02-02 11:02:03	11:01:02	val2
+\.
+
+INSERT INTO ftcopy VALUES
+	(3, 4, '1990-03-03', '1990-03-03 12:02:02', '12:02:02', 'val3'),
+	(4, 5, '1991-04-04', '1990-04-04 12:04:04', '12:02:04', 'val4');
+
+EXPLAIN (VERBOSE) SELECT * FROM ftcopy ORDER BY c1;
+SELECT * FROM ftcopy ORDER BY c1;
 
 ALTER USER MAPPING FOR public SERVER testserver1
 	OPTIONS (DROP user, DROP password);
@@ -180,9 +214,9 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  --
 EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
-	sum(length(c2)) FROM ft2 GROUP BY a;
+	sum(length(c2)) FROM ft2 GROUP BY a ORDER BY a;
 SELECT (CASE WHEN c1 < 10 THEN 1 WHEN c1 < 50 THEN 2 ELSE 3 END) a,
-	sum(length(c2)) FROM ft2 GROUP BY a;
+	sum(length(c2)) FROM ft2 GROUP BY a ORDER BY a;
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT SUM(c1) FILTER (WHERE c1 < 20) FROM ft2;
 SELECT SUM(c1) FILTER (WHERE c1 < 20) FROM ft2;
