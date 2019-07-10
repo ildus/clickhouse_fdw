@@ -15,8 +15,14 @@
 #include "lib/stringinfo.h"
 #include "nodes/relation.h"
 #include "utils/relcache.h"
+#include "catalog/pg_operator.h"
 
 typedef void *ch_connection;
+
+typedef enum {
+	CH_DEFAULT,
+	CH_COLLAPSING_MERGE_TREE
+} CHRemoteTableEngine;
 
 /*
  * FDW-specific planner information kept in RelOptInfo.fdw_private for a
@@ -106,6 +112,10 @@ typedef struct CHFdwRelationInfo
 	 * representing the relation.
 	 */
 	int			relation_index;
+
+	/* Custom */
+	CHRemoteTableEngine		ch_table_engine;
+	char					ch_table_sign_field[NAMEDATALEN];
 } CHFdwRelationInfo;
 
 /* in clickhouse_fdw.c */
@@ -141,12 +151,10 @@ extern bool is_foreign_expr(PlannerInfo *root,
                             Expr *expr);
 extern void deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
                              Index rtindex, Relation rel,
-                             List *targetAttrs, bool doNothing, List *returningList,
-                             List **retrieved_attrs);
+                             List *targetAttrs);
 extern void deparseAnalyzeSizeSql(StringInfo buf, Relation rel);
 extern void deparseAnalyzeSql(StringInfo buf, Relation rel,
                               List **retrieved_attrs);
-extern void deparseStringLiteral(StringInfo buf, const char *val);
 extern Expr *find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel);
 extern List *build_tlist_to_deparse(RelOptInfo *foreignrel);
 extern void deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root,
@@ -157,8 +165,7 @@ extern const char *get_jointype_name(JoinType jointype);
 
 /* in shippable.c */
 extern bool is_builtin(Oid objectId);
-extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo);
-extern bool is_equal_op(Oid opno);
+extern int is_equal_op(Oid opno);
 
 /*
  * Connection cache hash table entry
@@ -213,5 +220,52 @@ typedef struct
 } libclickhouse_methods;
 
 extern libclickhouse_methods *clickhouse_gate;
+
+/* Custom behavior types */
+typedef enum {
+	CF_USUAL = 0,
+	CF_UNSHIPPABLE,		/* do not ship */
+	CF_SIGN_SUM,		/* SUM aggregation */
+	CF_SIGN_AVG,		/* AVG aggregation */
+	CF_SIGN_COUNT,		/* COUNT aggregation */
+	CF_DATE_TRUNC,		/* date_trunc function */
+	CF_HSTORE_TYPE,		/* example of custom type */
+	CF_HSTORE_OPERATOR,	/* example of custom operator */
+	CF_HSTORE_EXISTS,	/* example of custom function */
+	CF_TIMESTAMPTZ_PL_INTERVAL	/* timestamptz + interval */
+} custom_object_type;
+
+typedef struct CustomObjectDef
+{
+	Oid						cf_oid;
+	custom_object_type		cf_type;
+	char					custom_name[NAMEDATALEN];	/* \0 - no custom name, \1 - many names */
+	void				   *context;
+} CustomObjectDef;
+
+typedef struct CustomColumnInfo
+{
+	Oid		relid;
+	int		varattno;
+	char	colname[NAMEDATALEN];
+	custom_object_type coltype;
+
+	CHRemoteTableEngine	table_engine;
+	char	signfield[NAMEDATALEN];
+} CustomColumnInfo;
+
+extern CustomObjectDef *checkForCustomFunction(Oid funcid);
+extern CustomObjectDef *checkForCustomType(Oid typeoid);
+extern void modifyCustomVar(CustomObjectDef *def, Node *node);
+extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
+extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
+extern CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form);
+
+extern Datum ch_timestamp_out(PG_FUNCTION_ARGS);
+extern Datum ch_date_out(PG_FUNCTION_ARGS);
+extern Datum ch_time_out(PG_FUNCTION_ARGS);
+
+extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
+		CustomObjectDef **outcdef);
 
 #endif							/* POSTGRES_FDW_H */

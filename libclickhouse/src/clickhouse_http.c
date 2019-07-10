@@ -89,14 +89,13 @@ cleanup:
 	return NULL;
 }
 
-static void set_query_id(ch_http_response_t *resp)
+static void set_query_id(ch_http_response_t *resp, uint32_t query_id)
 {
-	static uint32_t pseudo_unique = 0;
-	snprintf(resp->query_id, 4 + 1 + 4, "%s-%x", ch_query_id_prefix,
-				++pseudo_unique);
+	snprintf(resp->query_id, 4 + 1 + 4, "%s-%x", ch_query_id_prefix, query_id);
 }
 
-ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query)
+ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query,
+	uint32_t query_id)
 {
 	char		*url;
 	CURLcode	errcode;
@@ -105,7 +104,7 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	if (resp == NULL)
 		return NULL;
 
-	set_query_id(resp);
+	set_query_id(resp, query_id);
 
 	assert(conn && conn->curl);
 	assert(conn->format == CH_TAB_SEPARATED);

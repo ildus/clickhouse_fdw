@@ -12,8 +12,6 @@
  */
 #include "postgres.h"
 
-#include "clickhousedb_fdw.h"
-
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/sysattr.h"
@@ -33,11 +31,19 @@
 #include "optimizer/var.h"
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
+#include "utils/date.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#include "utils/fmgroids.h"
+#include "utils/datetime.h"
+#include "utils/arrayaccess.h"
+#include "utils/catcache.h"
 
+#include "clickhousedb_fdw.h"
+
+#define MAXINT8LEN		25
 
 /*
  * Global context for foreign_expr_walker's search of an expression tree.
@@ -50,24 +56,9 @@ typedef struct foreign_glob_cxt
 								 * scan */
 } foreign_glob_cxt;
 
-/*
- * Local (per-tree-level) context for foreign_expr_walker's search.
- * This is concerned with identifying collations used in the expression.
- */
-typedef enum
-{
-	FDW_COLLATE_NONE,			/* expression is of a noncollatable type, or
-								 * it has default collation that is not
-								 * traceable to a foreign Var */
-	FDW_COLLATE_SAFE,			/* collation derives from a foreign Var */
-	FDW_COLLATE_UNSAFE			/* collation is non-default and derives from
-								 * something other than a foreign Var */
-} FDWCollateState;
-
 typedef struct foreign_loc_cxt
 {
-	Oid			collation;		/* OID of current collation, if any */
-	FDWCollateState state;		/* state of current collation choice */
+	int	a;
 } foreign_loc_cxt;
 
 /*
@@ -82,6 +73,9 @@ typedef struct deparse_expr_cxt
 								 * a base relation. */
 	StringInfo	buf;			/* output buffer to append to */
 	List	  **params_list;	/* exprs that will become remote Params */
+	CustomObjectDef	*func;		/* custom function deparse */
+	void		*func_arg;		/* custom function context args */
+	CHFdwRelationInfo *fpinfo;	/* fdw relation info */
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -121,8 +115,8 @@ static void deparseReturningList(StringInfo buf, RangeTblEntry *rte,
 					 bool trig_after_row,
 					 List *returningList,
 					 List **retrieved_attrs);
-static void deparseColumnRef(StringInfo buf, int varno, int varattno,
-				 RangeTblEntry *rte, bool qualify_col);
+static void deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
+	int varno, int varattno, RangeTblEntry *rte, bool qualify_col);
 static void deparseRelation(StringInfo buf, Relation rel);
 static void deparseExpr(Expr *expr, deparse_expr_cxt *context);
 static void deparseVar(Var *node, deparse_expr_cxt *context);
@@ -162,9 +156,11 @@ static void deparseAggref(Aggref *node, deparse_expr_cxt *context);
 static void appendGroupByClause(List *tlist, deparse_expr_cxt *context);
 static void appendAggOrderBy(List *orderList, List *targetList,
 				 deparse_expr_cxt *context);
-static void appendFunctionName(Oid funcid, deparse_expr_cxt *context);
+static CustomObjectDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context);
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 					   deparse_expr_cxt *context);
+static void deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context);
+static void deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context);
 
 /*
  * Helper functions
@@ -232,45 +228,33 @@ is_foreign_expr(PlannerInfo *root,
 		glob_cxt.relids = fpinfo->outerrel->relids;
 	else
 		glob_cxt.relids = baserel->relids;
-	loc_cxt.collation = InvalidOid;
-	loc_cxt.state = FDW_COLLATE_NONE;
+
 	if (!foreign_expr_walker((Node *) expr, &glob_cxt, &loc_cxt))
-		return false;
-
-	/*
-	 * If the expression has a valid collation that does not arise from a
-	 * foreign var, the expression can not be sent over.
-	 */
-	if (loc_cxt.state == FDW_COLLATE_UNSAFE)
-		return false;
-
-	/*
-	 * An expression which includes any mutable functions can't be sent over
-	 * because its result is not stable.  For example, sending now() remote
-	 * side could cause confusion from clock offsets.  Future versions might
-	 * be able to make this choice with more granularity.  (We check this last
-	 * because it requires a lot of expensive catalog lookups.)
-	 */
-	if (contain_mutable_functions((Node *) expr))
 		return false;
 
 	/* OK to evaluate on the remote server */
 	return true;
 }
 
-bool
+/* 1: '=', 2: '<>', 0 - false */
+int
 is_equal_op(Oid opno)
 {
-	Form_pg_operator operform;
-	HeapTuple	opertup;
-	bool res;
+	Form_pg_operator	operform;
+	HeapTuple			opertup;
+	int					res = 0;
 
 	opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(opno));
 	if (!HeapTupleIsValid(opertup))
 		elog(ERROR, "cache lookup failed for operator %u", opno);
 
 	operform = (Form_pg_operator) GETSTRUCT(opertup);
-	res = (NameStr(operform->oprname)[0] == '=' && NameStr(operform->oprname)[1] == '\0');
+
+	if (NameStr(operform->oprname)[0] == '=' && NameStr(operform->oprname)[1] == '\0')
+		res = 1;
+	else if (NameStr(operform->oprname)[0] == '<' && NameStr(operform->oprname)[1] == '>')
+		res = 2;
+
 	ReleaseSysCache(opertup);
 	return res;
 }
@@ -296,8 +280,6 @@ foreign_expr_walker(Node *node,
 	bool		check_type = true;
 	CHFdwRelationInfo *fpinfo;
 	foreign_loc_cxt inner_cxt;
-	Oid			collation;
-	FDWCollateState state;
 
 	/* Need do nothing for empty subexpressions */
 	if (node == NULL)
@@ -305,10 +287,6 @@ foreign_expr_walker(Node *node,
 
 	/* May need server info from baserel's fdw_private struct */
 	fpinfo = (CHFdwRelationInfo *)(glob_cxt->foreignrel->fdw_private);
-
-	/* Set up inner_cxt for possible recursion to child nodes */
-	inner_cxt.collation = InvalidOid;
-	inner_cxt.state = FDW_COLLATE_NONE;
 
 	switch (nodeTag(node))
 	{
@@ -337,59 +315,11 @@ foreign_expr_walker(Node *node,
 			if (var->varattno < 0 &&
 			        var->varattno != SelfItemPointerAttributeNumber &&
 			        var->varattno != ObjectIdAttributeNumber)
-			{
 				return false;
-			}
-
-			/* Else check the collation */
-			collation = var->varcollid;
-			state = OidIsValid(collation) ? FDW_COLLATE_SAFE : FDW_COLLATE_NONE;
-		}
-		else
-		{
-			/* Var belongs to some other table */
-			collation = var->varcollid;
-			if (collation == InvalidOid ||
-			        collation == DEFAULT_COLLATION_OID)
-			{
-				/*
-				 * It's noncollatable, or it's safe to combine with a
-				 * collatable foreign Var, so set state to NONE.
-				 */
-				state = FDW_COLLATE_NONE;
-			}
-			else
-			{
-				/*
-				 * Do not fail right away, since the Var might appear
-				 * in a collation-insensitive context.
-				 */
-				state = FDW_COLLATE_UNSAFE;
-			}
 		}
 	}
 	break;
 	case T_Const:
-	{
-		Const	   *c = (Const *) node;
-
-		/*
-		 * If the constant has nondefault collation, either it's of a
-		 * non-builtin type, or it reflects folding of a CollateExpr.
-		 * It's unsafe to send to the remote unless it's used in a
-		 * non-collation-sensitive context.
-		 */
-		collation = c->constcollid;
-		if (collation == InvalidOid ||
-		        collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
-		}
-	}
 	break;
 	case T_Param:
 	{
@@ -403,9 +333,7 @@ foreign_expr_walker(Node *node,
 
 		/* Assignment should not be in restrictions. */
 		if (ar->refassgnexpr != NULL)
-		{
 			return false;
-		}
 
 		/*
 		 * Recurse to remaining subexpressions.  Since the array
@@ -414,103 +342,40 @@ foreign_expr_walker(Node *node,
 		 */
 		if (!foreign_expr_walker((Node *) ar->refupperindexpr,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
+
 		if (!foreign_expr_walker((Node *) ar->reflowerindexpr,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
+
 		if (!foreign_expr_walker((Node *) ar->refexpr,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
-
-		/*
-		 * Array subscripting should yield same collation as input,
-		 * but for safety use same logic as for function nodes.
-		 */
-		collation = ar->refcollid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
-		}
 	}
 	break;
 	case T_FuncExpr:
 	{
+		CustomObjectDef	*cdef = NULL;
 		FuncExpr   *fe = (FuncExpr *) node;
+
+		/* not in ClickHouse */
+		if (fe->funcvariadic)
+			return false;
 
 		/*
 		 * If function used by the expression is not shippable, it
 		 * can't be sent to remote because it might have incompatible
 		 * semantics on remote side.
 		 */
-		if (!is_shippable(fe->funcid, ProcedureRelationId, fpinfo))
-		{
+		if (!is_shippable(fe->funcid, ProcedureRelationId, fpinfo, &cdef))
 			return false;
-		}
 
 		/*
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) fe->args,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
-
-		/*
-		 * If function's input collation is not derived from a foreign
-		 * Var, it can't be sent to remote.
-		 */
-		if (fe->inputcollid == InvalidOid)
-			/* OK, inputs are all noncollatable */ ;
-		else if (inner_cxt.state != FDW_COLLATE_SAFE ||
-		         fe->inputcollid != inner_cxt.collation)
-		{
-			return false;
-		}
-
-		/*
-		 * Detect whether node is introducing a collation not derived
-		 * from a foreign Var.  (If so, we just mark it unsafe for now
-		 * rather than immediately returning false, since the parent
-		 * node might not care.)
-		 */
-		collation = fe->funccollid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
-		}
 	}
 	break;
 	case T_OpExpr:
@@ -523,51 +388,15 @@ foreign_expr_walker(Node *node,
 		 * (If the operator is shippable, we assume its underlying
 		 * function is too.)
 		 */
-		if (!is_shippable(oe->opno, OperatorRelationId, fpinfo))
-		{
+		if (!is_shippable(oe->opno, OperatorRelationId, fpinfo, NULL))
 			return false;
-		}
 
 		/*
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) oe->args,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
-
-		/*
-		 * If operator's input collation is not derived from a foreign
-		 * Var, it can't be sent to remote.
-		 */
-		if (oe->inputcollid == InvalidOid)
-			/* OK, inputs are all noncollatable */ ;
-		else if (inner_cxt.state != FDW_COLLATE_SAFE ||
-		         oe->inputcollid != inner_cxt.collation)
-		{
-			return false;
-		}
-
-		/* Result-collation handling is same as for functions */
-		collation = oe->opcollid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
-		}
 	}
 	break;
 	case T_ScalarArrayOpExpr:
@@ -583,20 +412,6 @@ foreign_expr_walker(Node *node,
 		if (!foreign_expr_walker((Node *) oe->args,
 								 glob_cxt, &inner_cxt))
 			return false;
-
-		/*
-		 * If operator's input collation is not derived from a foreign
-		 * Var, it can't be sent to remote.
-		 */
-		if (oe->inputcollid == InvalidOid)
-			 /* OK, inputs are all noncollatable */ ;
-		else if (inner_cxt.state != FDW_COLLATE_SAFE ||
-				 oe->inputcollid != inner_cxt.collation)
-			return false;
-
-		/* Output is always boolean and so noncollatable. */
-		collation = InvalidOid;
-		state = FDW_COLLATE_NONE;
 	}
 	break;
 	case T_RelabelType:
@@ -610,29 +425,6 @@ foreign_expr_walker(Node *node,
 		                         glob_cxt, &inner_cxt))
 		{
 			return false;
-		}
-
-		/*
-		 * RelabelType must not introduce a collation not derived from
-		 * an input foreign Var (same logic as for a real function).
-		 */
-		collation = r->resultcollid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
 		}
 	}
 	break;
@@ -648,10 +440,6 @@ foreign_expr_walker(Node *node,
 		{
 			return false;
 		}
-
-		/* Output is always boolean and so noncollatable. */
-		collation = InvalidOid;
-		state = FDW_COLLATE_NONE;
 	}
 	break;
 	case T_NullTest:
@@ -666,10 +454,6 @@ foreign_expr_walker(Node *node,
 		{
 			return false;
 		}
-
-		/* Output is always boolean and so noncollatable. */
-		collation = InvalidOid;
-		state = FDW_COLLATE_NONE;
 	}
 	break;
 	case T_ArrayExpr:
@@ -683,29 +467,6 @@ foreign_expr_walker(Node *node,
 		                         glob_cxt, &inner_cxt))
 		{
 			return false;
-		}
-
-		/*
-		 * ArrayExpr must not introduce a collation not derived from
-		 * an input foreign Var (same logic as for a function).
-		 */
-		collation = a->array_collid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
 		}
 	}
 	break;
@@ -726,13 +487,6 @@ foreign_expr_walker(Node *node,
 			}
 		}
 
-		/*
-		 * When processing a list, collation state just bubbles up
-		 * from the list elements.
-		 */
-		collation = inner_cxt.collation;
-		state = inner_cxt.state;
-
 		/* Don't apply exprType() to the list. */
 		check_type = false;
 	}
@@ -751,7 +505,7 @@ foreign_expr_walker(Node *node,
 			return false;
 
 		/* As usual, it must be shippable. */
-		if (!is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo))
+		if (!is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo, NULL))
 			return false;
 
 		/* Features that ClickHouse doesn't support */
@@ -793,43 +547,6 @@ foreign_expr_walker(Node *node,
 		{
 			return false;
 		}
-
-		/*
-		 * If aggregate's input collation is not derived from a
-		 * foreign Var, it can't be sent to remote.
-		 */
-		if (agg->inputcollid == InvalidOid)
-			/* OK, inputs are all noncollatable */ ;
-		else if (inner_cxt.state != FDW_COLLATE_SAFE ||
-		         agg->inputcollid != inner_cxt.collation)
-		{
-			return false;
-		}
-
-		/*
-		 * Detect whether node is introducing a collation not derived
-		 * from a foreign Var.  (If so, we just mark it unsafe for now
-		 * rather than immediately returning false, since the parent
-		 * node might not care.)
-		 */
-		collation = agg->aggcollid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
-		}
 	}
 	break;
 	case T_CaseExpr:
@@ -851,25 +568,21 @@ foreign_expr_walker(Node *node,
 		}
 		if (!foreign_expr_walker((Node *) caseexpr->defresult, glob_cxt, &inner_cxt))
 			return false;
+	}
+	break;
+	case T_CoalesceExpr:
+	{
+		CoalesceExpr   *ce = (CoalesceExpr *) node;
 
-		collation = caseexpr->casecollid;
-		if (collation == InvalidOid)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else if (inner_cxt.state == FDW_COLLATE_SAFE &&
-		         collation == inner_cxt.collation)
-		{
-			state = FDW_COLLATE_SAFE;
-		}
-		else if (collation == DEFAULT_COLLATION_OID)
-		{
-			state = FDW_COLLATE_NONE;
-		}
-		else
-		{
-			state = FDW_COLLATE_UNSAFE;
-		}
+		if (!foreign_expr_walker((Node *) ce->args, glob_cxt, &inner_cxt))
+			return false;
+	}
+	break;
+	case T_MinMaxExpr:
+	{
+		MinMaxExpr	*me = (MinMaxExpr *) node;
+		if (!foreign_expr_walker((Node *) me->args, glob_cxt, &inner_cxt))
+			return false;
 	}
 	break;
 	default:
@@ -885,58 +598,194 @@ foreign_expr_walker(Node *node,
 	 * If result type of given expression is not shippable, it can't be sent
 	 * to remote because it might have incompatible semantics on remote side.
 	 */
-	if (check_type && !is_shippable(exprType(node), TypeRelationId, fpinfo))
+	if (check_type && !is_shippable(exprType(node), TypeRelationId, fpinfo, NULL))
 	{
 		return false;
 	}
 
-	/*
-	 * Now, merge my collation information into my parent's state.
-	 */
-	if (state > outer_cxt->state)
+	/* It looks OK */
+	return true;
+}
+
+/*
+ * Add typmod decoration to the basic type name
+ */
+static char *
+printTypmod(const char *typname, int32 typmod, Oid typmodout)
+{
+	char	   *res;
+
+	/* Shouldn't be called if typmod is -1 */
+	Assert(typmod >= 0);
+
+	if (typmodout == InvalidOid)
 	{
-		/* Override previous parent state */
-		outer_cxt->collation = collation;
-		outer_cxt->state = state;
+		/* Default behavior: just print the integer typmod with parens */
+		res = psprintf("%s(%d)", typname, (int) typmod);
 	}
-	else if (state == outer_cxt->state)
+	else
 	{
-		/* Merge, or detect error if there's a collation conflict */
-		switch (state)
-		{
-		case FDW_COLLATE_NONE:
-			/* Nothing + nothing is still nothing */
+		/* Use the type-specific typmodout procedure */
+		char	   *tmstr;
+
+		tmstr = DatumGetCString(OidFunctionCall1(typmodout,
+												 Int32GetDatum(typmod)));
+		res = psprintf("%s%s", typname, tmstr);
+	}
+
+	return res;
+}
+
+static char *
+ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
+{
+	HeapTuple	tuple;
+	Form_pg_type typeform;
+	Oid			array_base_type;
+	bool		is_array;
+	char	   *buf;
+	bool		with_typemod;
+
+	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_oid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for type %u", type_oid);
+
+	typeform = (Form_pg_type) GETSTRUCT(tuple);
+
+	/*
+	 * Check if it's a regular (variable length) array type.  Fixed-length
+	 * array types such as "name" shouldn't get deconstructed.  As of Postgres
+	 * 8.1, rather than checking typlen we check the toast property, and don't
+	 * deconstruct "plain storage" array types --- this is because we don't
+	 * want to show oidvector as oid[].
+	 */
+	array_base_type = typeform->typelem;
+
+	if (array_base_type != InvalidOid && typeform->typstorage != 'p')
+	{
+		/* Switch our attention to the array element type */
+		ReleaseSysCache(tuple);
+		tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(array_base_type));
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for type %u", type_oid);
+
+		typeform = (Form_pg_type) GETSTRUCT(tuple);
+		type_oid = array_base_type;
+		is_array = true;
+	}
+	else
+		is_array = false;
+
+	with_typemod = (flags & FORMAT_TYPE_TYPEMOD_GIVEN) != 0 && (typemod >= 0);
+
+	/*
+	 * See if we want to special-case the output for certain built-in types.
+	 * Note that these special cases should all correspond to special
+	 * productions in gram.y, to ensure that the type name will be taken as a
+	 * system type, not a user type of the same name.
+	 *
+	 * If we do not provide a special-case output here, the type name will be
+	 * handled the same way as a user type name --- in particular, it will be
+	 * double-quoted if it matches any lexer keyword.  This behavior is
+	 * essential for some cases, such as types "bit" and "char".
+	 */
+	buf = NULL;					/* flag for no special case */
+
+	switch (type_oid)
+	{
+		case BOOLOID:
+			buf = pstrdup("Boolean");
 			break;
-		case FDW_COLLATE_SAFE:
-			if (collation != outer_cxt->collation)
+
+		case BPCHAROID:
+			if (with_typemod)
+				buf = printTypmod("FixedString", typemod, typeform->typmodout);
+			else if ((flags & FORMAT_TYPE_TYPEMOD_GIVEN) != 0)
 			{
 				/*
-				 * Non-default collation always beats default.
+				 * bpchar with typmod -1 is not the same as CHARACTER, which
+				 * means CHARACTER(1) per SQL spec.  Report it as bpchar so
+				 * that parser will not assign a bogus typmod.
 				 */
-				if (outer_cxt->collation == DEFAULT_COLLATION_OID)
-				{
-					/* Override previous parent state */
-					outer_cxt->collation = collation;
-				}
-				else if (collation != DEFAULT_COLLATION_OID)
-				{
-					/*
-					 * Conflict; show state as indeterminate.  We don't
-					 * want to "return false" right away, since parent
-					 * node might not care about collation.
-					 */
-					outer_cxt->state = FDW_COLLATE_UNSAFE;
-				}
 			}
+			else
+				buf = pstrdup("String");
 			break;
-		case FDW_COLLATE_UNSAFE:
-			/* We're still conflicted ... */
+
+		case FLOAT4OID:
+			buf = pstrdup("Float32");
 			break;
+
+		case FLOAT8OID:
+			buf = pstrdup("Float64");
+			break;
+
+		case INT2OID:
+			buf = pstrdup("Int16");
+			break;
+
+		case INT4OID:
+			buf = pstrdup("Int32");
+			break;
+
+		case INT8OID:
+			buf = pstrdup("Int64");
+			break;
+
+		case NUMERICOID:
+			if (with_typemod)
+				buf = printTypmod("Decimal", typemod, typeform->typmodout);
+			else
+				buf = pstrdup("Decimal");
+			break;
+
+		case INTERVALOID:
+			if (with_typemod)
+				buf = printTypmod("UInt64", typemod, typeform->typmodout);
+			else
+				buf = pstrdup("UInt64");
+			break;
+
+		case TIMESTAMPTZOID:
+		case TIMESTAMPOID:
+			buf = pstrdup("DateTime");
+			break;
+		case DATEOID:
+			buf = pstrdup("Date");
+			break;
+
+		case VARCHAROID:
+			if (with_typemod)
+				buf = printTypmod("FixedString", typemod, typeform->typmodout);
+			else
+				buf = pstrdup("String");
+			break;
+	}
+
+	if (buf == NULL)
+	{
+		CustomObjectDef	*cdef;
+		char	   *typname;
+
+		cdef = checkForCustomType(type_oid);
+		if (cdef && cdef->custom_name[0] != '\0')
+			buf = pstrdup(cdef->custom_name);
+		else
+		{
+			typname = NameStr(typeform->typname);
+			buf = quote_qualified_identifier(NULL, typname);
+
+			if (with_typemod)
+				buf = printTypmod(buf, typemod, typeform->typmodout);
 		}
 	}
 
-	/* It looks OK */
-	return true;
+	if (is_array)
+		buf = psprintf("Array(%s)", buf);
+
+	ReleaseSysCache(tuple);
+
+	return buf;
 }
 
 /*
@@ -958,7 +807,7 @@ deparse_type_name(Oid type_oid, int32 typemod)
 	if (!is_builtin(type_oid))
 		flags |= FORMAT_TYPE_FORCE_QUALIFY;
 
-	return format_type_extended(type_oid, typemod, flags);
+	return ch_format_type_extended(type_oid, typemod, flags);
 }
 
 /*
@@ -1049,6 +898,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 	context.foreignrel = rel;
 	context.scanrel = IS_UPPER_REL(rel) ? fpinfo->outerrel : rel;
 	context.params_list = params_list;
+	context.func = NULL;
 
 	/* Construct SELECT clause */
 	deparseSelectSql(tlist, is_subquery, retrieved_attrs, &context);
@@ -1223,6 +1073,7 @@ deparseTargetList(StringInfo buf,
 	first = true;
 	for (i = 1; i <= tupdesc->natts; i++)
 	{
+		CustomObjectDef	*cdef;
 		Form_pg_attribute attr = TupleDescAttr(tupdesc, i - 1);
 
 		/* Ignore dropped attributes. */
@@ -1238,61 +1089,24 @@ deparseTargetList(StringInfo buf,
 
 			first = false;
 
-			deparseColumnRef(buf, rtindex, i, rte, qualify_col);
+			cdef = checkForCustomType(attr->atttypid);
+			deparseColumnRef(buf, cdef, rtindex, i, rte, qualify_col);
 
 			*retrieved_attrs = lappend_int(*retrieved_attrs, i);
 		}
 	}
 
 	/*
-	 * Add ctid and oid if needed.  We currently don't support retrieving any
-	 * other system columns.
+	 * check for ctid and oid
 	 */
 	if (bms_is_member(SelfItemPointerAttributeNumber -
 	                  FirstLowInvalidHeapAttributeNumber,
 	                  attrs_used))
-	{
-		if (!first)
-		{
-			appendStringInfoString(buf, ", ");
-		}
-		else if (is_returning)
-		{
-			appendStringInfoString(buf, " RETURNING ");
-		}
-		first = false;
+		elog(ERROR, "clickhouse does not support system columns");
 
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, rtindex);
-		}
-		appendStringInfoString(buf, "ctid");
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs,
-		                               SelfItemPointerAttributeNumber);
-	}
 	if (bms_is_member(ObjectIdAttributeNumber - FirstLowInvalidHeapAttributeNumber,
 	                  attrs_used))
-	{
-		if (!first)
-		{
-			appendStringInfoString(buf, ", ");
-		}
-		else if (is_returning)
-		{
-			appendStringInfoString(buf, " RETURNING ");
-		}
-		first = false;
-
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, rtindex);
-		}
-		appendStringInfoString(buf, "oid");
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs,
-		                               ObjectIdAttributeNumber);
-	}
+		elog(ERROR, "clickhouse does not support system columns");
 
 	/* Don't generate bad syntax if no undropped columns */
 	if (first && !is_returning)
@@ -1591,6 +1405,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			context.scanrel = foreignrel;
 			context.root = root;
 			context.params_list = params_list;
+			context.func = NULL;
 
 			appendStringInfoChar(buf, '(');
 			appendConditions(fpinfo->joinclauses, &context);
@@ -1697,16 +1512,11 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 
 /*
  * deparse remote INSERT statement
- *
- * The statement text is appended to buf, and we also create an integer List
- * of the columns being retrieved by RETURNING (if any), which is returned
- * to *retrieved_attrs.
  */
 void
 deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
                  Index rtindex, Relation rel,
-                 List *targetAttrs, bool doNothing,
-                 List *returningList, List **retrieved_attrs)
+                 List *targetAttrs)
 {
 	bool    first;
 	ListCell   *lc;
@@ -1724,12 +1534,11 @@ deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
 			int			attnum = lfirst_int(lc);
 
 			if (!first)
-			{
 				appendStringInfoString(buf, ", ");
-			}
+
 			first = false;
 
-			deparseColumnRef(buf, rtindex, attnum, rte, false);
+			deparseColumnRef(buf, NULL, rtindex, attnum, rte, false);
 		}
 		appendStringInfoChar(buf, ')');
 	}
@@ -1828,146 +1637,35 @@ deparseAnalyzeSql(StringInfo buf, Relation rel, List **retrieved_attrs)
  * If qualify_col is true, qualify column name with the alias of relation.
  */
 static void
-deparseColumnRef(StringInfo buf, int varno, int varattno, RangeTblEntry *rte,
+deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
+				 int varno, int varattno, RangeTblEntry *rte,
                  bool qualify_col)
 {
-	/* We support fetching the remote side's CTID and OID. */
-	if (varattno == SelfItemPointerAttributeNumber)
-	{
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, varno);
-		}
-		appendStringInfoString(buf, "ctid");
-	}
-	else if (varattno == ObjectIdAttributeNumber)
-	{
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, varno);
-		}
-		appendStringInfoString(buf, "oid");
-	}
-	else if (varattno < 0)
-	{
-		/*
-		 * All other system attributes are fetched as 0, except for table OID,
-		 * which is fetched as the local table OID.  However, we must be
-		 * careful; the table could be beneath an outer join, in which case it
-		 * must go to NULL whenever the rest of the row does.
-		 */
-		Oid			fetchval = 0;
+	char	   *colname = NULL;
+	CustomColumnInfo	*cinfo;
 
-		if (varattno == TableOidAttributeNumber)
-		{
-			fetchval = rte->relid;
-		}
+	/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
+	Assert(!IS_SPECIAL_VARNO(varno));
 
-		if (qualify_col)
-		{
-			appendStringInfoString(buf, "CASE WHEN (");
-			ADD_REL_QUALIFIER(buf, varno);
-			appendStringInfo(buf, "*) IS NOT NULL THEN %u END", fetchval);
-		}
-		else
-		{
-			appendStringInfo(buf, "%u", fetchval);
-		}
-	}
-	else if (varattno == 0)
-	{
-		/* Whole row reference */
-		Relation	rel;
-		Bitmapset  *attrs_used;
+	if (varattno <= 0)
+		elog(ERROR, "ClickHouse does not support system attributes");
 
-		/* Required only to be passed down to deparseTargetList(). */
-		List	   *retrieved_attrs;
+	/* Get FDW specific options for this column */
+	cinfo = GetCustomColumnInfo(rte->relid, varattno);
+	if (cinfo)
+		colname = cinfo->colname;
 
-		/*
-		 * The lock on the relation will be held by upper callers, so it's
-		 * fine to open it with no lock here.
-		 */
-		rel = heap_open(rte->relid, NoLock);
+	/*
+	 * If it's a column of a regular table or it doesn't have column_name
+	 * FDW option, use attribute name.
+	 */
+	if (colname == NULL)
+		colname = get_attname(rte->relid, varattno, false);
 
-		/*
-		 * The local name of the foreign table can not be recognized by the
-		 * foreign server and the table it references on foreign server might
-		 * have different column ordering or different columns than those
-		 * declared locally. Hence we have to deparse whole-row reference as
-		 * ROW(columns referenced locally). Construct this by deparsing a
-		 * "whole row" attribute.
-		 */
-		attrs_used = bms_add_member(NULL,
-		                            0 - FirstLowInvalidHeapAttributeNumber);
-
-		/*
-		 * In case the whole-row reference is under an outer join then it has
-		 * to go NULL whenever the rest of the row goes NULL. Deparsing a join
-		 * query would always involve multiple relations, thus qualify_col
-		 * would be true.
-		 */
-		if (qualify_col)
-		{
-			appendStringInfoString(buf, "CASE WHEN (");
-			ADD_REL_QUALIFIER(buf, varno);
-			appendStringInfoString(buf, "*) IS NOT NULL THEN ");
-		}
-
-		appendStringInfoString(buf, "ROW(");
-		deparseTargetList(buf, rte, varno, rel, false, attrs_used, qualify_col,
-		                  &retrieved_attrs);
-		appendStringInfoChar(buf, ')');
-
-		/* Complete the CASE WHEN statement started above. */
-		if (qualify_col)
-		{
-			appendStringInfoString(buf, " END");
-		}
-
-		heap_close(rel, NoLock);
-		bms_free(attrs_used);
-	}
-	else
-	{
-		char	   *colname = NULL;
-		List	   *options;
-		ListCell   *lc;
-
-		/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
-		Assert(!IS_SPECIAL_VARNO(varno));
-
-		/*
-		 * If it's a column of a foreign table, and it has the column_name FDW
-		 * option, use that value.
-		 */
-		options = GetForeignColumnOptions(rte->relid, varattno);
-		foreach (lc, options)
-		{
-			DefElem    *def = (DefElem *) lfirst(lc);
-
-			if (strcmp(def->defname, "column_name") == 0)
-			{
-				colname = defGetString(def);
-				break;
-			}
-		}
-
-		/*
-		 * If it's a column of a regular table or it doesn't have column_name
-		 * FDW option, use attribute name.
-		 */
-		if (colname == NULL)
-		{
-			colname = get_attname(rte->relid, varattno, false);
-		}
-
-		if (qualify_col)
-		{
-			ADD_REL_QUALIFIER(buf, varno);
-		}
-
-		appendStringInfoString(buf, quote_identifier(colname));
-	}
+	
+	if (qualify_col)
+		ADD_REL_QUALIFIER(buf, varno);
+	appendStringInfoString(buf, quote_identifier(colname));
 }
 
 /*
@@ -2019,8 +1717,8 @@ deparseRelation(StringInfo buf, Relation rel)
 /*
  * Append a SQL string literal representing "val" to buf.
  */
-void
-deparseStringLiteral(StringInfo buf, const char *val)
+static void
+deparseStringLiteral(StringInfo buf, const char *val, bool quote)
 {
 	const char *valptr;
 
@@ -2034,7 +1732,8 @@ deparseStringLiteral(StringInfo buf, const char *val)
 	{
 		appendStringInfoChar(buf, ESCAPE_STRING_SYNTAX);
 	}
-	appendStringInfoChar(buf, '\'');
+	if (quote)
+		appendStringInfoChar(buf, '\'');
 	for (valptr = val; *valptr; valptr++)
 	{
 		char		ch = *valptr;
@@ -2045,7 +1744,8 @@ deparseStringLiteral(StringInfo buf, const char *val)
 		}
 		appendStringInfoChar(buf, ch);
 	}
-	appendStringInfoChar(buf, '\'');
+	if (quote)
+		appendStringInfoChar(buf, '\'');
 }
 
 /*
@@ -2073,9 +1773,6 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 		break;
 	case T_Const:
 		deparseConst((Const *) node, context, 0);
-		break;
-	case T_Param:
-		deparseParam((Param *) node, context);
 		break;
 	case T_ArrayRef:
 		deparseArrayRef((ArrayRef *) node, context);
@@ -2113,6 +1810,12 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_CaseWhen:
 		deparseCaseWhen((CaseWhen *) node, context);
 		break;
+	case T_CoalesceExpr:
+		deparseCoalesceExpr((CoalesceExpr *) node, context);
+		break;
+	case T_MinMaxExpr:
+		deparseMinMaxExpr((MinMaxExpr *) node, context);
+		break;
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
 		     (int) nodeTag(node));
@@ -2131,6 +1834,7 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 static void
 deparseVar(Var *node, deparse_expr_cxt *context)
 {
+	CustomObjectDef	*cdef;
 	Relids		relids = context->scanrel->relids;
 	int			relno;
 	int			colno;
@@ -2151,41 +1855,179 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 		return;
 	}
 
+	cdef = context->func;
+	if (!cdef)
+		cdef = checkForCustomType(node->vartype);
+
 	if (bms_is_member(node->varno, relids) && node->varlevelsup == 0)
-		deparseColumnRef(context->buf, node->varno, node->varattno,
-		                 planner_rt_fetch(node->varno, context->root),
+		deparseColumnRef(context->buf, cdef,
+						 node->varno, node->varattno,
+						 planner_rt_fetch(node->varno, context->root),
 		                 qualify_col);
 	else
+		elog(ERROR, "clickhouse_fdw does not support params");
+}
+
+#define USE_ISO_DATES			1
+
+Datum
+ch_time_out(PG_FUNCTION_ARGS)
+{
+	TimeADT		time = PG_GETARG_TIMEADT(0);
+	char	   *result;
+	struct pg_tm tt,
+			   *tm = &tt;
+	fsec_t		fsec;
+	char		buf[MAXDATELEN + 1];
+
+	time2tm(time, tm, &fsec);
+	EncodeTimeOnly(tm, fsec, false, 0, USE_ISO_DATES, buf);
+
+	result = pstrdup(buf);
+	PG_RETURN_CSTRING(result);
+}
+
+/* date_out()
+ * Given internal format date, convert to text string.
+ */
+Datum
+ch_date_out(PG_FUNCTION_ARGS)
+{
+	DateADT		date = PG_GETARG_DATEADT(0);
+	char	   *result;
+	struct pg_tm tt,
+			   *tm = &tt;
+	char		buf[MAXDATELEN + 1];
+
+	if (DATE_NOT_FINITE(date))
+		EncodeSpecialDate(date, buf);
+	else
 	{
-		/* Treat like a Param */
-		if (context->params_list)
+		j2date(date + POSTGRES_EPOCH_JDATE,
+			   &(tm->tm_year), &(tm->tm_mon), &(tm->tm_mday));
+		EncodeDateOnly(tm, USE_ISO_DATES, buf);
+	}
+
+	result = pstrdup(buf);
+	PG_RETURN_CSTRING(result);
+}
+
+Datum
+ch_timestamp_out(PG_FUNCTION_ARGS)
+{
+	Timestamp	timestamp = PG_GETARG_TIMESTAMP(0);
+	char	   *result;
+	struct pg_tm tt,
+			   *tm = &tt;
+	fsec_t		fsec;
+	char		buf[MAXDATELEN + 1];
+
+	if (TIMESTAMP_NOT_FINITE(timestamp))
+		EncodeSpecialTimestamp(timestamp, buf);
+	else if (timestamp2tm(timestamp, NULL, tm, &fsec, NULL, NULL) == 0)
+		/* we ignore ftractional seconds */
+		EncodeDateTime(tm, 0, false, 0, NULL, USE_ISO_DATES, buf);
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	result = pstrdup(buf);
+	PG_RETURN_CSTRING(result);
+}
+
+static void
+deparseArray(Datum arr, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	AnyArrayType *array = DatumGetAnyArrayP(arr);
+	int			ndims = AARR_NDIM(array);
+	int		   *dims = AARR_DIMS(array);
+	Oid			element_type = AARR_ELEMTYPE(array);
+
+	int16		typlen;
+	bool		typbyval;
+	char		typalign;
+	char		typdelim;
+	Oid			typioparam;
+	Oid			typiofunc;
+	int			nitems;
+	array_iter	iter;
+	int			i;
+	bool		first;
+
+	if (ndims > 1)
+		elog(ERROR, "only one dimension of arrays supported by clickhouse_fdw");
+
+	get_type_io_data(element_type, IOFunc_output,
+					 &typlen, &typbyval,
+					 &typalign, &typdelim,
+					 &typioparam, &typiofunc);
+
+	/* Loop over source data */
+	nitems = ArrayGetNItems(ndims, dims);
+	array_iter_setup(&iter, array);
+	first = true;
+
+	appendStringInfoChar(buf, '[');
+	for (i = 0; i < nitems; i++)
+	{
+		Datum		elt;
+		bool		isnull;
+
+		if (!first)
+			appendStringInfoChar(buf, ',');
+		first = false;
+
+		/* Get element, checking for NULL */
+		elt = array_iter_next(&iter, &isnull, i, typlen, typbyval, typalign);
+
+		if (isnull)
 		{
-			int			pindex = 0;
-			ListCell   *lc;
-
-			/* find its index in params_list */
-			foreach (lc, *context->params_list)
-			{
-				pindex++;
-				if (equal(node, (Node *) lfirst(lc)))
-				{
-					break;
-				}
-			}
-			if (lc == NULL)
-			{
-				/* not in list, so add it */
-				pindex++;
-				*context->params_list = lappend(*context->params_list, node);
-			}
-
-			printRemoteParam(pindex, node->vartype, node->vartypmod, context);
+			appendStringInfoString(buf, "NULL");
 		}
 		else
 		{
-			printRemotePlaceholder(node->vartype, node->vartypmod, context);
+			char *extval = OidOutputFunctionCall(typiofunc, elt);
+			switch (element_type)
+			{
+			case INT2OID:
+			case INT4OID:
+			case INT8OID:
+			case OIDOID:
+			case FLOAT4OID:
+			case FLOAT8OID:
+			case NUMERICOID:
+			{
+				/*
+				 * No need to quote unless it's a special value such as 'NaN'.
+				 * See comments in get_const_expr().
+				 */
+				if (strspn(extval, "0123456789+-eE.") == strlen(extval))
+				{
+					if (extval[0] == '+' || extval[0] == '-')
+						appendStringInfo(buf, "(%s)", extval);
+					else
+						appendStringInfoString(buf, extval);
+				}
+				else
+					appendStringInfo(buf, "'%s'", extval);
+			}
+			break;
+			case BOOLOID:
+				if (strcmp(extval, "t") == 0)
+					appendStringInfoString(buf, "true");
+				else
+					appendStringInfoString(buf, "false");
+				break;
+			default:
+				deparseStringLiteral(buf, extval, true);
+				break;
+			}
+			pfree(extval);
 		}
 	}
+	appendStringInfoChar(buf, ']');
 }
 
 /*
@@ -2212,7 +2054,41 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 
 	getTypeOutputInfo(node->consttype,
 	                  &typoutput, &typIsVarlena);
-	extval = OidOutputFunctionCall(typoutput, node->constvalue);
+
+	if (typoutput == F_TIMESTAMPTZ_OUT || typoutput == F_TIMESTAMP_OUT)
+	{
+		/*
+		 * We use our own function here, that removes fractional seconds since
+		 * there are not supported in clickhouse
+		 * */
+		extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, node->constvalue));
+	}
+	else if (typoutput == F_INTERVAL_OUT)
+	{
+		/* basicly we can't convert month part since we should know about
+		 * related timestamp first.
+		 *
+		 * for other types we just convert to seconds.
+		 * */
+		uint64		sec;
+		Interval   *ival = DatumGetIntervalP(node->constvalue);
+		char		bufint8[MAXINT8LEN + 1];
+
+		if (ival->month != 0)
+			elog(ERROR, "we can't convert interval with months into clickhouse");
+
+		sec = 86400 /* sec in day */ * ival->day + (int64) (ival->time / 1000000);
+		pg_lltoa(sec, bufint8);
+		appendStringInfoString(buf, bufint8);
+		return;
+	}
+	else if (typoutput == F_ARRAY_OUT)
+	{
+		deparseArray(node->constvalue, context);
+		return;
+	}
+	else
+		extval = OidOutputFunctionCall(typoutput, node->constvalue);
 
 	switch (node->consttype)
 	{
@@ -2231,18 +2107,12 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		if (strspn(extval, "0123456789+-eE.") == strlen(extval))
 		{
 			if (extval[0] == '+' || extval[0] == '-')
-			{
 				appendStringInfo(buf, "(%s)", extval);
-			}
 			else
-			{
 				appendStringInfoString(buf, extval);
-			}
 		}
 		else
-		{
 			appendStringInfo(buf, "'%s'", extval);
-		}
 	}
 	break;
 	case BITOID:
@@ -2251,59 +2121,17 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		break;
 	case BOOLOID:
 		if (strcmp(extval, "t") == 0)
-		{
-			appendStringInfoString(buf, "true");
-		}
+			appendStringInfoString(buf, "1");
 		else
-		{
-			appendStringInfoString(buf, "false");
-		}
+			appendStringInfoString(buf, "0");
 		break;
 	default:
-		deparseStringLiteral(buf, extval);
+		deparseStringLiteral(buf, extval, true);
 		break;
 	}
+
+cleanup:
 	pfree(extval);
-}
-
-/*
- * Deparse given Param node.
- *
- * If we're generating the query "for real", add the Param to
- * context->params_list if it's not already present, and then use its index
- * in that list as the remote parameter number.  During EXPLAIN, there's
- * no need to identify a parameter number.
- */
-static void
-deparseParam(Param *node, deparse_expr_cxt *context)
-{
-	if (context->params_list)
-	{
-		int			pindex = 0;
-		ListCell   *lc;
-
-		/* find its index in params_list */
-		foreach (lc, *context->params_list)
-		{
-			pindex++;
-			if (equal(node, (Node *) lfirst(lc)))
-			{
-				break;
-			}
-		}
-		if (lc == NULL)
-		{
-			/* not in list, so add it */
-			pindex++;
-			*context->params_list = lappend(*context->params_list, node);
-		}
-
-		printRemoteParam(pindex, node->paramtype, node->paramtypmod, context);
-	}
-	else
-	{
-		printRemotePlaceholder(node->paramtype, node->paramtypmod, context);
-	}
 }
 
 /*
@@ -2361,9 +2189,12 @@ static void
 deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
-	bool		use_variadic;
 	bool		first;
 	ListCell   *arg;
+	CustomObjectDef	*cdef,
+					*old_cdef;
+	CustomObjectDef	 funcdef;
+	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 
 	/*
 	 * If the function call came from an implicit coercion, then just show the
@@ -2381,22 +2212,46 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	 */
 	if (node->funcformat == COERCE_EXPLICIT_CAST)
 	{
+		Oid			rettype = node->funcresulttype;
 		int32		coercedTypmod;
 
 		/* Get the typmod if this is a length-coercion function */
 		(void) exprIsLengthCoercion((Node *) node, &coercedTypmod);
 
+		appendStringInfoString(buf, "cast(");
 		deparseExpr((Expr *) linitial(node->args), context);
+		appendStringInfo(buf, ", '%s')",
+						 deparse_type_name(rettype, coercedTypmod));
 		return;
 	}
-
-	/* Check if need to print VARIADIC (cf. ruleutils.c) */
-	use_variadic = node->funcvariadic;
 
 	/*
 	 * Normal function: display as proname(args).
 	 */
-	appendFunctionName(node->funcid, context);
+	cdef = appendFunctionName(node->funcid, context);
+	if (cdef && cdef->cf_type == CF_DATE_TRUNC)
+	{
+		Const *arg = (Const *) linitial(node->args);
+		char *trunctype = TextDatumGetCString(arg->constvalue);
+		if (strcmp(trunctype, "week") == 0)
+			appendStringInfoString(buf, "toMonday");
+		else if (strcmp(trunctype, "hour") == 0)
+			appendStringInfoString(buf, "toStartOfHour");
+		else if (strcmp(trunctype, "day") == 0)
+			appendStringInfoString(buf, "toStartOfDay");
+		else if (strcmp(trunctype, "month") == 0)
+			appendStringInfoString(buf, "toStartOfMonth");
+		else if (strcmp(trunctype, "year") == 0)
+			appendStringInfoString(buf, "toStartOfYear");
+		else
+			elog(ERROR, "date_trunc cannot be exported for: %s", trunctype);
+
+		pfree(trunctype);
+		appendStringInfoChar(buf, '(');
+		deparseExpr(list_nth(node->args, 1), context);
+		appendStringInfoChar(buf, ')');
+		return;
+	}
 	appendStringInfoChar(buf, '(');
 
 	/* ... and all the arguments */
@@ -2404,17 +2259,113 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	foreach (arg, node->args)
 	{
 		if (!first)
-		{
 			appendStringInfoString(buf, ", ");
-		}
-		if (use_variadic && lnext(arg) == NULL)
-		{
-			appendStringInfoString(buf, "VARIADIC ");
-		}
+
 		deparseExpr((Expr *) lfirst(arg), context);
 		first = false;
 	}
+
+end:
 	appendStringInfoChar(buf, ')');
+}
+
+static void
+deparseIntervalOp(Node *first, Node *second, deparse_expr_cxt *context, bool plus)
+{
+	StringInfo	buf = context->buf;
+	Const	   *constval;
+	Interval   *span;
+	char		ibuf[MAXINT8LEN + 1];
+
+	if (!IsA(second, Const))
+		elog(ERROR, "only operations with const interval are exported to clickhouse");
+
+	constval = (Const *) second;
+	span = DatumGetIntervalP(constval->constvalue);
+
+	/* top function is always addSeconds */
+	appendStringInfoString(buf, "addSeconds(");
+
+	if (span->day)
+		appendStringInfoString(buf, "addDays(");
+
+	if (span->month)
+		appendStringInfoString(buf, "addMonths(");
+
+	/* first argument here */
+	deparseExpr((Expr *) first, context);
+
+	if (span->month)
+	{
+		/* addMonths arg */
+		appendStringInfoChar(buf, ',');
+		snprintf(ibuf, sizeof(ibuf), "%d", span->month);
+		if (!plus)
+		{
+			appendStringInfoString(buf, "-(");
+			appendStringInfoString(buf, ibuf);
+			appendStringInfoChar(buf, ')');
+		}
+		else
+			appendStringInfoString(buf, ibuf);
+		appendStringInfoChar(buf, ')');
+	}
+
+	if (span->day)
+	{
+		/* addDays arg */
+		appendStringInfoChar(buf, ',');
+		snprintf(ibuf, sizeof(ibuf), "%d", span->day);
+		if (!plus)
+		{
+			appendStringInfoString(buf, "-(");
+			appendStringInfoString(buf, ibuf);
+			appendStringInfoChar(buf, ')');
+		}
+		else
+			appendStringInfoString(buf, ibuf);
+		appendStringInfoChar(buf, ')');
+	}
+
+	/* addSeconds arg */
+	appendStringInfoChar(buf, ',');
+	pg_lltoa((int64)(span->time / 1000000), ibuf);
+	if (!plus)
+	{
+		appendStringInfoString(buf, "-(");
+		appendStringInfoString(buf, ibuf);
+		appendStringInfoChar(buf, ')');
+	}
+	else
+		appendStringInfoString(buf, ibuf);
+	appendStringInfoChar(buf, ')');
+}
+
+static Oid
+findIStoreFunction(Oid isoid, char *name)
+{
+	int			i;
+	Oid			result = InvalidOid;
+	HeapTuple	proctup;
+	Form_pg_proc procform;
+	CatCList   *catlist;
+	catlist = SearchSysCacheList1(PROCNAMEARGSNSP,
+			CStringGetDatum(name));
+
+	if (catlist->n_members == 0)
+		elog(ERROR, "clickhouse_fdw requires istore extension to parse istore values");
+
+	for (i = 0; i < catlist->n_members; i++)
+	{
+		proctup = &catlist->members[i]->tuple;
+		procform = (Form_pg_proc) GETSTRUCT(proctup);
+		if (procform->proargtypes.values[0] == isoid)
+			result = HeapTupleGetOid(proctup);
+	}
+
+	ReleaseSysCacheList(catlist);
+
+	return result;
 }
 
 /*
@@ -2429,13 +2380,13 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	Form_pg_operator form;
 	char		oprkind;
 	ListCell   *arg;
+	CustomObjectDef	*cdef;
 
 	/* Retrieve information about the operator from system catalog. */
 	tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(node->opno));
 	if (!HeapTupleIsValid(tuple))
-	{
 		elog(ERROR, "cache lookup failed for operator %u", node->opno);
-	}
+
 	form = (Form_pg_operator) GETSTRUCT(tuple);
 	oprkind = form->oprkind;
 
@@ -2443,6 +2394,34 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	Assert((oprkind == 'r' && list_length(node->args) == 1) ||
 	       (oprkind == 'l' && list_length(node->args) == 1) ||
 	       (oprkind == 'b' && list_length(node->args) == 2));
+
+	cdef = checkForCustomOperator(node->opno, form);
+	if (cdef)
+	{
+		switch (cdef->cf_type)
+		{
+			case CF_TIMESTAMPTZ_PL_INTERVAL:
+			{
+				deparseIntervalOp(linitial(node->args),
+					list_nth(node->args, 1), context, true);
+				goto cleanup;
+			}
+			break;
+			case CF_HSTORE_OPERATOR:
+			break;
+			default:
+				elog(ERROR, "unsupported operator type");
+		}
+	}
+
+	if ((node->opresulttype == INT2OID ||
+		 node->opresulttype == INT4OID ||
+		 node->opresulttype == INT8OID) &&
+			strcmp(NameStr(form->oprname), "/") == 0)
+	{
+		char *s = ch_format_type_extended(node->opresulttype, 0, 0);
+		appendStringInfo(buf, "to%s", s);
+	}
 
 	/* Always parenthesize the expression. */
 	appendStringInfoChar(buf, '(');
@@ -2456,7 +2435,10 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	}
 
 	/* Deparse operator name. */
-	deparseOperatorName(buf, form);
+	if (cdef)
+		appendStringInfoString(buf, NameStr(form->oprname));
+	else
+		deparseOperatorName(buf, form);
 
 	/* Deparse right operand. */
 	if (oprkind == 'l' || oprkind == 'b')
@@ -2468,6 +2450,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 
 	appendStringInfoChar(buf, ')');
 
+cleanup:
 	ReleaseSysCache(tuple);
 }
 
@@ -2543,24 +2526,22 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	tuple;
-	Form_pg_operator form;
 	Expr	   *arg1;
 	Expr	   *arg2;
 
 	/* Retrieve information about the operator from system catalog. */
-	tuple = SearchSysCache1(OPEROID, ObjectIdGetDatum(node->opno));
-	if (!HeapTupleIsValid(tuple))
-	{
-		elog(ERROR, "cache lookup failed for operator %u", node->opno);
-	}
-	form = (Form_pg_operator) GETSTRUCT(tuple);
+	int			optype = is_equal_op(node->opno);
 
 	/* Sanity check. */
 	Assert(list_length(node->args) == 2);
 
+	appendStringInfoChar(buf, '(');
 	if (node->useOr)
 	{
-		appendStringInfoString(buf, " has (");
+		if (optype == 1)
+			appendStringInfoString(buf, "has(");
+		else
+			appendStringInfoString(buf, "not has(");
 
 		/* Deparse right operand. */
 		arg2 = lsecond(node->args);
@@ -2576,7 +2557,7 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 	}
 	else
 	{
-		appendStringInfoString(buf, " countEqual (");
+		appendStringInfoString(buf, "countEqual(");
 
 		/* Deparse right operand. */
 		arg2 = lsecond(node->args);
@@ -2588,14 +2569,18 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 		deparseExpr(arg1, context);
 
 		/* Close function call */
-		appendStringInfoString(buf, ") = length(");
+		if (optype == 1)
+		{
+			appendStringInfoString(buf, ") = length(");
 
-		/* Deparse right operand again */
-		deparseExpr(arg2, context);
-		appendStringInfoChar(buf, ')');
+			/* Deparse right operand again */
+			deparseExpr(arg2, context);
+			appendStringInfoChar(buf, ')');
+		} else {
+			appendStringInfoString(buf, ") = 0");
+		}
 	}
-
-	ReleaseSysCache(tuple);
+	appendStringInfoChar(buf, ')');
 }
 
 /*
@@ -2721,18 +2706,28 @@ static void
 deparseAggref(Aggref *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
-	bool		use_variadic;
+	CustomObjectDef	*cdef;
+	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
+	bool	aggfilter = false;
+	bool	sign_count_filter = false;
 
 	/* Only basic, non-split aggregation accepted. */
 	Assert(node->aggsplit == AGGSPLIT_SIMPLE);
 
-	/* Check if need to print VARIADIC (cf. ruleutils.c) */
-	use_variadic = node->aggvariadic;
-
 	/* Find aggregate name from aggfnoid which is a pg_proc entry */
-	appendFunctionName(node->aggfnoid, context);
-	if (node->aggfilter)
+	cdef = context->func;
+	context->func = appendFunctionName(node->aggfnoid, context);
+
+	/* 'If' part */
+	if (context->func && context->func->cf_type == CF_SIGN_COUNT && !node->aggstar)
+		sign_count_filter = true;
+
+	if (node->aggfilter || sign_count_filter)
+	{
+		aggfilter = true;
 		appendStringInfoString(buf, "If");
+	}
+
 	appendStringInfoChar(buf, '(');
 
 	/* Add DISTINCT */
@@ -2741,39 +2736,93 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	/* aggstar can be set only in zero-argument aggregates */
 	if (node->aggstar)
 	{
-		appendStringInfoChar(buf, '*');
+		if (context->func && context->func->cf_type == CF_SIGN_COUNT)
+		{
+			Assert(fpinfo && fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE);
+			appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+		}
+		else
+			appendStringInfoChar(buf, '*');
 	}
 	else
 	{
 		ListCell   *arg;
 		bool		first = true;
+		bool		signMultiply = (context->func &&
+						(context->func->cf_type == CF_SIGN_AVG ||
+						 context->func->cf_type == CF_SIGN_SUM));
 
 		/* Add all the arguments */
-		foreach (arg, node->args)
+		if (sign_count_filter)
+			/* in case if COUNT(col) we should get countIf(sign, col is not null) */
+			appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+		else
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(arg);
-			Node	   *n = (Node *) tle->expr;
+			/* default columns output */
+			foreach (arg, node->args)
+			{
+				TargetEntry *tle = (TargetEntry *) lfirst(arg);
+				Node	   *n = (Node *) tle->expr;
 
-			if (tle->resjunk)
-				continue;
+				if (tle->resjunk)
+					continue;
 
-			if (!first)
-				appendStringInfoString(buf, ", ");
+				if (!first)
+					appendStringInfoString(buf, ", ");
 
-			first = false;
+				first = false;
 
-			deparseExpr((Expr *) n, context);
+				deparseExpr((Expr *) n, context);
+			}
+
+			if (signMultiply)
+			{
+				Assert(fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE);
+				appendStringInfoString(buf, " * ");
+				appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+			}
 		}
 	}
 
-	/* Add FILTER (WHERE ..) */
-	if (node->aggfilter != NULL)
+	/* Add 'If' part condition */
+	if (aggfilter)
 	{
 		appendStringInfoChar(buf, ',');
-		deparseExpr((Expr *) node->aggfilter, context);
+
+		if (node->aggfilter)
+			deparseExpr((Expr *) node->aggfilter, context);
+
+		if (sign_count_filter)
+		{
+			if (node->aggfilter)
+				appendStringInfoString(buf, " AND ");
+
+			appendStringInfoChar(buf, '(');
+			deparseExpr((Expr *) ((TargetEntry *) linitial(node->args))->expr, context);
+			appendStringInfoString(buf, ") IS NOT NULL");
+		}
 	}
 
 	appendStringInfoChar(buf, ')');
+
+	/* AVG stuff */
+	if (context->func && context->func->cf_type == CF_SIGN_AVG)
+	{
+		appendStringInfoString(buf, " / sumIf(");
+		appendStringInfoString(buf, fpinfo->ch_table_sign_field);
+		appendStringInfoChar(buf, ',');
+		if (node->aggfilter)
+		{
+			deparseExpr((Expr *) node->aggfilter, context);
+			appendStringInfoString(buf, " AND ");
+		}
+		deparseExpr((Expr *) ((TargetEntry *) linitial(node->args))->expr, context);
+		appendStringInfoString(buf, " IS NOT NULL");
+		appendStringInfoChar(buf, ')');
+	}
+
+	/* original */
+	context->func = cdef;
 }
 
 static void
@@ -2781,6 +2830,15 @@ deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *lc;
+	char	   *conv = NULL;
+
+	if (node->casetype == INT2OID ||
+		node->casetype == INT4OID ||
+		node->casetype == INT8OID)
+	{
+		conv = ch_format_type_extended(node->casetype, 0, 0);
+		conv = psprintf("to%s(", conv);
+	}
 
 	appendStringInfoString(buf, "CASE");
 	if (node->arg)
@@ -2788,15 +2846,34 @@ deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 		appendStringInfoChar(buf, ' ');
 		deparseExpr(lfirst(lc), context);
 	}
+
 	foreach(lc, node->args)
 	{
-		deparseExpr(lfirst(lc), context);
+		CaseWhen	*arg = lfirst(lc);
+
+		Assert(IsA(arg, CaseWhen));
+		appendStringInfoString(buf, " WHEN ");
+		deparseExpr(arg->expr, context);
+		appendStringInfoString(buf, " THEN ");
+		if (conv)
+			appendStringInfoString(buf, conv);
+		deparseExpr(arg->result, context);
+		if (conv)
+			appendStringInfoChar(buf, ')');
 	}
+
 	if (node->defresult)
 	{
 		appendStringInfoString(buf, " ELSE ");
+		if (conv)
+			appendStringInfoString(buf, conv);
 		deparseExpr(node->defresult, context);
+		if (conv)
+			appendStringInfoChar(buf, ')');
 	}
+
+	if (conv)
+		pfree(conv);
 	appendStringInfoString(buf, " END");
 }
 
@@ -2805,11 +2882,54 @@ deparseCaseWhen(CaseWhen *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *lc;
+}
 
-	appendStringInfoString(buf, " WHEN ");
-	deparseExpr(node->expr, context);
-	appendStringInfoString(buf, " THEN ");
-	deparseExpr(node->result, context);
+static void
+deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+	bool		first;
+
+	appendStringInfoString(buf, "COALESCE(");
+
+	first = true;
+	foreach (lc, node->args)
+	{
+		if (!first)
+			appendStringInfoString(buf, ", ");
+
+		first = false;
+
+		deparseExpr(lfirst(lc), context);
+	}
+	appendStringInfoChar(buf, ')');
+}
+
+static void
+deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+	bool		first;
+
+	if (node->op == IS_GREATEST)
+		appendStringInfoString(buf, "greatest");
+	else
+		appendStringInfoString(buf, "least");
+
+	appendStringInfoChar(buf, '(');
+	first = true;
+	foreach (lc, node->args)
+	{
+		if (!first)
+			appendStringInfoString(buf, ", ");
+
+		first = false;
+
+		deparseExpr(lfirst(lc), context);
+	}
+	appendStringInfoChar(buf, ')');
 }
 
 /*
@@ -2850,44 +2970,6 @@ appendAggOrderBy(List *orderList, List *targetList, deparse_expr_cxt *context)
 			appendStringInfoString(buf, " DESC");
 		}
 	}
-}
-
-/*
- * Print the representation of a parameter to be sent to the remote side.
- *
- * Note: we always label the Param's type explicitly rather than relying on
- * transmitting a numeric type OID in PQexecParams().  This allows us to
- * avoid assuming that types have the same OIDs on the remote side as they
- * do locally --- they need only have the same names.
- */
-static void
-printRemoteParam(int paramindex, Oid paramtype, int32 paramtypmod,
-                 deparse_expr_cxt *context)
-{
-	StringInfo	buf = context->buf;
-	appendStringInfo(buf, "?");
-}
-
-/*
- * Print the representation of a placeholder for a parameter that will be
- * sent to the remote side at execution time.
- *
- * This is used when we're just trying to EXPLAIN the remote query.
- * We don't have the actual value of the runtime parameter yet, and we don't
- * want the remote planner to generate a plan that depends on such a value
- * anyway.  Thus, we can't do something simple like "$1::paramtype".
- * Instead, we emit "((SELECT null::paramtype)::paramtype)".
- * In all extant versions of Postgres, the planner will see that as an unknown
- * constant value, which is what we want.  This might need adjustment if we
- * ever make the planner flatten scalar subqueries.  Note: the reason for the
- * apparently useless outer cast is to ensure that the representation as a
- * whole will be parsed as an a_expr and not a select_with_parens; the latter
- * would do the wrong thing in the context "x = ANY(...)".
- */
-static void
-printRemotePlaceholder(Oid paramtype, int32 paramtypmod,
-                       deparse_expr_cxt *context)
-{
 }
 
 /*
@@ -2958,13 +3040,9 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 		appendStringInfoString(buf, delim);
 		deparseExpr(em_expr, context);
 		if (pathkey->pk_strategy == BTLessStrategyNumber)
-		{
 			appendStringInfoString(buf, " ASC");
-		}
 		else
-		{
 			appendStringInfoString(buf, " DESC");
-		}
 
 		delim = ", ";
 	}
@@ -2974,36 +3052,65 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 /*
  * appendFunctionName
  *		Deparses function name from given function oid.
+ *		Returns was custom or not.
  */
-static void
+static CustomObjectDef *
 appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	HeapTuple	proctup;
 	Form_pg_proc procform;
 	const char *proname;
+	CustomObjectDef	*cdef;
+	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
+
+	cdef = checkForCustomFunction(funcid);
+	if (cdef && cdef->custom_name[0] != '\0')
+	{
+		if (cdef->custom_name[0] != '\1')
+			appendStringInfoString(buf, cdef->custom_name);
+		return cdef;
+	}
 
 	proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
 	if (!HeapTupleIsValid(proctup))
-	{
 		elog(ERROR, "cache lookup failed for function %u", funcid);
-	}
+
 	procform = (Form_pg_proc) GETSTRUCT(proctup);
+	proname = NameStr(procform->proname);
 
-	/* Print schema name only if it's not pg_catalog */
-	if (procform->pronamespace != PG_CATALOG_NAMESPACE)
+	/* we have some additional conditions on aggregation functions */
+	if (is_builtin(funcid) && procform->prokind == PROKIND_AGGREGATE
+			&& fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE)
 	{
-		const char *schemaname;
+		cdef = palloc(sizeof(CustomObjectDef));
+		cdef->cf_oid = funcid;
 
-		schemaname = get_namespace_name(procform->pronamespace);
-		appendStringInfo(buf, "%s.", quote_identifier(schemaname));
+		if (strcmp(proname, "sum") == 0)
+			cdef->cf_type = CF_SIGN_SUM;
+		else if (strcmp(proname, "avg") == 0)
+		{
+			cdef->cf_type = CF_SIGN_AVG;;
+			proname = "sum";
+		}
+		else if (strcmp(proname, "count") == 0)
+		{
+			cdef->cf_type = CF_SIGN_COUNT;
+			proname = "sum";
+		}
+		else
+		{
+			pfree(cdef);
+			cdef = NULL;
+		}
 	}
 
 	/* Always print the function name */
-	proname = NameStr(procform->proname);
-	appendStringInfoString(buf, quote_identifier(proname));
+	appendStringInfoString(buf, proname);
 
 	ReleaseSysCache(proctup);
+
+	return cdef;
 }
 
 /*

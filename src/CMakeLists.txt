@@ -13,8 +13,13 @@ set (src
 )
 
 add_library(clickhouse_fdw MODULE ${src})
+
+separate_arguments(PGSQL_LDFLAGS UNIX_COMMAND "${PGSQL_LDFLAGS}")
 target_link_libraries(clickhouse_fdw PRIVATE clickhouse ${PGSQL_LDFLAGS})
+
+separate_arguments(PGSQL_CPPFLAGS UNIX_COMMAND "${PGSQL_CPPFLAGS}")
 target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS} -fstack-protector -fstack-check)
+
 add_dependencies(clickhouse_fdw clickhouse)
 
 if (APPLE)

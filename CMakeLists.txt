@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-project(clickhouse_fdw VERSION 1.0.0 LANGUAGES CXX)
+project(clickhouse_fdw VERSION 1.0.0 LANGUAGES C)
 
 set (CMAKE_COLOR_MAKEFILE ON)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})

@@ -131,6 +131,7 @@ InitChFdwOptions(void)
 	static const ChFdwOption non_ch_options[] =
 	{
 		{"table_name", ForeignTableRelationId, false},
+		{"engine", ForeignTableRelationId, false},
 		{"driver", ForeignServerRelationId, false},
 		{NULL, InvalidOid, false}
 	};
@@ -252,37 +253,23 @@ ExtractConnectionOptions(List *defelems, char **driver,  char **host, int *port,
 
 	foreach (lc, defelems)
 	{
-		DefElem    *d = (DefElem *) lfirst(lc);
-
 		DefElem *def = (DefElem *) lfirst(lc);
 
 		if (strcmp(def->defname, "driver") == 0)
-		{
 			*driver = defGetString(def);
-		}
 
-		if (is_ch_option(d->defname))
+		if (is_ch_option(def->defname))
 		{
 			if (strcmp(def->defname, "host") == 0)
-			{
 				*host = defGetString(def);
-			}
 			else if (strcmp(def->defname, "port") == 0)
-			{
 				*port = atoi(defGetString(def));
-			}
 			else if (strcmp(def->defname, "user") == 0)
-			{
 				*username = defGetString(def);
-			}
 			else if (strcmp(def->defname, "password") == 0)
-			{
 				*password = defGetString(def);
-			}
 			else if (strcmp(def->defname, "dbname") == 0)
-			{
 				*dbname = defGetString(def);
-			}
 		}
 	}
 }
@@ -302,13 +289,11 @@ ExtractExtensionList(const char *extensionsString, bool warnOnMissing)
 
 	/* SplitIdentifierString scribbles on its input, so pstrdup first */
 	if (!SplitIdentifierString(pstrdup(extensionsString), ',', &extlist))
-	{
 		/* syntax error in name list */
 		ereport(ERROR,
 		        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 		         errmsg("parameter \"%s\" must be a list of extension names",
 		                "extensions")));
-	}
 
 	foreach (lc, extlist)
 	{
@@ -316,16 +301,12 @@ ExtractExtensionList(const char *extensionsString, bool warnOnMissing)
 		Oid			extension_oid = get_extension_oid(extension_name, true);
 
 		if (OidIsValid(extension_oid))
-		{
 			extensionOids = lappend_oid(extensionOids, extension_oid);
-		}
 		else if (warnOnMissing)
-		{
 			ereport(WARNING,
 			        (errcode(ERRCODE_UNDEFINED_OBJECT),
 			         errmsg("extension \"%s\" is not installed",
 			                extension_name)));
-		}
 	}
 
 	list_free(extlist);

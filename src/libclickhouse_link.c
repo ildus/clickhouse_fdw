@@ -5,7 +5,8 @@
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
 
-static bool initialized = false;
+static uint32	global_query_id = 0;
+static bool		initialized = false;
 
 static ch_connection http_connect(char *connstring);
 static void http_disconnect(ch_connection conn);
@@ -43,7 +44,7 @@ http_connect(char *connstring)
 	if (!initialized)
 	{
 		initialized = true;
-		ch_http_init(1, (uint32_t) MyProcPid);
+		ch_http_init(0, (uint32_t) MyProcPid);
 	}
 
 	if (conn == NULL)
@@ -94,7 +95,8 @@ kill_query(ch_connection conn, const char *query_id)
 	char *query = psprintf("kill query where query_id='%s'", query_id);
 
 	ch_http_set_progress_func(NULL);
-	resp = ch_http_simple_query(conn, query);
+	global_query_id++;
+	resp = ch_http_simple_query(conn, query, global_query_id);
 	if (resp != NULL)
 		ch_http_response_free(resp);
 	pfree(query);
@@ -106,7 +108,9 @@ http_simple_query(ch_connection conn, const char *query)
 	ch_cursor	*cursor;
 
 	ch_http_set_progress_func(http_progress_callback);
-	ch_http_response_t *resp = ch_http_simple_query(conn, query);
+
+	global_query_id++;
+	ch_http_response_t *resp = ch_http_simple_query(conn, query, global_query_id);
 	if (resp == NULL)
 	{
 		char *error = ch_http_last_error();
@@ -150,7 +154,9 @@ static void
 http_simple_insert(ch_connection conn, const char *query)
 {
 	ch_cursor	*cursor;
-	ch_http_response_t *resp = ch_http_simple_query(conn, query);
+
+	global_query_id++;
+	ch_http_response_t *resp = ch_http_simple_query(conn, query, global_query_id);
 	if (resp == NULL)
 	{
 		char *error = ch_http_last_error();
@@ -209,7 +215,7 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 			values[i] = NULL;
 	}
 
-	if (rc != CH_EOL && rc != CH_EOF)
+	if (attcount > 0 && rc != CH_EOL && rc != CH_EOF)
 	{
 		char *resval = pnstrdup(state->data, state->maxpos + 1);
 

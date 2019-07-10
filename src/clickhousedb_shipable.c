@@ -17,6 +17,9 @@
 
 #include "access/transam.h"
 #include "catalog/dependency.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_type.h"
+#include "catalog/pg_operator.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 #include "utils/syscache.h"
@@ -156,22 +159,32 @@ is_builtin(Oid objectId)
  *	   Is this object (function/operator/type) shippable to foreign server?
  */
 bool
-is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
+is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
+		CustomObjectDef **outcdef)
 {
 	ShippableCacheKey key;
 	ShippableCacheEntry *entry;
 
 	/* Built-in objects are presumed shippable. */
 	if (is_builtin(objectId))
-	{
 		return true;
+
+	if (classId == ProcedureRelationId)
+	{
+		CustomObjectDef *cdef = checkForCustomFunction(objectId);
+		if (outcdef != NULL)
+			*outcdef = cdef;
+
+		return (cdef && cdef->cf_type != CF_UNSHIPPABLE);
 	}
+	else if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
+		return true;
+	else if (classId == OperatorRelationId && checkForCustomOperator(objectId, NULL) != NULL)
+		return true;
 
 	/* Otherwise, give up if user hasn't specified any shippable extensions. */
 	if (fpinfo->shippable_extensions == NIL)
-	{
 		return false;
-	}
 
 	/* Initialize cache if first time through. */
 	if (!ShippableCacheHash)
