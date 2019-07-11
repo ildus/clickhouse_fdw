@@ -105,25 +105,32 @@ kill_query(ch_connection conn, const char *query_id)
 static ch_cursor *
 http_simple_query(ch_connection conn, const char *query)
 {
+	int			attempts = 0;
 	ch_cursor	*cursor;
 
 	ch_http_set_progress_func(http_progress_callback);
 
+again:
 	global_query_id++;
 	ch_http_response_t *resp = ch_http_simple_query(conn, query, global_query_id);
+
 	if (resp == NULL)
 		elog(ERROR, "out of memory");
 
+	attempts++;
 	if (resp->http_status == 419)
 	{
 		char *error = pnstrdup(resp->data, resp->datasize);
 		ch_http_response_free(resp);
 
+		if (attempts < 3)
+			goto again;
+
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
 		         errmsg("clickhouse communication error: %s", error)));
 	}
-	if (resp->http_status == 418)
+	else if (resp->http_status == 418)
 	{
 		kill_query(conn, resp->query_id);
 		ch_http_response_free(resp);
