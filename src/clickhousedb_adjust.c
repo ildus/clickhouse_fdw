@@ -278,6 +278,8 @@ CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
 					entry->cf_type = CF_AJBOOL_OPERATOR;
 				else if (strcmp(extname, "country") == 0)
 					entry->cf_type = CF_COUNTRY_OPERATOR;
+				else if (strcmp(extname, "os_name") == 0)
+					entry->cf_type = CF_OSNAME_OPERATOR;
 
 				pfree(extname);
 			}

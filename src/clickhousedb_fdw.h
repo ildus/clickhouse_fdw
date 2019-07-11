@@ -242,6 +242,7 @@ typedef enum {
 	CF_TIMESTAMPTZ_PL_INTERVAL,	/* timestamptz + interval */
 	CF_COUNTRY_TYPE,
 	CF_COUNTRY_OPERATOR,
+	CF_OSNAME_OPERATOR,		/* adjust os_name extension */
 	CF_AJTIME_PL_INTERVAL,
 	CF_AJTIME_MI_INTERVAL,
 	CF_AJTIME_TYPE,		/* ajtime type */

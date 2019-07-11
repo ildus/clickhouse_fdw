@@ -2748,6 +2748,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 			break;
 			case CF_AJBOOL_OPERATOR:
 			case CF_COUNTRY_OPERATOR:
+			case CF_OSNAME_OPERATOR:
 			break;
 			default:
 				elog(ERROR, "unsupported operator type");
