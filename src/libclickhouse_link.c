@@ -112,16 +112,17 @@ http_simple_query(ch_connection conn, const char *query)
 	global_query_id++;
 	ch_http_response_t *resp = ch_http_simple_query(conn, query, global_query_id);
 	if (resp == NULL)
+		elog(ERROR, "out of memory");
+
+	if (resp->http_status == 419)
 	{
-		char *error = ch_http_last_error();
-		if (error == NULL)
-			error = "undefined";
+		char *error = pnstrdup(resp->data, resp->datasize);
+		ch_http_response_free(resp);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
 		         errmsg("clickhouse communication error: %s", error)));
 	}
-
 	if (resp->http_status == 418)
 	{
 		kill_query(conn, resp->query_id);

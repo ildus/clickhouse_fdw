@@ -99,6 +99,7 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 {
 	char		*url;
 	CURLcode	errcode;
+	static char errbuffer[CURL_ERROR_SIZE];
 
 	ch_http_response_t	*resp = calloc(sizeof(ch_http_response_t), 1);
 	if (resp == NULL)
@@ -112,8 +113,9 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	curl_easy_reset(conn->curl);
 
 	/* constant */
+	errbuffer[0] = '\0';
 	curl_easy_setopt(conn->curl, CURLOPT_WRITEFUNCTION, write_data);
-	curl_easy_setopt(conn->curl, CURLOPT_ERRORBUFFER, curl_error_buffer);
+	curl_easy_setopt(conn->curl, CURLOPT_ERRORBUFFER, errbuffer);
 	curl_easy_setopt(conn->curl, CURLOPT_PATH_AS_IS, 1);
 	curl_easy_setopt(conn->curl, CURLOPT_CURLU, conn->url);
 	curl_easy_setopt(conn->curl, CURLOPT_NOSIGNAL, 1);
@@ -136,7 +138,6 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	curl_url_set(conn->url, CURLUPART_URL, url, 0);
 	free(url);
 
-	curl_error_happened = false;
 	errcode = curl_easy_perform(conn->curl);
 	if (errcode == CURLE_ABORTED_BY_CALLBACK)
 	{
@@ -145,9 +146,10 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	}
 	else if (errcode != CURLE_OK)
 	{
-		curl_error_happened = true;
-		free(resp);
-		return NULL;
+		resp->http_status = 419; /* unlegal http status */
+		resp->data = strdup(errbuffer);
+		resp->datasize = strlen(errbuffer);
+		return resp;
 	}
 
 	// all good with request, but we need http status to make sure
