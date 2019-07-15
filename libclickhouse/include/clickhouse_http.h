@@ -3,15 +3,9 @@
 
 #include <stdint.h>
 
-typedef enum
-{
-	CH_TAB_SEPARATED
-} ch_http_format_t;
-
 typedef struct ch_http_connection_t ch_http_connection_t;
 typedef struct ch_http_response_t
 {
-	ch_http_format_t	format;
 	char			   *data;
 	size_t				datasize;
 	long				http_status;

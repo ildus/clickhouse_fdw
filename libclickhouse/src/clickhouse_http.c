@@ -73,7 +73,6 @@ ch_http_connection_t *ch_http_connection(char *connstring)
 		goto cleanup;
 
 	conn->base_url_len = strlen(conn->base_url);
-	conn->format = CH_TAB_SEPARATED;
 
 	return conn;
 
@@ -107,7 +106,6 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	set_query_id(resp, query_id);
 
 	assert(conn && conn->curl);
-	assert(conn->format == CH_TAB_SEPARATED);
 
 	curl_easy_reset(conn->curl);
 
