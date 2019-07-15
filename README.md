@@ -3,14 +3,17 @@
 
 Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differences:
 
-* removed ODBC, use HTTP instead
+* remove ODBC, use HTTP instead (binary in the future)
+* fix JOINS
+* push down `CASE WHEN`
+* support `coalesce`, `date_trunc` and other specific functions
 * support query cancelation
-* code cleanup
 * use `cmake` for Makefile generation (for out for source builds)
 * support arrays and `ANY`, `ALL` functions
-* push down `CASE WHEN`
-
-The extension is NOT production ready.
+* support CollapsingMergeTree engine (with `sign` column) in aggregations
+* add infrastructure for adding custom behaviours in the code (for custom types)
+* code cleanup
+* many other improvements
 
 The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for one
 of the fastest column store databases; "Clickhouse". This FDW allows you to
