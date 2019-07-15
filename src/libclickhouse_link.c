@@ -153,6 +153,8 @@ again:
 	cursor->query_response = resp;
 	cursor->read_state = palloc0(sizeof(ch_http_read_state));
 	cursor->query = pstrdup(query);
+	cursor->request_time = resp->pretransfer_time * 1000;
+	cursor->total_time = resp->total_time * 1000;
 	ch_http_read_state_init(cursor->read_state, resp->data, resp->datasize);
 
 	return cursor;

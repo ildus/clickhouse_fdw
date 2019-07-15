@@ -197,6 +197,8 @@ typedef struct
 	void	*query_response;
 	void	*read_state;
 	char	*query;
+	double	 request_time;
+	double	 total_time;
 } ch_cursor;
 
 typedef ch_connection (*connect_method)(char *connstring);
@@ -283,5 +285,6 @@ extern Datum ch_time_out(PG_FUNCTION_ARGS);
 
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);
+extern double time_diff(struct timeval *prior, struct timeval *latter);
 
 #endif							/* POSTGRES_FDW_H */

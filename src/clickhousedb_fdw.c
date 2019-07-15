@@ -45,6 +45,8 @@
 #include "utils/selfuncs.h"
 #include "utils/datetime.h"
 #include "utils/fmgroids.h"
+#include <sys/time.h>
+
 PG_MODULE_MAGIC;
 
 
@@ -116,7 +118,7 @@ typedef struct ChFdwScanState
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
-	void	   *ch_cursor;	/* result of query from clickhouse */
+	ch_cursor  *cursor;			/* result of query from clickhouse */
 
 	/* for storing result tuple */
 	HeapTuple  tuple;			/* array of currently-retrieved tuples */
@@ -208,6 +210,7 @@ typedef struct
 PG_FUNCTION_INFO_V1(clickhousedb_fdw_handler);
 PG_FUNCTION_INFO_V1(clickhousedb_raw_query);
 extern PGDLLEXPORT void _PG_init(void);
+static double time_used = 0;
 
 /*
  * FDW callback routines
@@ -334,6 +337,17 @@ clickhousedb_raw_query(PG_FUNCTION_ARGS)
 		PG_RETURN_TEXT_P(res);
 
 	PG_RETURN_NULL();
+}
+
+//calculate difference
+double
+time_diff(struct timeval * prior, struct timeval * latter)
+{
+	double x =
+		(double)(latter->tv_usec - prior->tv_usec) / 1000.0L +
+		(double)(latter->tv_sec - prior->tv_sec) * 1000.0L;
+
+	return x;
 }
 
 /*
@@ -742,6 +756,9 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	List	   *retrieved_attrs;
 	StringInfoData sql;
 	ListCell   *lc;
+	struct timeval time1,time2;
+
+	gettimeofday(&time1, NULL);
 
 	if (IS_SIMPLE_REL(foreignrel))
 	{
@@ -892,6 +909,9 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	if (IS_JOIN_REL(foreignrel) || IS_UPPER_REL(foreignrel))
 		fdw_private = lappend(fdw_private,
 		                      makeString(fpinfo->relation_name->data));
+
+	gettimeofday(&time2, NULL);
+	time_used += time_diff(&time1, &time2);
 
 	/*
 	 * Create the ForeignScan node for the given relation.
@@ -1156,7 +1176,7 @@ fetch_tuple(ForeignScanState *node)
 	                  node,
 	                  fsstate->temp_cxt,
 	                  fsstate->query,
-					  fsstate->ch_cursor);
+					  fsstate->cursor);
 }
 
 /*
@@ -1170,19 +1190,27 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	HeapTuple		tup;
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+	struct timeval time1,time2;
 
 	/* make query if needed */
-	if (fsstate->ch_cursor == NULL)
+	if (fsstate->cursor == NULL)
 	{
 		EState	*estate = node->ss.ps.state;
 		MemoryContext	old = MemoryContextSwitchTo(fsstate->batch_cxt);
-		fsstate->ch_cursor = clickhouse_gate->simple_query(fsstate->conn,
+		fsstate->cursor = clickhouse_gate->simple_query(fsstate->conn,
 				fsstate->query);
+
+		time_used += fsstate->cursor->request_time;
 		MemoryContextSwitchTo(old);
 	}
 
+	gettimeofday(&time1, NULL);
+
 	if ((tup = fetch_tuple(node)) == NULL)
 		return ExecClearTuple(slot);
+
+	gettimeofday(&time2, NULL);
+	time_used += time_diff(&time1, &time2);
 
 	/*
 	 * Return the next tuple.
@@ -1199,10 +1227,10 @@ static void
 clickhouseReScanForeignScan(ForeignScanState *node)
 {
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-	if (fsstate->ch_cursor != NULL)
+	if (fsstate->cursor != NULL)
 	{
-		clickhouse_gate->cursor_free(fsstate->ch_cursor);
-		fsstate->ch_cursor = NULL;
+		clickhouse_gate->cursor_free(fsstate->cursor);
+		fsstate->cursor = NULL;
 	}
 }
 
@@ -1215,14 +1243,16 @@ clickhouseEndForeignScan(ForeignScanState *node)
 {
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 
+	time_used = 0;
+
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fsstate == NULL)
 		return;
 
 	/* Release remote connection */
 	ReleaseConnection(fsstate->conn);
-	if (fsstate->ch_cursor)
-		clickhouse_gate->cursor_free(fsstate->ch_cursor);
+	if (fsstate->cursor)
+		clickhouse_gate->cursor_free(fsstate->cursor);
 
 	/* MemoryContexts will be deleted automatically. */
 }
@@ -1511,6 +1541,9 @@ clickhouseExplainForeignScan(ForeignScanState *node, ExplainState *es)
 		sql = strVal(list_nth(fdw_private, FdwScanPrivateSelectSql));
 		ExplainPropertyText("Remote SQL", sql, es);
 	}
+
+	if (es->timing && time_used > 0)
+		ExplainPropertyFloat("FDW Time", "ms", time_used, 3, es);
 }
 
 /*
@@ -1533,8 +1566,8 @@ estimate_path_cost_size(PlannerInfo *root,
                         double *p_rows, int *p_width,
                         Cost *p_startup_cost, Cost *p_total_cost)
 {
-	*p_rows = 2;
-	*p_width = 2;
+	*p_rows = 1;
+	*p_width = 1;
 	*p_startup_cost = 1.0;
 	*p_total_cost = -1.0;
 }
@@ -2332,6 +2365,9 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 	Path	   *epq_path;		/* Path to create plan to be executed when
 					 * EvalPlanQual gets triggered. */
 
+	struct timeval time1,time2;
+	gettimeofday(&time1, NULL);
+
 	/*
 	 * Skip if this join combination has been considered already.
 	 */
@@ -2418,6 +2454,9 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 
 	/* Consider pathkeys for the join relation */
 	add_paths_with_pathkeys_for_rel(root, joinrel, epq_path);
+
+	gettimeofday(&time2, NULL);
+	time_used += time_diff(&time1, &time2);
 }
 
 /*
@@ -2650,6 +2689,9 @@ clickhouseGetForeignUpperPaths(PlannerInfo *root, UpperRelationKind stage,
                                void *extra)
 {
 	CHFdwRelationInfo *fpinfo;
+	struct timeval time1,time2;
+
+	gettimeofday(&time1, NULL);
 
 	/*
 	 * If input rel is not safe to pushdown, then simply return as we cannot
@@ -2673,6 +2715,9 @@ clickhouseGetForeignUpperPaths(PlannerInfo *root, UpperRelationKind stage,
 
 	add_foreign_grouping_paths(root, input_rel, output_rel,
 	                           (GroupPathExtraData *) extra);
+
+	gettimeofday(&time2, NULL);
+	time_used += time_diff(&time1, &time2);
 }
 
 /*

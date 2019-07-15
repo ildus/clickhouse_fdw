@@ -152,6 +152,15 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 		return resp;
 	}
 
+	errcode = curl_easy_getinfo(conn->curl, CURLINFO_PRETRANSFER_TIME,
+			&resp->pretransfer_time);
+	if (errcode != CURLE_OK)
+		resp->pretransfer_time = 0;
+
+	errcode = curl_easy_getinfo(conn->curl, CURLINFO_TOTAL_TIME, &resp->total_time);
+	if (errcode != CURLE_OK)
+		resp->total_time = 0;
+
 	// all good with request, but we need http status to make sure
 	// query went ok
 	curl_easy_getinfo(conn->curl, CURLINFO_RESPONSE_CODE, &resp->http_status);

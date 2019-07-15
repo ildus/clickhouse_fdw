@@ -16,6 +16,8 @@ typedef struct ch_http_response_t
 	size_t				datasize;
 	long				http_status;
 	char				query_id[30];
+	double				pretransfer_time;
+	double				total_time;
 } ch_http_response_t;
 
 typedef enum
