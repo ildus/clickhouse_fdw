@@ -4,8 +4,14 @@
 typedef struct ch_binary_connection_t ch_binary_connection_t;
 typedef struct ch_binary_response_t
 {
-	const void		   *block;
+	bool				success;
+	void			   **values;
+	size_t				columns_count;
+	size_t				blocks_count;
+
 	char				query_id[30];
+	char			   *error;
+	int					errorlen;
 } ch_binary_response_t;
 
 extern "C" {

@@ -45,7 +45,7 @@ public:
 
     /// Saves column data to output stream.
     virtual void Save(CodedOutputStream* output) = 0;
-    
+
     /// Clear column data .
     virtual void Clear() = 0;
 
