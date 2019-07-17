@@ -30,7 +30,7 @@ public:
 
     /// Clear column data .
     void Clear() override;
-    
+
     /// Returns count of rows in the column.
     size_t Size() const override;
 

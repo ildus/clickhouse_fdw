@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.5)
 project(libclickhouse VERSION 1.0.0 LANGUAGES C CXX)
 
 add_subdirectory (clickhouse-cpp)
-target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
-target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set(src
 	src/clickhouse_http.c
@@ -50,6 +48,7 @@ if (BUILD_TESTS)
 	find_package(cmocka 1.1.3)
 
 	list(APPEND tests_names "test_clickhouse_http")
+	list(APPEND tests_names "test_clickhouse_binary")
 	list(APPEND tests_options "-Wall -Werror -Wextra")
 	#list(APPEND tests_link "-Wl,--wrap,free")
 
@@ -58,7 +57,7 @@ if (BUILD_TESTS)
 	math(EXPR count "${count} - 1")
 	foreach(i RANGE ${count})
 		list(GET tests_names ${i} test_name)
-		list(GET tests_options ${i} test_options)
+		list(GET tests_options 0 test_options)
 		#list(GET tests_link ${i} test_link)
 		add_executable(${test_name} src/${test_name}.c)
 		target_include_directories(${test_name}

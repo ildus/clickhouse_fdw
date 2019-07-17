@@ -8,6 +8,7 @@
 #include "string.h"
 #include "tuple.h"
 #include "uuid.h"
+#include "nothing.h"
 
 #include "../types/type_parser.h"
 
@@ -51,6 +52,8 @@ static ColumnRef CreateTerminalColumn(const TypeAst& ast) {
         return std::make_shared<ColumnDateTime>();
     case Type::Date:
         return std::make_shared<ColumnDate>();
+    case Type::Void:
+        return std::make_shared<ColumnNothing>();
 
     default:
         return nullptr;
@@ -66,10 +69,10 @@ static ColumnRef CreateColumnFromAst(const TypeAst& ast) {
         }
 
         case TypeAst::Nullable: {
-            return std::make_shared<ColumnNullable>(
-                CreateColumnFromAst(ast.elements.front()),
-                std::make_shared<ColumnUInt8>()
-            );
+			return std::make_shared<ColumnNullable>(
+				CreateColumnFromAst(ast.elements.front()),
+				std::make_shared<ColumnUInt8>()
+			);
         }
 
         case TypeAst::Terminal: {

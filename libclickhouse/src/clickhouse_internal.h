@@ -12,4 +12,5 @@ typedef struct ch_binary_connection_t
 {
 	void			  *client;
 	void			  *options;
+	char			  *error;
 } ch_binary_connection_t;

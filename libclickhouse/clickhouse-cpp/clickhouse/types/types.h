@@ -82,6 +82,8 @@ public:
 
     static TypeRef CreateUUID();
 
+	static TypeRef CreateNothing();
+
 private:
     Type(const Code code);
 

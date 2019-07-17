@@ -154,6 +154,10 @@ TypeRef Type::CreateString() {
     return TypeRef(new Type(Type::String));
 }
 
+TypeRef Type::CreateNothing() {
+    return TypeRef(new Type(Type::Void));
+}
+
 TypeRef Type::CreateString(size_t n) {
     TypeRef type(new Type(Type::FixedString));
     type->string_size_ = n;

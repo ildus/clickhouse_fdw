@@ -2,6 +2,7 @@
 #include "clickhouse_internal.h"
 #include "clickhouse_binary.hh"
 #include <assert.h>
+#include <iostream>
 
 using namespace clickhouse;
 
@@ -10,7 +11,8 @@ extern "C" {
 ch_binary_connection_t *ch_binary_connect(char *host, int port,
 		char *database, char *user, char *password)
 {
-	auto options = new ClientOptions();
+	ch_binary_connection_t	*conn = NULL;
+	ClientOptions	*options = new ClientOptions();
 
 	if (host)
 		options->SetHost(std::string(host));
@@ -25,11 +27,17 @@ ch_binary_connection_t *ch_binary_connect(char *host, int port,
 
 	options->SetRethrowException(false);
 
-	Client *client = new Client(*options);
-	auto conn = new ch_binary_connection_t();
-
-	conn->client = client;
-	conn->options = options;
+	try
+	{
+		Client *client = new Client(*options);
+		conn = new ch_binary_connection_t();
+		conn->client = client;
+		conn->options = options;
+	}
+	catch (const std::exception& e)
+	{
+		std::cout << e.what();
+	}
 	return conn;
 }
 
@@ -42,45 +50,43 @@ set_resp_error(ch_binary_response_t *resp, const char *str)
 }
 
 ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
-		const char *query, uint32_t query_id)
+	const char *query)
 {
-	Client	&client = (Client &) conn->client;
+	Client	*client = (Client *) conn->client;
 	auto resp = new ch_binary_response_t();
+	auto chquery = std::string(query);
+	auto values = new std::vector<std::vector<ColumnRef> *>();
 
 	assert(resp->values == NULL);
-	client.SelectCancelable(query, [resp] (const Block& block) {
-		size_t	curblock = resp->blocks_count;
+	try
+	{
+		client->SelectCancelable(chquery, [&resp, &values] (const Block& block) {
+			if (block.GetColumnCount() == 0)
+				return true;
 
-		if (resp->columns_count && block.GetColumnCount() != resp->columns_count)
-		{
-			set_resp_error(resp, "columns mismatch in blocks");
-			return false;
-		}
+			auto vec = new std::vector<ColumnRef>(block.GetColumnCount());
 
-		resp->columns_count = block.GetColumnCount();
-		resp->blocks_count += 1;
+			if (resp->columns_count && block.GetColumnCount() != resp->columns_count)
+			{
+				set_resp_error(resp, "columns mismatch in blocks");
+				return false;
+			}
 
-		if (resp->values == NULL)
-			resp->values = (void **) malloc(resp->blocks_count * resp->columns_count
-									* sizeof(ColumnRef));
-		else
-			resp->values = (void **) realloc(resp->values,
-								  resp->blocks_count * resp->columns_count
-									* sizeof(ColumnRef));
+			resp->columns_count = block.GetColumnCount();
 
-		for (size_t i = 0; i < resp->columns_count; ++i)
-		{
-			ColumnRef	col = block[i],
-						col2;
-			size_t		arrpos = curblock * i;
+			for (size_t i = 0; i < resp->columns_count; ++i)
+				vec->push_back(block[i]->As<Column>());
 
-			col2 = col->As<Column>();
-			resp->values[arrpos] = reinterpret_cast<void *>(&col2);
-		}
+			values->push_back(vec);
+			return true;
+		});
+	}
+	catch (const std::exception& e)
+	{
+		set_resp_error(resp, e.what());
+	}
 
-		return true;
-	});
-
+	resp->values = (void *) values;
 	resp->success = resp->error == NULL;
 	return resp;
 }
@@ -93,12 +99,15 @@ void ch_binary_close(ch_binary_connection_t *conn)
 
 void ch_binary_response_free(ch_binary_response_t *resp)
 {
-	for (size_t i = 0; i < resp->blocks_count * resp->columns_count; i++)
+	auto values = (std::vector<std::vector<ColumnRef> *> *) resp->values;
+	for (auto block : *values)
 	{
-		ColumnRef	*col = reinterpret_cast<ColumnRef *>(resp->values[i]);
-		assert(col->unique());
-		delete col;
+		for (auto col: *block) {
+			assert(col.unique());
+			delete &col;
+		}
 	}
+	delete resp;
 }
 
 }
