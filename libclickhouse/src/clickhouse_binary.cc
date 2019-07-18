@@ -1,4 +1,5 @@
 #include <clickhouse/client.h>
+#include <clickhouse/types/types.h>
 #include "clickhouse_internal.h"
 #include "clickhouse_binary.hh"
 #include <assert.h>
@@ -26,16 +27,18 @@ ch_binary_connection_t *ch_binary_connect(char *host, int port,
 		options->SetPassword(std::string(password));
 
 	options->SetRethrowException(false);
+	conn = new ch_binary_connection_t();
 
 	try
 	{
 		Client *client = new Client(*options);
-		conn = new ch_binary_connection_t();
 		conn->client = client;
 		conn->options = options;
 	}
 	catch (const std::exception& e)
 	{
+		delete conn;
+		conn = NULL;
 		std::cout << e.what();
 	}
 	return conn;
@@ -55,7 +58,7 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	Client	*client = (Client *) conn->client;
 	auto resp = new ch_binary_response_t();
 	auto chquery = std::string(query);
-	auto values = new std::vector<std::vector<ColumnRef> *>();
+	auto values = new std::vector<std::vector<ColumnRef>>();
 
 	assert(resp->values == NULL);
 	try
@@ -64,7 +67,7 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 			if (block.GetColumnCount() == 0)
 				return true;
 
-			auto vec = new std::vector<ColumnRef>(block.GetColumnCount());
+			auto vec = std::vector<ColumnRef>();
 
 			if (resp->columns_count && block.GetColumnCount() != resp->columns_count)
 			{
@@ -73,21 +76,25 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 			}
 
 			resp->columns_count = block.GetColumnCount();
+			resp->blocks_count++;
 
 			for (size_t i = 0; i < resp->columns_count; ++i)
-				vec->push_back(block[i]->As<Column>());
+				vec.push_back(block[i]);
 
-			values->push_back(vec);
+			values->push_back(std::move(vec));
 			return true;
 		});
 	}
 	catch (const std::exception& e)
 	{
+		values->clear();
 		set_resp_error(resp, e.what());
+		delete values;
+		values = NULL;
 	}
 
 	resp->values = (void *) values;
-	resp->success = resp->error == NULL;
+	resp->success = (resp->error == NULL);
 	return resp;
 }
 
@@ -99,15 +106,192 @@ void ch_binary_close(ch_binary_connection_t *conn)
 
 void ch_binary_response_free(ch_binary_response_t *resp)
 {
-	auto values = (std::vector<std::vector<ColumnRef> *> *) resp->values;
-	for (auto block : *values)
+	if (resp->values)
 	{
-		for (auto col: *block) {
-			assert(col.unique());
-			delete &col;
-		}
+		auto values = (std::vector<std::vector<ColumnRef>> *) resp->values;
+		values->clear();
+		delete values;
 	}
+
+	if (resp->error)
+		free(resp->error);
+
 	delete resp;
+}
+
+void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp)
+{
+	state->resp = resp;
+	state->coltypes = NULL;
+	state->block = 0;
+	state->row = 0;
+	state->done = false;
+	state->gc = (void *) new std::vector<std::shared_ptr<void>>();
+
+	assert(resp->values);
+	auto& values = *((std::vector<std::vector<ColumnRef>> *) resp->values);
+
+	if (resp->columns_count && values.size() > 0)
+	{
+		state->coltypes = new ch_binary_coltype[resp->columns_count];
+
+		size_t i = 0;
+		for (auto& col: values[0])
+			state->coltypes[i++] = (ch_binary_coltype) (col->Type()->GetCode());
+	}
+}
+
+static void *get_value(ch_binary_read_state_t *state, ColumnRef col,
+	ch_binary_coltype type, size_t row)
+{
+	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
+
+nested:
+	switch (type)
+	{
+		case chb_UInt8:
+			return (void *) &(col->As<ColumnUInt8>()->At(row));
+			break;
+		case chb_UInt16:
+			return (void *) &(col->As<ColumnUInt16>()->At(row));
+			break;
+		case chb_UInt32:
+			return (void *) &(col->As<ColumnUInt32>()->At(row));
+			break;
+		case chb_UInt64:
+			return (void *) &(col->As<ColumnUInt64>()->At(row));
+			break;
+		case chb_Int8:
+			return (void *) &(col->As<ColumnInt8>()->At(row));
+			break;
+		case chb_Int16:
+			return (void *) &(col->As<ColumnInt16>()->At(row));
+			break;
+		case chb_Int32:
+			return (void *) &(col->As<ColumnInt32>()->At(row));
+			break;
+		case chb_Int64:
+			return (void *) &(col->As<ColumnInt64>()->At(row));
+			break;
+		case chb_Float32:
+			return (void *) &(col->As<ColumnFloat32>()->At(row));
+			break;
+		case chb_Float64:
+			return (void *) &(col->As<ColumnFloat64>()->At(row));
+			break;
+		case chb_FixedString:
+			{
+				const char *str = col->As<ColumnFixedString>()->At(row).c_str();
+				return (void *) str;
+			}
+			break;
+		case chb_String:
+			{
+				const char *str = col->As<ColumnString>()->At(row).c_str();
+				return (void *) str;
+			}
+			break;
+		case chb_Enum8:
+			return (void *) &(col->As<ColumnEnum8>()->At(row));
+			break;
+		case chb_Enum16:
+			return (void *) &(col->As<ColumnEnum16>()->At(row));
+			break;
+		case chb_Array:
+			/* TODO: fix array */
+			break;
+		case chb_Tuple:
+			/* TODO: fix tuple */
+			break;
+		case chb_Date:
+			{
+				auto val = std::make_shared<uint64_t>(static_cast<uint64_t> (col->As<ColumnDate>()->At(row)));
+				gc->push_back(val);
+				return (void *) val.get();
+			}
+			break;
+		case chb_DateTime:
+			{
+				auto val = std::make_shared<uint64_t>(static_cast<uint64_t> (col->As<ColumnDateTime>()->At(row)));
+				gc->push_back(val);
+				return (void *) val.get();
+			}
+			break;
+		case chb_UUID:
+			{
+				UInt128 val = col->As<ColumnUUID>()->At(row);
+				std::shared_ptr<uint64_t> sp(new uint64_t[2], std::default_delete<uint64_t[]>());
+				sp.get()[0] = std::get<0>(val);
+				sp.get()[1] = std::get<1>(val);
+				gc->push_back(sp);
+
+				return (void *) sp.get();
+			}
+			break;
+		case chb_Nullable:
+			{
+				auto nullable = col->As<ColumnNullable>();
+				if (nullable->IsNull(row))
+					break;
+				else
+				{
+					col = nullable->Nested();
+					type = (ch_binary_coltype) col->Type()->GetCode();
+					goto nested;
+				}
+			}
+			break;
+		case chb_Void:
+			break;
+	}
+
+	return NULL;
+}
+
+void **ch_binary_read_row(ch_binary_read_state_t *state)
+{
+	bool skip_block = false;
+
+	assert(state->resp->values);
+	auto& values = *((std::vector<std::vector<ColumnRef>> *) state->resp->values);
+
+	if (state->done || state->coltypes == NULL)
+		return NULL;
+
+	void **res = (void **) malloc(sizeof(void *) * state->resp->columns_count);
+
+again:
+	assert(state->block < state->resp->blocks_count);
+	auto& block = values[state->block];
+
+	size_t	row_count  = block[0]->Size();
+	if (row_count == 0)
+	{
+		skip_block = true;
+		goto skip;
+	}
+
+	for (size_t i = 0; i < state->resp->columns_count; i++)
+	{
+		auto col = block[i];
+
+		state->coltypes[i] = (ch_binary_coltype) col->Type()->GetCode();
+		res[i] = get_value(state, col, state->coltypes[i], state->row);
+	}
+
+skip:
+	state->row++;
+	if (state->row >= row_count)
+	{
+		state->row = 0;
+		state->block++;
+		if (state->block >= state->resp->blocks_count)
+			state->done = true;
+		else if (skip_block)
+			goto again;
+	}
+
+	return res;
 }
 
 }
