@@ -44,6 +44,7 @@ typedef struct {
 	size_t	block;		/* current block */
 	size_t	row;		/* row in current block */
 	void   *gc;			/* allocated objects while reading */
+	char   *error;
 	bool	done;
 } ch_binary_read_state_t;
 

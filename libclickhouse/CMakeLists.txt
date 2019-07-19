@@ -32,8 +32,9 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL libcurl REQUIRED)
+pkg_check_modules(UUID_LIB uuid REQUIRED)
 
-target_link_libraries(clickhouse ${CURL_LDFLAGS} clickhouse-cpp-lib-static)
+target_link_libraries(clickhouse ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static)
 
 target_include_directories(clickhouse
     PUBLIC
@@ -43,6 +44,7 @@ target_include_directories(clickhouse
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/clickhouse-cpp
 		${CURL_INCLUDE_DIRS}
+		${UUID_LIB_INCLUDE_DIRS}
 )
 
 if (BUILD_TESTS)

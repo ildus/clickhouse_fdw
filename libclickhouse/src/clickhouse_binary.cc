@@ -4,6 +4,7 @@
 #include "clickhouse_binary.hh"
 #include <assert.h>
 #include <iostream>
+#include <endian.h>
 
 using namespace clickhouse;
 
@@ -26,7 +27,7 @@ ch_binary_connection_t *ch_binary_connect(char *host, int port,
 	if (password)
 		options->SetPassword(std::string(password));
 
-	options->SetRethrowException(false);
+	//options->SetRethrowException(false);
 	conn = new ch_binary_connection_t();
 
 	try
@@ -50,6 +51,14 @@ set_resp_error(ch_binary_response_t *resp, const char *str)
 	assert(resp->error == NULL);
 	resp->error = (char *) malloc(strlen(str) + 1);
 	strcpy(resp->error, str);
+}
+
+static void
+set_state_error(ch_binary_read_state_t *state, const char *str)
+{
+	assert(state->error == NULL);
+	state->error = (char *) malloc(strlen(str) + 1);
+	strcpy(state->error, str);
 }
 
 ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
@@ -126,18 +135,33 @@ void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response
 	state->block = 0;
 	state->row = 0;
 	state->done = false;
+	state->error = NULL;
 	state->gc = (void *) new std::vector<std::shared_ptr<void>>();
 
-	assert(resp->values);
-	auto& values = *((std::vector<std::vector<ColumnRef>> *) resp->values);
-
-	if (resp->columns_count && values.size() > 0)
+	if (resp->error)
 	{
-		state->coltypes = new ch_binary_coltype[resp->columns_count];
+		state->done = true;
+		set_state_error(state, resp->error);
+		return;
+	}
 
-		size_t i = 0;
-		for (auto& col: values[0])
-			state->coltypes[i++] = (ch_binary_coltype) (col->Type()->GetCode());
+	try
+	{
+		assert(resp->values);
+		auto& values = *((std::vector<std::vector<ColumnRef>> *) resp->values);
+
+		if (resp->columns_count && values.size() > 0)
+		{
+			state->coltypes = new ch_binary_coltype[resp->columns_count];
+
+			size_t i = 0;
+			for (auto& col: values[0])
+				state->coltypes[i++] = (ch_binary_coltype) (col->Type()->GetCode());
+		}
+	}
+	catch (const std::exception& e)
+	{
+		set_state_error(state, e.what());
 	}
 }
 
@@ -219,10 +243,12 @@ nested:
 			break;
 		case chb_UUID:
 			{
+				/* we form char[16] from two uint64 numbers, and they should
+				 * be big endian */
 				UInt128 val = col->As<ColumnUUID>()->At(row);
 				std::shared_ptr<uint64_t> sp(new uint64_t[2], std::default_delete<uint64_t[]>());
-				sp.get()[0] = std::get<0>(val);
-				sp.get()[1] = std::get<1>(val);
+				sp.get()[0] = htobe64(std::get<0>(val));
+				sp.get()[1] = htobe64(std::get<1>(val));
 				gc->push_back(sp);
 
 				return (void *) sp.get();
@@ -250,47 +276,59 @@ nested:
 
 void **ch_binary_read_row(ch_binary_read_state_t *state)
 {
+	void **res = NULL;
 	bool skip_block = false;
+
+	if (state->done || state->coltypes == NULL || state->error)
+		return NULL;
 
 	assert(state->resp->values);
 	auto& values = *((std::vector<std::vector<ColumnRef>> *) state->resp->values);
-
-	if (state->done || state->coltypes == NULL)
-		return NULL;
-
-	void **res = (void **) malloc(sizeof(void *) * state->resp->columns_count);
+	try {
+		res = (void **) malloc(sizeof(void *) * state->resp->columns_count);
+		if (res == NULL)
+			throw std::bad_alloc();
 
 again:
-	assert(state->block < state->resp->blocks_count);
-	auto& block = values[state->block];
+		assert(state->block < state->resp->blocks_count);
+		auto& block = values[state->block];
 
-	size_t	row_count  = block[0]->Size();
-	if (row_count == 0)
-	{
-		skip_block = true;
-		goto skip;
-	}
+		size_t	row_count  = block[0]->Size();
+		if (row_count == 0)
+		{
+			skip_block = true;
+			goto skip;
+		}
 
-	for (size_t i = 0; i < state->resp->columns_count; i++)
-	{
-		auto col = block[i];
+		for (size_t i = 0; i < state->resp->columns_count; i++)
+		{
+			auto col = block[i];
 
-		state->coltypes[i] = (ch_binary_coltype) col->Type()->GetCode();
-		res[i] = get_value(state, col, state->coltypes[i], state->row);
-		if (res[i] == NULL)
-			state->coltypes[i] = chb_Void;
-	}
+			state->coltypes[i] = (ch_binary_coltype) col->Type()->GetCode();
+			res[i] = get_value(state, col, state->coltypes[i], state->row);
+			if (res[i] == NULL)
+				state->coltypes[i] = chb_Void;
+		}
 
 skip:
-	state->row++;
-	if (state->row >= row_count)
+		state->row++;
+		if (state->row >= row_count)
+		{
+			state->row = 0;
+			state->block++;
+			if (state->block >= state->resp->blocks_count)
+				state->done = true;
+			else if (skip_block)
+				goto again;
+		}
+	}
+	catch (const std::exception& e)
 	{
-		state->row = 0;
-		state->block++;
-		if (state->block >= state->resp->blocks_count)
-			state->done = true;
-		else if (skip_block)
-			goto again;
+		if (res != NULL)
+			free(res);
+
+		set_state_error(state, e.what());
+		res = NULL;
 	}
 
 	return res;
@@ -302,6 +340,9 @@ void ch_binary_read_state_free(ch_binary_read_state_t *state)
 
 	if (state->coltypes)
 		delete state->coltypes;
+
+	if (state->error)
+		free(state->error);
 
 	gc->clear();
 }
