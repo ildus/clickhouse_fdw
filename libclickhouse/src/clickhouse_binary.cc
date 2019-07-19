@@ -277,6 +277,8 @@ again:
 
 		state->coltypes[i] = (ch_binary_coltype) col->Type()->GetCode();
 		res[i] = get_value(state, col, state->coltypes[i], state->row);
+		if (res[i] == NULL)
+			state->coltypes[i] = chb_Void;
 	}
 
 skip:
@@ -292,6 +294,16 @@ skip:
 	}
 
 	return res;
+}
+
+void ch_binary_read_state_free(ch_binary_read_state_t *state)
+{
+	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
+
+	if (state->coltypes)
+		delete state->coltypes;
+
+	gc->clear();
 }
 
 }

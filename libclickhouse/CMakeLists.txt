@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.5)
 project(libclickhouse VERSION 1.0.0 LANGUAGES C CXX)
 
 add_subdirectory (clickhouse-cpp)
+target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
+target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set(src
 	src/clickhouse_http.c
