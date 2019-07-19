@@ -225,18 +225,46 @@ nested:
 			/* TODO: fix array */
 			break;
 		case chb_Tuple:
-			/* TODO: fix tuple */
+			{
+				auto tuple = col->As<ColumnTuple>();
+
+				std::shared_ptr<ch_binary_coltype> coltypes(new ch_binary_coltype[tuple->Size()],
+						std::default_delete<ch_binary_coltype[]>());
+				std::shared_ptr<void *> values(new void*[tuple->Size()],
+						std::default_delete<void*[]>());
+				std::shared_ptr<uintptr_t> res(new uintptr_t[3],
+						std::default_delete<uintptr_t[]>());
+
+				for (size_t i = 0; i < tuple->Size(); i++)
+				{
+					auto col = (*tuple)[i];
+					coltypes.get()[i] = (ch_binary_coltype)((*tuple)[i]->Type()->GetCode());
+					values.get()[i] = get_value(state, (*tuple)[i], coltypes.get()[i], row);
+				}
+
+				res.get()[0] = (uintptr_t) tuple->Size();
+				res.get()[1] = (uintptr_t) coltypes.get();
+				res.get()[2] = (uintptr_t) values.get();
+
+				gc->push_back(coltypes);
+				gc->push_back(values);
+				gc->push_back(res);
+
+				return (void *) res.get();
+			}
 			break;
 		case chb_Date:
 			{
-				auto val = std::make_shared<uint64_t>(static_cast<uint64_t> (col->As<ColumnDate>()->At(row)));
+				auto val = std::make_shared<uint64_t>(
+						static_cast<uint64_t> (col->As<ColumnDate>()->At(row)));
 				gc->push_back(val);
 				return (void *) val.get();
 			}
 			break;
 		case chb_DateTime:
 			{
-				auto val = std::make_shared<uint64_t>(static_cast<uint64_t> (col->As<ColumnDateTime>()->At(row)));
+				auto val = std::make_shared<uint64_t>(
+						static_cast<uint64_t> (col->As<ColumnDateTime>()->At(row)));
 				gc->push_back(val);
 				return (void *) val.get();
 			}

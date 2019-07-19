@@ -182,6 +182,44 @@ static void test_simple_query(void **s) {
 	ch_binary_read_state_free(&state);
 	ch_binary_response_free(res);
 
+	// QUERY 6, tuple
+	res = ch_binary_simple_query(conn,
+		"select (toUInt32(number), toString(number)) from numbers(1, 2);");
+	assert_true(res->success);
+	ch_binary_read_state_init(&state, res);
+	assert_int_equal(state.coltypes[0], chb_Tuple);
+
+	// 1 row
+	values = ch_binary_read_row(&state);
+	assert_ptr_not_equal(values, NULL);
+	uintptr_t *tupleval = values[0];
+	assert_int_equal(tupleval[0], 2);
+	ch_binary_coltype *coltypes = (ch_binary_coltype *) tupleval[1];
+	assert_int_equal(coltypes[0], chb_UInt32);
+	assert_int_equal(coltypes[1], chb_String);
+	void **tuple_values = (void **) tupleval[2];
+	assert_int_equal(*(uint32_t *) tuple_values[0], 1);
+	assert_string_equal((char *) tuple_values[1], "1");
+
+	// 2 row
+	values = ch_binary_read_row(&state);
+	assert_ptr_not_equal(values, NULL);
+	tupleval = values[0];
+	assert_int_equal(tupleval[0], 2);
+	coltypes = (ch_binary_coltype *) tupleval[1];
+	assert_int_equal(coltypes[0], chb_UInt32);
+	assert_int_equal(coltypes[1], chb_String);
+	tuple_values = (void **) tupleval[2];
+	assert_int_equal(*(uint32_t *) tuple_values[0], 2);
+	assert_string_equal((char *) tuple_values[1], "2");
+
+	// empty
+	values = ch_binary_read_row(&state);
+	assert_ptr_equal(values, NULL);
+
+	ch_binary_read_state_free(&state);
+	ch_binary_response_free(res);
+
 	// QUERY FAIL
 	res = ch_binary_simple_query(conn,
 		"select asdf(asdf) from numbers(2);");
