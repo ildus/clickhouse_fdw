@@ -67,7 +67,7 @@ extern ch_binary_connection_t *ch_binary_connect(char *host, int port,
 		char *database, char *user, char *password);
 extern void ch_binary_close(ch_binary_connection_t *conn);
 extern ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
-		const char *query);
+		const char *query, volatile bool *cancel);
 extern void ch_binary_response_free(ch_binary_response_t *resp);
 
 void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp);

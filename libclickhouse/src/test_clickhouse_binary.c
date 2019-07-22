@@ -21,15 +21,15 @@ uint64_t get_timestamp(char *str)
 	return mktime(&date) - timezone;
 }
 
-static void test_simple_query(void **s) {
-
+static void test_simple_query(void **s)
+{
 	ch_binary_read_state_t	state;
 	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
 	assert_ptr_not_equal(conn, NULL);
 
 	// QUERY 1
 	ch_binary_response_t	*res = ch_binary_simple_query(conn,
-		"select 1, NULL, number from numbers(3);");
+		"select 1, NULL, number from numbers(3);", NULL);
 
 	assert_true(res->success);
 	ch_binary_read_state_init(&state, res);
@@ -70,7 +70,7 @@ static void test_simple_query(void **s) {
 	// QUERY 2
 	res = ch_binary_simple_query(conn,
 		"select addDays(toDate('1990-01-01 00:00:00'), number), "
-			"addDays(toDateTime('1991-02-02 10:01:02'), number) from numbers(2);");
+			"addDays(toDateTime('1991-02-02 10:01:02'), number) from numbers(2);", NULL);
 	ch_binary_read_state_init(&state, res);
 
 	// 1 row
@@ -96,7 +96,7 @@ static void test_simple_query(void **s) {
 	res = ch_binary_simple_query(conn,
 		"select toUInt8(number), toUInt16(number), toUInt32(number), toUInt64(number),"
 	    "		toInt8(number), toInt16(number), toInt32(number), toInt64(number),"
-		"		toFloat32(0.1 + number), toFloat64(0.2 + number) from numbers(10, 2);");
+		"		toFloat32(0.1 + number), toFloat64(0.2 + number) from numbers(10, 2);", NULL);
 
 	ch_binary_read_state_init(&state, res);
 
@@ -139,7 +139,7 @@ static void test_simple_query(void **s) {
 	// QUERY 4
 	res = ch_binary_simple_query(conn,
 		"select toFixedString('asdf', 10), "
-			"toString('asdf1') from numbers(2);");
+			"toString('asdf1') from numbers(2);", NULL);
 	assert_true(res->success);
 	ch_binary_read_state_init(&state, res);
 
@@ -165,7 +165,7 @@ static void test_simple_query(void **s) {
 	// QUERY 5
 	uuid_t	parsed;
 	assert_int_equal(uuid_parse("f4bf890f-f9dc-4332-ad5c-0c18e73f28e9", parsed), 0);
-	res = ch_binary_simple_query(conn, "select toUUID('f4bf890f-f9dc-4332-ad5c-0c18e73f28e9');");
+	res = ch_binary_simple_query(conn, "select toUUID('f4bf890f-f9dc-4332-ad5c-0c18e73f28e9');", NULL);
 	assert_true(res->success);
 	ch_binary_read_state_init(&state, res);
 
@@ -185,7 +185,7 @@ static void test_simple_query(void **s) {
 	// QUERY 6, tuple and array
 	res = ch_binary_simple_query(conn,
 		"select (toUInt32(number), toString(number)), [number + 1, number + 2] "
-		"from numbers(1, 2);");
+		"from numbers(1, 2);", NULL);
 	assert_true(res->success);
 	ch_binary_read_state_init(&state, res);
 	assert_int_equal(state.coltypes[0], chb_Tuple);
@@ -232,7 +232,7 @@ static void test_simple_query(void **s) {
 
 	// QUERY FAIL
 	res = ch_binary_simple_query(conn,
-		"select asdf(asdf) from numbers(2);");
+		"select asdf(asdf) from numbers(2);", NULL);
 	assert_false(res->success);
 	assert_ptr_not_equal(res->error, NULL);
 
@@ -247,9 +247,27 @@ static void test_simple_query(void **s) {
 	ch_binary_close(conn);
 }
 
+static void test_query_canceling(void **s)
+{
+	bool cancel = false;
+
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	assert_ptr_not_equal(conn, NULL);
+	ch_binary_response_t	*res = ch_binary_simple_query(conn,
+		"select 1, NULL, number from numbers(3);", &cancel);
+	assert_true(res->success);
+	cancel = true;
+	res = ch_binary_simple_query(conn,
+		"select number, sleep(3) from numbers(1, 1000000000);", &cancel);
+	assert_false(res->success);
+	assert_string_equal(res->error, "query was canceled");
+	ch_binary_response_free(res);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_simple_query),
+        cmocka_unit_test(test_query_canceling),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

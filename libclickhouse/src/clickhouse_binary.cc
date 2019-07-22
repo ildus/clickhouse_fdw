@@ -48,7 +48,9 @@ ch_binary_connection_t *ch_binary_connect(char *host, int port,
 static void
 set_resp_error(ch_binary_response_t *resp, const char *str)
 {
-	assert(resp->error == NULL);
+	if (resp->error)
+		return;
+
 	resp->error = (char *) malloc(strlen(str) + 1);
 	strcpy(resp->error, str);
 }
@@ -62,7 +64,7 @@ set_state_error(ch_binary_read_state_t *state, const char *str)
 }
 
 ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
-	const char *query)
+	const char *query, volatile bool *cancel)
 {
 	Client	*client = (Client *) conn->client;
 	auto resp = new ch_binary_response_t();
@@ -72,7 +74,13 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	assert(resp->values == NULL);
 	try
 	{
-		client->SelectCancelable(chquery, [&resp, &values] (const Block& block) {
+		client->SelectCancelable(chquery, [&resp, &values, &cancel] (const Block& block) {
+			if (cancel && *cancel)
+			{
+				set_resp_error(resp, "query was canceled");
+				return false;
+			}
+
 			if (block.GetColumnCount() == 0)
 				return true;
 
