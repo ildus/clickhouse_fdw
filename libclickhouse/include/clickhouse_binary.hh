@@ -36,7 +36,6 @@ typedef enum {
 } ch_binary_coltype;
 
 /* gcc should support this */
-typedef unsigned __int128 uint128_t;
 typedef struct {
 	ch_binary_response_t	*resp;
 	ch_binary_coltype		*coltypes;
@@ -47,6 +46,18 @@ typedef struct {
 	char   *error;
 	bool	done;
 } ch_binary_read_state_t;
+
+typedef struct {
+	size_t				len;
+	ch_binary_coltype *coltypes;
+	void			  **values;
+} ch_binary_tuple_t;
+
+typedef struct {
+	size_t				len;
+	ch_binary_coltype	coltype;
+	void			  **values;
+} ch_binary_array_t;
 
 #ifdef __cplusplus
 extern "C" {

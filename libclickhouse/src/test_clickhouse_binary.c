@@ -182,36 +182,46 @@ static void test_simple_query(void **s) {
 	ch_binary_read_state_free(&state);
 	ch_binary_response_free(res);
 
-	// QUERY 6, tuple
+	// QUERY 6, tuple and array
 	res = ch_binary_simple_query(conn,
-		"select (toUInt32(number), toString(number)) from numbers(1, 2);");
+		"select (toUInt32(number), toString(number)), [number + 1, number + 2] "
+		"from numbers(1, 2);");
 	assert_true(res->success);
 	ch_binary_read_state_init(&state, res);
 	assert_int_equal(state.coltypes[0], chb_Tuple);
+	assert_int_equal(state.coltypes[1], chb_Array);
 
 	// 1 row
 	values = ch_binary_read_row(&state);
 	assert_ptr_not_equal(values, NULL);
-	uintptr_t *tupleval = values[0];
-	assert_int_equal(tupleval[0], 2);
-	ch_binary_coltype *coltypes = (ch_binary_coltype *) tupleval[1];
-	assert_int_equal(coltypes[0], chb_UInt32);
-	assert_int_equal(coltypes[1], chb_String);
-	void **tuple_values = (void **) tupleval[2];
-	assert_int_equal(*(uint32_t *) tuple_values[0], 1);
-	assert_string_equal((char *) tuple_values[1], "1");
+	ch_binary_tuple_t *tup = values[0];
+	assert_int_equal(tup->len, 2);
+	assert_int_equal(tup->coltypes[0], chb_UInt32);
+	assert_int_equal(tup->coltypes[1], chb_String);
+	assert_int_equal(*(uint32_t *) tup->values[0], 1);
+	assert_string_equal((char *) tup->values[1], "1");
+
+	ch_binary_array_t *arr = values[1];
+	assert_int_equal(arr->len, 2);
+	assert_int_equal(arr->coltype, chb_UInt64);
+	assert_int_equal(*(uint64_t *) arr->values[0], 2);
+	assert_int_equal(*(uint64_t *) arr->values[1], 3);
 
 	// 2 row
 	values = ch_binary_read_row(&state);
 	assert_ptr_not_equal(values, NULL);
-	tupleval = values[0];
-	assert_int_equal(tupleval[0], 2);
-	coltypes = (ch_binary_coltype *) tupleval[1];
-	assert_int_equal(coltypes[0], chb_UInt32);
-	assert_int_equal(coltypes[1], chb_String);
-	tuple_values = (void **) tupleval[2];
-	assert_int_equal(*(uint32_t *) tuple_values[0], 2);
-	assert_string_equal((char *) tuple_values[1], "2");
+	tup = values[0];
+	assert_int_equal(tup->len, 2);
+	assert_int_equal(tup->coltypes[0], chb_UInt32);
+	assert_int_equal(tup->coltypes[1], chb_String);
+	assert_int_equal(*(uint32_t *) tup->values[0], 2);
+	assert_string_equal((char *) tup->values[1], "2");
+
+	arr = values[1];
+	assert_int_equal(arr->len, 2);
+	assert_int_equal(arr->coltype, chb_UInt64);
+	assert_int_equal(*(uint64_t *) arr->values[0], 3);
+	assert_int_equal(*(uint64_t *) arr->values[1], 4);
 
 	// empty
 	values = ch_binary_read_row(&state);

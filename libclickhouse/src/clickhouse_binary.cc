@@ -175,65 +175,69 @@ nested:
 	{
 		case chb_UInt8:
 			return (void *) &(col->As<ColumnUInt8>()->At(row));
-			break;
 		case chb_UInt16:
 			return (void *) &(col->As<ColumnUInt16>()->At(row));
-			break;
 		case chb_UInt32:
 			return (void *) &(col->As<ColumnUInt32>()->At(row));
-			break;
 		case chb_UInt64:
 			return (void *) &(col->As<ColumnUInt64>()->At(row));
-			break;
 		case chb_Int8:
 			return (void *) &(col->As<ColumnInt8>()->At(row));
-			break;
 		case chb_Int16:
 			return (void *) &(col->As<ColumnInt16>()->At(row));
-			break;
 		case chb_Int32:
 			return (void *) &(col->As<ColumnInt32>()->At(row));
-			break;
 		case chb_Int64:
 			return (void *) &(col->As<ColumnInt64>()->At(row));
-			break;
 		case chb_Float32:
 			return (void *) &(col->As<ColumnFloat32>()->At(row));
-			break;
 		case chb_Float64:
 			return (void *) &(col->As<ColumnFloat64>()->At(row));
-			break;
 		case chb_FixedString:
 			{
 				const char *str = col->As<ColumnFixedString>()->At(row).c_str();
 				return (void *) str;
 			}
-			break;
 		case chb_String:
 			{
 				const char *str = col->As<ColumnString>()->At(row).c_str();
 				return (void *) str;
 			}
-			break;
 		case chb_Enum8:
 			return (void *) &(col->As<ColumnEnum8>()->At(row));
-			break;
 		case chb_Enum16:
 			return (void *) &(col->As<ColumnEnum16>()->At(row));
-			break;
 		case chb_Array:
-			/* TODO: fix array */
-			break;
+			{
+				auto arr = col->As<ColumnArray>()->GetAsColumn(row);
+
+				std::shared_ptr<ch_binary_array_t> res(new ch_binary_array_t());
+				std::shared_ptr<void *> values(new void*[arr->Size()],
+						std::default_delete<void*[]>());
+
+				res->coltype = (ch_binary_coltype) arr->Type()->GetCode();
+				res->len = arr->Size();
+
+				for (size_t i = 0; i < res->len; i++)
+					values.get()[i] = get_value(state, arr, res->coltype, i);
+
+				res->values = values.get();
+
+				gc->push_back(res);
+				gc->push_back(values);
+				gc->push_back(arr);
+
+				return (void *) res.get();
+			}
 		case chb_Tuple:
 			{
 				auto tuple = col->As<ColumnTuple>();
 
+				std::shared_ptr<ch_binary_tuple_t> res(new ch_binary_tuple_t());
 				std::shared_ptr<ch_binary_coltype> coltypes(new ch_binary_coltype[tuple->Size()],
 						std::default_delete<ch_binary_coltype[]>());
 				std::shared_ptr<void *> values(new void*[tuple->Size()],
 						std::default_delete<void*[]>());
-				std::shared_ptr<uintptr_t> res(new uintptr_t[3],
-						std::default_delete<uintptr_t[]>());
 
 				for (size_t i = 0; i < tuple->Size(); i++)
 				{
@@ -242,17 +246,16 @@ nested:
 					values.get()[i] = get_value(state, (*tuple)[i], coltypes.get()[i], row);
 				}
 
-				res.get()[0] = (uintptr_t) tuple->Size();
-				res.get()[1] = (uintptr_t) coltypes.get();
-				res.get()[2] = (uintptr_t) values.get();
+				res->len = tuple->Size();
+				res->coltypes = coltypes.get();
+				res->values = values.get();
 
+				gc->push_back(res);
 				gc->push_back(coltypes);
 				gc->push_back(values);
-				gc->push_back(res);
 
 				return (void *) res.get();
 			}
-			break;
 		case chb_Date:
 			{
 				auto val = std::make_shared<uint64_t>(
@@ -260,7 +263,6 @@ nested:
 				gc->push_back(val);
 				return (void *) val.get();
 			}
-			break;
 		case chb_DateTime:
 			{
 				auto val = std::make_shared<uint64_t>(
@@ -268,7 +270,6 @@ nested:
 				gc->push_back(val);
 				return (void *) val.get();
 			}
-			break;
 		case chb_UUID:
 			{
 				/* we form char[16] from two uint64 numbers, and they should
@@ -281,7 +282,6 @@ nested:
 
 				return (void *) sp.get();
 			}
-			break;
 		case chb_Nullable:
 			{
 				auto nullable = col->As<ColumnNullable>();
