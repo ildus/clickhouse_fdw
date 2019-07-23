@@ -115,6 +115,90 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	return resp;
 }
 
+ch_binary_response_t *ch_binary_simple_insert(ch_binary_connection_t *conn,
+	char *table_name, ch_binary_block_t *blocks, size_t nblocks, size_t nrows)
+{
+#define APPEND_DATA(t, type)						\
+do {												\
+	for (size_t j = 0; j < nrows; j++)				\
+	{												\
+		auto col = std::make_shared<t>();			\
+		col->Append(((type*) block->coldata)[j]);	\
+		chblock.AppendColumn(block->colname, col);	\
+	}												\
+} while (0);
+	Client	*client = (Client *) conn->client;
+	auto	resp = new ch_binary_response_t();
+	Block	chblock;
+	auto	columns = std::make_shared<std::vector<ColumnRef>>();
+
+	try
+	{
+		for (size_t i = 0; i < nblocks; i++)
+		{
+			ch_binary_block_t	*block = &blocks[i];
+			ColumnRef	cref;
+
+			switch (block->coltype)
+			{
+				case chb_Int8:
+					APPEND_DATA(ColumnInt8, int8_t);
+					break;
+				case chb_Int16:
+					APPEND_DATA(ColumnInt16, int16_t);
+					break;
+				case chb_Int32:
+					APPEND_DATA(ColumnInt32, int32_t);
+					break;
+				case chb_Int64:
+					APPEND_DATA(ColumnInt64, int64_t);
+					break;
+				case chb_UInt8:
+					APPEND_DATA(ColumnInt8, uint8_t);
+					break;
+				case chb_UInt16:
+					APPEND_DATA(ColumnInt16, uint16_t);
+					break;
+				case chb_UInt32:
+					APPEND_DATA(ColumnInt32, uint32_t);
+					break;
+				case chb_UInt64:
+					APPEND_DATA(ColumnInt64, uint64_t);
+					break;
+				case chb_Float32:
+					APPEND_DATA(ColumnFloat32, float);
+					break;
+				case chb_Float64:
+					APPEND_DATA(ColumnFloat64, double);
+					break;
+				case chb_FixedString:
+				case chb_String:
+					APPEND_DATA(ColumnString, char*);
+					break;
+				case chb_DateTime:
+					APPEND_DATA(ColumnDateTime, std::time_t);
+					break;
+				case chb_Date:
+					APPEND_DATA(ColumnDate, std::time_t);
+					break;
+				default:
+					throw std::logic_error("unsupported type");
+			}
+
+			chblock.AppendColumn(block->colname, cref);
+		}
+
+		client->Insert(table_name, chblock);
+	}
+	catch (const std::exception& e)
+	{
+		set_resp_error(resp, e.what());
+	}
+
+	return resp;
+#undef APPEND_DATA
+}
+
 void ch_binary_close(ch_binary_connection_t *conn)
 {
 	delete (Client *) conn->client;

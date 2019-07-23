@@ -49,7 +49,7 @@ typedef struct {
 
 typedef struct {
 	size_t				len;
-	ch_binary_coltype *coltypes;
+	ch_binary_coltype  *coltypes;
 	void			  **values;
 } ch_binary_tuple_t;
 
@@ -58,6 +58,12 @@ typedef struct {
 	ch_binary_coltype	coltype;
 	void			  **values;
 } ch_binary_array_t;
+
+typedef struct {
+	ch_binary_coltype	coltype;
+	char			   *colname;
+	void			   *coldata;
+} ch_binary_block_t;
 
 #ifdef __cplusplus
 extern "C" {
