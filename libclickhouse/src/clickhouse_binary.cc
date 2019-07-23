@@ -120,12 +120,10 @@ ch_binary_response_t *ch_binary_simple_insert(ch_binary_connection_t *conn,
 {
 #define APPEND_DATA(t, type)						\
 do {												\
+	auto col = std::make_shared<t>();				\
 	for (size_t j = 0; j < nrows; j++)				\
-	{												\
-		auto col = std::make_shared<t>();			\
 		col->Append(((type*) block->coldata)[j]);	\
-		chblock.AppendColumn(block->colname, col);	\
-	}												\
+	chblock.AppendColumn(block->colname, col);		\
 } while (0);
 	Client	*client = (Client *) conn->client;
 	auto	resp = new ch_binary_response_t();
@@ -154,16 +152,16 @@ do {												\
 					APPEND_DATA(ColumnInt64, int64_t);
 					break;
 				case chb_UInt8:
-					APPEND_DATA(ColumnInt8, uint8_t);
+					APPEND_DATA(ColumnUInt8, uint8_t);
 					break;
 				case chb_UInt16:
-					APPEND_DATA(ColumnInt16, uint16_t);
+					APPEND_DATA(ColumnUInt16, uint16_t);
 					break;
 				case chb_UInt32:
-					APPEND_DATA(ColumnInt32, uint32_t);
+					APPEND_DATA(ColumnUInt32, uint32_t);
 					break;
 				case chb_UInt64:
-					APPEND_DATA(ColumnInt64, uint64_t);
+					APPEND_DATA(ColumnUInt64, uint64_t);
 					break;
 				case chb_Float32:
 					APPEND_DATA(ColumnFloat32, float);
@@ -184,8 +182,6 @@ do {												\
 				default:
 					throw std::logic_error("unsupported type");
 			}
-
-			chblock.AppendColumn(block->colname, cref);
 		}
 
 		client->Insert(table_name, chblock);
@@ -195,6 +191,7 @@ do {												\
 		set_resp_error(resp, e.what());
 	}
 
+	resp->success = (resp->error == NULL);
 	return resp;
 #undef APPEND_DATA
 }

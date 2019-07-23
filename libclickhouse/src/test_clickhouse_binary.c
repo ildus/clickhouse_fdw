@@ -262,12 +262,177 @@ static void test_query_canceling(void **s)
 	assert_false(res->success);
 	assert_string_equal(res->error, "query was canceled");
 	ch_binary_response_free(res);
+	ch_binary_close(conn);
+}
+
+static void query(ch_binary_connection_t *conn, char *sql)
+{
+	ch_binary_response_t *res = ch_binary_simple_query(conn, sql, NULL);
+	if (!res->success)
+		printf("%s\n", res->error);
+
+	assert_true(res->success);
+	ch_binary_response_free(res);
+}
+
+static void test_insertion(void **s)
+{
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	ch_binary_response_t	*res;
+	ch_binary_read_state_t	state;
+
+	assert_ptr_not_equal(conn, NULL);
+
+	query(conn, "DROP DATABASE IF EXISTS test");
+	query(conn, "CREATE DATABASE test");
+	query(conn, "CREATE TABLE IF NOT EXISTS test.numbers ("
+		"a UInt8, b UInt16, c UInt32, d UInt64, "
+		"e Int8, f Int16, g Int32, h Int64, "
+		"i Float32, j Float64 "
+		") ENGINE = Memory");
+
+	const size_t	nrows = 4;
+	const size_t	ncolumns = 10;
+	ch_binary_block_t	blocks[ncolumns];
+
+	uint8_t		*uint8_data = (uint8_t *) malloc(sizeof(uint8_t) * nrows);
+	uint16_t	*uint16_data = (uint16_t *) malloc(sizeof(uint16_t) * nrows);
+	uint32_t	*uint32_data = (uint32_t *) malloc(sizeof(uint32_t) * nrows);
+	uint64_t	*uint64_data = (uint64_t *) malloc(sizeof(uint64_t) * nrows);
+	int8_t		*int8_data = (int8_t *) malloc(sizeof(int8_t) * nrows);
+	int16_t		*int16_data = (int16_t *) malloc(sizeof(int16_t) * nrows);
+	int32_t		*int32_data = (int32_t *) malloc(sizeof(int32_t) * nrows);
+	int64_t		*int64_data = (int64_t *) malloc(sizeof(int64_t) * nrows);
+	float		*float_data = (float *) malloc(sizeof(float) * nrows);
+	double		*double_data = (double *) malloc(sizeof(double) * nrows);
+
+	for (size_t i = 0; i < nrows; i++)
+	{
+		uint8_data[i] = 10 + i;
+		uint16_data[i] = 20 + i;
+		uint32_data[i] = 30 + i;
+		uint64_data[i] = 40 + i;
+		int8_data[i] = 50 + i;
+		int16_data[i] = 60 + i;
+		int32_data[i] = 70 + i;
+		int64_data[i] = 80 + i;
+		float_data[i] = 90 + i;
+		double_data[i] = 100 + i;
+	}
+
+	blocks[0].colname = "a";
+	blocks[0].coltype = chb_UInt8;
+	blocks[0].coldata = uint8_data;
+
+	blocks[1].colname = "b";
+	blocks[1].coltype = chb_UInt16;
+	blocks[1].coldata = uint16_data;
+
+	blocks[2].colname = "c";
+	blocks[2].coltype = chb_UInt32;
+	blocks[2].coldata = uint32_data;
+
+	blocks[3].colname = "d";
+	blocks[3].coltype = chb_UInt64;
+	blocks[3].coldata = uint64_data;
+
+	blocks[4].colname = "e";
+	blocks[4].coltype = chb_Int8;
+	blocks[4].coldata = int8_data;
+
+	blocks[5].colname = "f";
+	blocks[5].coltype = chb_Int16;
+	blocks[5].coldata = int16_data;
+
+	blocks[6].colname = "g";
+	blocks[6].coltype = chb_Int32;
+	blocks[6].coldata = int32_data;
+
+	blocks[7].colname = "h";
+	blocks[7].coltype = chb_Int64;
+	blocks[7].coldata = int64_data;
+
+	blocks[8].colname = "i";
+	blocks[8].coltype = chb_Float32;
+	blocks[8].coldata = float_data;
+
+	blocks[9].colname = "j";
+	blocks[9].coltype = chb_Float64;
+	blocks[9].coldata = double_data;
+
+	res = ch_binary_simple_insert(conn, "test.numbers", blocks, ncolumns, nrows);
+	if (!res->success)
+		printf("%s\n", res->error);
+
+	assert_true(res->success);
+	ch_binary_response_free(res);
+
+	res = ch_binary_simple_query(conn, "select * from test.numbers", NULL);
+	assert_true(res->success);
+	ch_binary_read_state_init(&state, res);
+
+	void **values = ch_binary_read_row(&state);
+	assert_int_equal(*(uint8_t *) values[0], 10);
+	assert_int_equal(*(uint16_t *) values[1], 20);
+	assert_int_equal(*(uint32_t *) values[2], 30);
+	assert_int_equal(*(uint64_t *) values[3], 40);
+	assert_int_equal(*(int8_t *) values[4], 50);
+	assert_int_equal(*(int16_t *) values[5], 60);
+	assert_int_equal(*(int32_t *) values[6], 70);
+	assert_int_equal(*(int64_t *) values[7], 80);
+	assert_float_equal(*(float *) values[8], 90, 0.01);
+	assert_float_equal(*(double *) values[9], 100, 0.01);
+
+	values = ch_binary_read_row(&state);
+	assert_int_equal(*(uint8_t *) values[0], 11);
+	assert_int_equal(*(uint16_t *) values[1], 21);
+	assert_int_equal(*(uint32_t *) values[2], 31);
+	assert_int_equal(*(uint64_t *) values[3], 41);
+	assert_int_equal(*(int8_t *) values[4], 51);
+	assert_int_equal(*(int16_t *) values[5], 61);
+	assert_int_equal(*(int32_t *) values[6], 71);
+	assert_int_equal(*(int64_t *) values[7], 81);
+	assert_float_equal(*(float *) values[8], 91, 0.01);
+	assert_float_equal(*(double *) values[9], 101, 0.01);
+
+	values = ch_binary_read_row(&state);
+	assert_int_equal(*(uint8_t *) values[0], 12);
+	assert_int_equal(*(uint16_t *) values[1], 22);
+	assert_int_equal(*(uint32_t *) values[2], 32);
+	assert_int_equal(*(uint64_t *) values[3], 42);
+	assert_int_equal(*(int8_t *) values[4], 52);
+	assert_int_equal(*(int16_t *) values[5], 62);
+	assert_int_equal(*(int32_t *) values[6], 72);
+	assert_int_equal(*(int64_t *) values[7], 82);
+	assert_float_equal(*(float *) values[8], 92, 0.01);
+	assert_float_equal(*(double *) values[9], 102, 0.01);
+
+	values = ch_binary_read_row(&state);
+	assert_int_equal(*(uint8_t *) values[0], 13);
+	assert_int_equal(*(uint16_t *) values[1], 23);
+	assert_int_equal(*(uint32_t *) values[2], 33);
+	assert_int_equal(*(uint64_t *) values[3], 43);
+	assert_int_equal(*(int8_t *) values[4], 53);
+	assert_int_equal(*(int16_t *) values[5], 63);
+	assert_int_equal(*(int32_t *) values[6], 73);
+	assert_int_equal(*(int64_t *) values[7], 83);
+	assert_float_equal(*(float *) values[8], 93, 0.01);
+	assert_float_equal(*(double *) values[9], 103, 0.01);
+
+	values = ch_binary_read_row(&state);
+	assert_ptr_equal(values, NULL);
+	assert_ptr_equal(state.error, NULL);
+	ch_binary_read_state_free(&state);
+
+	ch_binary_response_free(res);
+	ch_binary_close(conn);
 }
 
 int main(void) {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_simple_query),
-        cmocka_unit_test(test_query_canceling),
+        //cmocka_unit_test(test_simple_query),
+        //cmocka_unit_test(test_query_canceling),
+        cmocka_unit_test(test_insertion),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
