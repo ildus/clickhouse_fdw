@@ -63,6 +63,7 @@ typedef struct {
 	ch_binary_coltype	coltype;
 	char			   *colname;
 	void			   *coldata;
+	size_t				n_arg;		/* FixedString(n) */
 } ch_binary_block_t;
 
 #ifdef __cplusplus

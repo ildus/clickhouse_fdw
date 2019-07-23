@@ -1,8 +1,9 @@
-#define _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <setjmp.h>
 #include <string.h>
 #include <assert.h>
@@ -138,22 +139,22 @@ static void test_simple_query(void **s)
 
 	// QUERY 4
 	res = ch_binary_simple_query(conn,
-		"select toFixedString('asdf', 10), "
-			"toString('asdf1') from numbers(2);", NULL);
+		"select toFixedString('qwer', 10), "
+			"toString('qwer1') from numbers(2);", NULL);
 	assert_true(res->success);
 	ch_binary_read_state_init(&state, res);
 
 	// 1 row
 	values = ch_binary_read_row(&state);
 	assert_ptr_not_equal(values, NULL);
-	assert_string_equal((char *) values[0], "asdf");
-	assert_string_equal((char *) values[1], "asdf1");
+	assert_string_equal((char *) values[0], "qwer");
+	assert_string_equal((char *) values[1], "qwer1");
 
 	// 2 row
 	values = ch_binary_read_row(&state);
 	assert_ptr_not_equal(values, NULL);
-	assert_string_equal((char *) values[0], "asdf");
-	assert_string_equal((char *) values[1], "asdf1");
+	assert_string_equal((char *) values[0], "qwer");
+	assert_string_equal((char *) values[1], "qwer1");
 
 	// empty
 	values = ch_binary_read_row(&state);
@@ -232,7 +233,7 @@ static void test_simple_query(void **s)
 
 	// QUERY FAIL
 	res = ch_binary_simple_query(conn,
-		"select asdf(asdf) from numbers(2);", NULL);
+		"select qwer(qwer) from numbers(2);", NULL);
 	assert_false(res->success);
 	assert_ptr_not_equal(res->error, NULL);
 
@@ -428,11 +429,110 @@ static void test_insertion(void **s)
 	ch_binary_close(conn);
 }
 
+/* string, fixedstring, uuid, date, datetime */
+static void test_insertion_complex(void **s)
+{
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	ch_binary_response_t	*res;
+	ch_binary_read_state_t	state;
+
+	assert_ptr_not_equal(conn, NULL);
+
+	query(conn, "DROP DATABASE IF EXISTS test");
+	query(conn, "CREATE DATABASE test");
+	query(conn, "CREATE TABLE IF NOT EXISTS test.complex ("
+		"a String, b FixedString(3), c Date, d DateTime, e UUID) ENGINE = Memory");
+
+	const size_t	nrows = 2;
+	const size_t	ncolumns = 5;
+	ch_binary_block_t	blocks[ncolumns];
+
+	char	**string_data = (char**) malloc(sizeof(char*) * nrows);
+	char	**fixedstring_data = (char**) malloc(sizeof(char*) * nrows);
+	time_t	*date_data = (time_t *) malloc(sizeof(time_t) * nrows);
+	time_t	*datetime_data = (time_t *) malloc(sizeof(time_t) * nrows);
+	uuid_t	*uuid_data = (uuid_t *) malloc(sizeof(uuid_t) * nrows);
+
+	for (size_t i = 0; i < nrows; i++)
+	{
+		char buf[50];
+		snprintf(buf, sizeof(buf), "%dqwerqwer", i);
+
+		string_data[i] = strdup(buf);
+		fixedstring_data[i] = strdup(buf);
+
+		snprintf(buf, sizeof(buf), "1990-01-0%d 10:00:00", i + 1);
+		date_data[i] = get_timestamp(buf);
+		snprintf(buf, sizeof(buf), "1991-01-0%d 11:00:00", i + 2);
+		datetime_data[i] = get_timestamp(buf);
+
+		snprintf(buf, sizeof(buf), "f4bf890f-f9dc-4332-ad5c-0c18e73f28e%d", i);
+		uuid_parse(strdup(buf), uuid_data[i]);
+	}
+
+	blocks[0].colname = "a";
+	blocks[0].coltype = chb_String;
+	blocks[0].coldata = string_data;
+
+	blocks[1].colname = "b";
+	blocks[1].coltype = chb_FixedString;
+	blocks[1].coldata = fixedstring_data;
+	blocks[1].n_arg = 3;
+
+	blocks[2].colname = "c";
+	blocks[2].coltype = chb_Date;
+	blocks[2].coldata = date_data;
+
+	blocks[3].colname = "d";
+	blocks[3].coltype = chb_DateTime;
+	blocks[3].coldata = datetime_data;
+
+	blocks[4].colname = "e";
+	blocks[4].coltype = chb_UUID;
+	blocks[4].coldata = uuid_data;
+
+	res = ch_binary_simple_insert(conn, "test.complex", blocks, ncolumns, nrows);
+	if (!res->success)
+		printf("%s\n", res->error);
+
+	assert_true(res->success);
+	ch_binary_response_free(res);
+
+	res = ch_binary_simple_query(conn, "select a,b,c,d,toString(e) from test.complex", NULL);
+	if (!res->success)
+		printf("%s\n", res->error);
+	assert_true(res->success);
+	ch_binary_read_state_init(&state, res);
+
+	void **values = ch_binary_read_row(&state);
+	assert_string_equal((char *) values[0], "0qwerqwer");
+	assert_string_equal((char *) values[1], "0qw");
+	assert_true(get_timestamp("1990-01-01 00:00:00") == *(time_t *) values[2]);
+	assert_true(get_timestamp("1991-01-02 11:00:00") == *(time_t *) values[3]);
+	assert_string_equal((char *) values[4], "f4bf890f-f9dc-4332-ad5c-0c18e73f28e0");
+
+	values = ch_binary_read_row(&state);
+	assert_string_equal((char *) values[0], "1qwerqwer");
+	assert_string_equal((char *) values[1], "1qw");
+	assert_true(get_timestamp("1990-01-02 00:00:00") == *(time_t *) values[2]);
+	assert_true(get_timestamp("1991-01-03 11:00:00") == *(time_t *) values[3]);
+	assert_string_equal((char *) values[4], "f4bf890f-f9dc-4332-ad5c-0c18e73f28e1");
+
+	values = ch_binary_read_row(&state);
+	assert_ptr_equal(values, NULL);
+	assert_ptr_equal(state.error, NULL);
+	ch_binary_read_state_free(&state);
+
+	ch_binary_response_free(res);
+	ch_binary_close(conn);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         //cmocka_unit_test(test_simple_query),
         //cmocka_unit_test(test_query_canceling),
         cmocka_unit_test(test_insertion),
+        cmocka_unit_test(test_insertion_complex),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

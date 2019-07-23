@@ -170,6 +170,13 @@ do {												\
 					APPEND_DATA(ColumnFloat64, double);
 					break;
 				case chb_FixedString:
+					{
+						auto col = std::make_shared<ColumnFixedString>(block->n_arg);
+						for (size_t j = 0; j < nrows; j++)
+							col->Append(std::string(((char**) block->coldata)[j]));
+						chblock.AppendColumn(block->colname, col);
+					}
+					break;
 				case chb_String:
 					APPEND_DATA(ColumnString, char*);
 					break;
@@ -178,6 +185,21 @@ do {												\
 					break;
 				case chb_Date:
 					APPEND_DATA(ColumnDate, std::time_t);
+					break;
+				case chb_UUID:
+					{
+						auto col = std::make_shared<ColumnUUID>();
+						for (size_t j = 0; j < nrows; j++)
+						{
+							/* we expect blocks by 16 (uuid_t) */
+							auto first = ((uint64_t *) block->coldata)[j * 2];
+							auto second = ((uint64_t *) block->coldata)[j * 2 + 1];
+
+							UInt128 val = std::make_pair(be64toh(first), be64toh(second));
+							col->Append(val);
+						}
+						chblock.AppendColumn(block->colname, col);
+					}
 					break;
 				default:
 					throw std::logic_error("unsupported type");
