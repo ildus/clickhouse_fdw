@@ -23,11 +23,16 @@ static libclickhouse_methods http_methods = {
 	.fetch_row=http_fetch_row
 };
 
+static void binary_disconnect(void *conn);
+static ch_cursor *binary_simple_query(void *conn, const char *query);
+static void binary_cursor_free(ch_cursor *cursor);
+static void binary_simple_insert(void *conn, const char *query);
+
 static libclickhouse_methods binary_methods = {
-	.disconnect=NULL,
-	.simple_query=NULL,
-	.simple_insert=NULL,
-	.cursor_free=NULL,
+	.disconnect=binary_disconnect,
+	.simple_query=binary_simple_query,
+	.simple_insert=binary_simple_insert,
+	.cursor_free=binary_cursor_free,
 	.fetch_row=NULL
 };
 
@@ -263,4 +268,66 @@ binary_connect(ch_connection_details *details)
 	res.methods = &binary_methods;
 	res.is_binary = true;
 	return res;
+}
+
+static void
+binary_disconnect(void *conn)
+{
+	if (conn != NULL)
+		ch_binary_close((ch_binary_connection_t *) conn);
+}
+
+static ch_cursor *
+binary_simple_query(void *conn, const char *query)
+{
+	ch_cursor	*cursor;
+	ch_binary_read_state_t *state;
+
+	ch_binary_response_t *resp = ch_binary_simple_query(conn, query,
+		&QueryCancelPending);
+
+	if (!resp->success)
+	{
+		ch_binary_response_free(resp);
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+		         errmsg("clickhouse query error: %s", resp->error)));
+	}
+
+	cursor = palloc(sizeof(ch_cursor));
+	cursor->query_response = resp;
+	state = (ch_binary_read_state_t *) palloc0(sizeof(ch_binary_read_state_t));
+	cursor->query = pstrdup(query);
+	cursor->read_state = state;
+	ch_binary_read_state_init(cursor->read_state, resp);
+
+	if (state->error)
+	{
+		ch_binary_read_state_free(state);
+		ch_binary_response_free(resp);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+		         errmsg("could not initialize read state for clickhouse: %s",
+					 state->error)));
+	}
+
+	return cursor;
+}
+
+static void
+binary_cursor_free(ch_cursor *cursor)
+{
+	ch_binary_read_state_free(cursor->read_state);
+	pfree(cursor->read_state);
+	if (cursor->query)
+		pfree(cursor->query);
+	ch_binary_response_free(cursor->query_response);
+	pfree(cursor);
+}
+
+static void
+binary_simple_insert(void *conn, const char *query)
+{
+	elog(ERROR, "insertion is not implemented for binary protocol yet");
 }
