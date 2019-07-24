@@ -30,8 +30,8 @@ typedef void (*check_conn_method)(const char *password, UserMapping *user);
 typedef ch_cursor *(*simple_query_method)(void *conn, const char *query);
 typedef void (*simple_insert_method)(void *conn, const char *query);
 typedef void (*cursor_free_method)(ch_cursor *cursor);
-typedef char **(*cursor_fetch_row_method)(ch_cursor *cursor, size_t attcount);
-typedef text *(*cursor_fetch_raw_data)(ch_cursor *cursor);
+typedef char **(*cursor_fetch_row_method)(ch_cursor *cursor, List *attrs,
+	TupleDesc tupdesc, Datum *values, bool *nulls);
 
 typedef struct
 {
@@ -40,7 +40,6 @@ typedef struct
 	simple_insert_method		simple_insert;
 	cursor_free_method			cursor_free;
 	cursor_fetch_row_method		fetch_row;
-	cursor_fetch_raw_data		fetch_raw_data;
 } libclickhouse_methods;
 
 typedef struct {

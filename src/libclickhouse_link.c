@@ -13,7 +13,8 @@ static void http_disconnect(void *conn);
 static ch_cursor *http_simple_query(void *conn, const char *query);
 static void http_simple_insert(void *conn, const char *query);
 static void http_cursor_free(ch_cursor *);
-static char **http_fetch_row(ch_cursor *cursor, size_t attcount);
+static char **http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
+	Datum *values, bool *nulls);
 
 static libclickhouse_methods http_methods = {
 	.disconnect=http_disconnect,
@@ -27,13 +28,15 @@ static void binary_disconnect(void *conn);
 static ch_cursor *binary_simple_query(void *conn, const char *query);
 static void binary_cursor_free(ch_cursor *cursor);
 static void binary_simple_insert(void *conn, const char *query);
+static char **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc,
+		Datum *values, bool *nulls);
 
 static libclickhouse_methods binary_methods = {
 	.disconnect=binary_disconnect,
 	.simple_query=binary_simple_query,
 	.simple_insert=binary_simple_insert,
 	.cursor_free=binary_cursor_free,
-	.fetch_row=NULL
+	.fetch_row=binary_fetch_row
 };
 
 static int http_progress_callback(void *clientp, double dltotal, double dlnow,
@@ -205,9 +208,15 @@ http_cursor_free(ch_cursor *cursor)
 }
 
 static char **
-http_fetch_row(ch_cursor *cursor, size_t attcount)
+http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool *n)
 {
-	int rc = CH_CONT;
+	int		rc = CH_CONT;
+	size_t	attcount = list_length(attrs);
+
+	if (attcount == 0)
+		/* SELECT NULL */
+		attcount = 1;
+
 	ch_http_read_state *state = cursor->read_state;
 
 	/* all rows or empty table */
@@ -288,10 +297,12 @@ binary_simple_query(void *conn, const char *query)
 
 	if (!resp->success)
 	{
+		char *error = pstrdup(resp->error);
 		ch_binary_response_free(resp);
+
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse query error: %s", resp->error)));
+		         errmsg("clickhouse query error: %s", error)));
 	}
 
 	cursor = palloc(sizeof(ch_cursor));
@@ -303,16 +314,72 @@ binary_simple_query(void *conn, const char *query)
 
 	if (state->error)
 	{
+		char *error = pstrdup(state->error);
 		ch_binary_read_state_free(state);
 		ch_binary_response_free(resp);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
 		         errmsg("could not initialize read state for clickhouse: %s",
-					 state->error)));
+					 error)));
 	}
 
 	return cursor;
+}
+
+static char **
+binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
+	Datum *values, bool *nulls)
+{
+	ListCell   *lc;
+	size_t		j;
+	ch_binary_read_state_t *state = cursor->read_state;
+	void				  **row_values = ch_binary_read_row(state);
+	size_t					attcount = list_length(attrs);
+
+	if (state->error)
+	{
+		char *error = pstrdup(state->error);
+		ch_binary_response_free(state->resp);
+		ch_binary_read_state_free(state);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+		         errmsg("error while reading row from clickhouse: %s",
+					 error)));
+	}
+
+	if (attcount == 0)
+	{
+		if (state->resp->columns_count && state->coltypes[0] == chb_Void)
+			/* SELECT NULL */
+			return NULL;
+		else
+		{
+			ch_binary_response_free(state->resp);
+			ch_binary_read_state_free(state);
+			elog(ERROR, "unexpected state: atttributes count == 0 and haven't got NULL in the response");
+		}
+	}
+	else if (attcount != state->resp->columns_count)
+	{
+		ch_binary_response_free(state->resp);
+		ch_binary_read_state_free(state);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+		         errmsg("Columns mistmatch between PostgreSQL and ClickHouse"
+					    "\nQUERY: %s", cursor->query)));
+	}
+
+	j = 0;
+	foreach(lc, fsstate->retrieved_attrs)
+	{
+		Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+		int i = lfirst_int(lc);
+	}
+
+	return NULL;
 }
 
 static void

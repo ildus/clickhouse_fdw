@@ -1025,7 +1025,7 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
  * temp_context is a working context that can be reset after each tuple.
  */
 static HeapTuple
-make_tuple_from_result_row(ChFdwScanState *fsstate, TupleDesc tupdesc)
+fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 {
 	AttInMetadata *attinmeta = fsstate->attinmeta;
 	Datum	   *values;
@@ -1035,7 +1035,6 @@ make_tuple_from_result_row(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	MemoryContext oldcontext;
 	Oid			oid = InvalidOid;
 	bool	   *nulls;
-	char      **row_values;
 	int			j;
 	int			r;
 
@@ -1052,41 +1051,45 @@ make_tuple_from_result_row(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	/* Initialize to nulls for any columns not present in result */
 	memset(nulls, true, tupdesc->natts * sizeof(bool));
 
-	j = 0;
-
 	if (list_length(fsstate->retrieved_attrs))
 	{
-		/* Parse clickhouse result */
+		char      **row_values;
 		row_values = fsstate->conn.methods->fetch_row(fsstate->ch_cursor,
-			list_length(fsstate->retrieved_attrs));
+			fsstate->retrieved_attrs, tupdesc, values, nulls);
+
+		/* in both cases (binary and non binary), NULL means end of tuples */
 		if (row_values == NULL)
 			goto cleanup;
 
-		/*
-		 * i indexes columns in the relation, j indexes columns in the PGresult.
-		 */
-
-		foreach(lc, fsstate->retrieved_attrs)
+		/* Parse clickhouse result */
+		if (!fsstate->conn.is_binary)
 		{
-			int		i = lfirst_int(lc);
-			char   *valstr = row_values[j];
+			/*
+			 * for non binary connections we will strings which we will try
+			 * convert using postgres functions.
+			 */
+			j = 0;
+			foreach(lc, fsstate->retrieved_attrs)
+			{
+				int		i = lfirst_int(lc);
+				char   *valstr = row_values[j];
 
-			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+				Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
 
-			/* Apply the input function even to nulls, to support domains */
-			nulls[i - 1] = (valstr == NULL);
-			values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
-										  valstr,
-										  attinmeta->attioparams[i - 1],
-										  attinmeta->atttypmods[i - 1]);
-			j++;
+				/* Apply the input function even to nulls, to support domains */
+				nulls[i - 1] = (valstr == NULL);
+				values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
+											  valstr,
+											  attinmeta->attioparams[i - 1],
+											  attinmeta->atttypmods[i - 1]);
+				j++;
+			}
 		}
 	}
 	else
 	{
 		/* parse result of something like SELECT NULL */
-		row_values = clickhouse_gate->fetch_row(fsstate->ch_cursor, 1);
-		if (row_values == NULL)
+		if (clickhouse_gate->fetch_row(fsstate->ch_cursor, NIL, NULL, NULL, NULL) == NULL)
 			goto cleanup;
 	}
 
@@ -1161,7 +1164,7 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 		tupdesc = node->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
 	}
 
-	tup = make_tuple_from_result_row(fsstate, tupdesc);
+	tup = fetch_tuple(fsstate, tupdesc);
 	if (tup == NULL)
 		return ExecClearTuple(slot);
 
