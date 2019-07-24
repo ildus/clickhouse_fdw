@@ -17,7 +17,49 @@
 #include "utils/relcache.h"
 #include "catalog/pg_operator.h"
 
-typedef void *ch_connection;
+/* libclickhouse_link.c */
+typedef struct
+{
+	void	*query_response;
+	void	*read_state;
+	char	*query;
+} ch_cursor;
+
+typedef void (*disconnect_method)(void *conn);
+typedef void (*check_conn_method)(const char *password, UserMapping *user);
+typedef ch_cursor *(*simple_query_method)(void *conn, const char *query);
+typedef void (*simple_insert_method)(void *conn, const char *query);
+typedef void (*cursor_free_method)(ch_cursor *cursor);
+typedef char **(*cursor_fetch_row_method)(ch_cursor *cursor, size_t attcount);
+typedef text *(*cursor_fetch_raw_data)(ch_cursor *cursor);
+
+typedef struct
+{
+	disconnect_method			disconnect;
+	simple_query_method			simple_query;
+	simple_insert_method		simple_insert;
+	cursor_free_method			cursor_free;
+	cursor_fetch_row_method		fetch_row;
+	cursor_fetch_raw_data		fetch_raw_data;
+} libclickhouse_methods;
+
+typedef struct {
+	libclickhouse_methods *methods;
+	void	*conn;
+	bool	is_binary;
+} ch_connection;
+
+typedef struct {
+	char       *host;
+	int         port;
+	char       *username;
+	char       *password;
+	char       *dbname;
+} ch_connection_details;
+
+ch_connection http_connect(char *connstring);
+ch_connection binary_connect(ch_connection_details *details);
+text *http_fetch_raw_data(ch_cursor *cursor);
 
 typedef enum {
 	CH_DEFAULT,
@@ -179,7 +221,7 @@ typedef struct ConnCacheKey
 typedef struct ConnCacheEntry
 {
 	ConnCacheKey	key;			/* hash key (must be first) */
-	ch_connection	conn;			/* connection to foreign server, or NULL */
+	ch_connection	gate;			/* connection to foreign server, or NULL */
 	/* Remaining fields are invalid when conn is NULL: */
 	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
                                  * one level of subxact open, etc */
@@ -191,33 +233,6 @@ typedef struct ConnCacheEntry
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
 } ConnCacheEntry;
 
-/* libclickhouse_link.c */
-typedef struct
-{
-	void	*query_response;
-	void	*read_state;
-	char	*query;
-} ch_cursor;
-
-typedef ch_connection (*connect_method)(char *connstring);
-typedef void (*disconnect_method)(ch_connection conn);
-typedef void (*check_conn_method)(const char *password, UserMapping *user);
-typedef ch_cursor *(*simple_query_method)(ch_connection conn, const char *query);
-typedef void (*simple_insert_method)(ch_connection conn, const char *query);
-typedef void (*cursor_free_method)(ch_cursor *cursor);
-typedef char **(*cursor_fetch_row_method)(ch_cursor *cursor, size_t attcount);
-typedef text *(*cursor_fetch_raw_data)(ch_cursor *cursor);
-
-typedef struct
-{
-	connect_method				connect;
-	disconnect_method			disconnect;
-	simple_query_method			simple_query;
-	simple_insert_method		simple_insert;
-	cursor_free_method			cursor_free;
-	cursor_fetch_row_method		fetch_row;
-	cursor_fetch_raw_data		fetch_raw_data;
-} libclickhouse_methods;
 
 extern libclickhouse_methods *clickhouse_gate;
 

@@ -4,29 +4,32 @@
 #include "foreign/foreign.h"
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
+#include "clickhouse_binary.hh"
 
 static uint32	global_query_id = 0;
 static bool		initialized = false;
 
-static ch_connection http_connect(char *connstring);
-static void http_disconnect(ch_connection conn);
-static ch_cursor *http_simple_query(ch_connection conn, const char *query);
-static void http_simple_insert(ch_connection conn, const char *query);
+static void http_disconnect(void *conn);
+static ch_cursor *http_simple_query(void *conn, const char *query);
+static void http_simple_insert(void *conn, const char *query);
 static void http_cursor_free(ch_cursor *);
 static char **http_fetch_row(ch_cursor *cursor, size_t attcount);
-static text *http_fetch_raw_data(ch_cursor *cursor);
 
 static libclickhouse_methods http_methods = {
-	.connect=http_connect,
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
 	.simple_insert=http_simple_insert,
 	.cursor_free=http_cursor_free,
-	.fetch_row=http_fetch_row,
-	.fetch_raw_data=http_fetch_raw_data
+	.fetch_row=http_fetch_row
 };
 
-libclickhouse_methods	*clickhouse_gate = &http_methods;
+static libclickhouse_methods binary_methods = {
+	.disconnect=NULL,
+	.simple_query=NULL,
+	.simple_insert=NULL,
+	.cursor_free=NULL,
+	.fetch_row=NULL
+};
 
 static int http_progress_callback(void *clientp, double dltotal, double dlnow,
 		double ultotal, double ulnow)
@@ -37,9 +40,10 @@ static int http_progress_callback(void *clientp, double dltotal, double dlnow,
 	return 0;
 }
 
-static ch_connection
+ch_connection
 http_connect(char *connstring)
 {
+	ch_connection res;
 	ch_http_connection_t *conn = ch_http_connection(connstring);
 	if (!initialized)
 	{
@@ -58,14 +62,17 @@ http_connect(char *connstring)
 		         errmsg("could not connect to server: %s", error)));
 	}
 
-	return (ch_connection) conn;
+	res.conn = conn;
+	res.methods = &http_methods;
+	res.is_binary = false;
+	return res;
 }
 
 /*
  * Disconnect any open connection for a connection cache entry.
  */
 static void
-http_disconnect(ch_connection conn)
+http_disconnect(void *conn)
 {
 	if (conn != NULL)
 		ch_http_close((ch_http_connection_t *) conn);
@@ -89,7 +96,7 @@ format_error(char *errstring)
 }
 
 static void
-kill_query(ch_connection conn, const char *query_id)
+kill_query(void *conn, const char *query_id)
 {
 	ch_http_response_t *resp;
 	char *query = psprintf("kill query where query_id='%s'", query_id);
@@ -103,7 +110,7 @@ kill_query(ch_connection conn, const char *query_id)
 }
 
 static ch_cursor *
-http_simple_query(ch_connection conn, const char *query)
+http_simple_query(void *conn, const char *query)
 {
 	ch_cursor	*cursor;
 
@@ -151,7 +158,7 @@ http_simple_query(ch_connection conn, const char *query)
 }
 
 static void
-http_simple_insert(ch_connection conn, const char *query)
+http_simple_insert(void *conn, const char *query)
 {
 	ch_cursor	*cursor;
 
@@ -228,7 +235,7 @@ http_fetch_row(ch_cursor *cursor, size_t attcount)
 	return values;
 }
 
-static text *
+text *
 http_fetch_raw_data(ch_cursor *cursor)
 {
 	ch_http_read_state *state = cursor->read_state;
@@ -236,4 +243,26 @@ http_fetch_raw_data(ch_cursor *cursor)
 		return NULL;
 
 	return cstring_to_text_with_len(state->data, state->maxpos + 1);
+}
+
+/*** BINARY PROTOCOL ***/
+
+ch_connection
+binary_connect(ch_connection_details *details)
+{
+	ch_connection res;
+	ch_binary_connection_t *conn = ch_binary_connect(details->host, details->port,
+			details->dbname, details->username, details->password);
+
+	if (conn == NULL)
+	{
+		ereport(ERROR,
+		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+		         errmsg("could not make binary connection to ClickHouse")));
+	}
+
+	res.conn = conn;
+	res.methods = &binary_methods;
+	res.is_binary = true;
+	return res;
 }

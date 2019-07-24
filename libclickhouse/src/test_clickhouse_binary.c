@@ -259,7 +259,7 @@ static void test_query_canceling(void **s)
 	assert_true(res->success);
 	cancel = true;
 	res = ch_binary_simple_query(conn,
-		"select number, sleep(3) from numbers(1, 1000000000);", &cancel);
+		"select number, sleepEachRow(1) from numbers(1, 10);", &cancel);
 	assert_false(res->success);
 	assert_string_equal(res->error, "query was canceled");
 	ch_binary_response_free(res);

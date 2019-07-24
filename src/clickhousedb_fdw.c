@@ -111,7 +111,7 @@ typedef struct ChFdwScanState
 	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
 
 	/* for remote query execution */
-	ch_connection conn;			/* connection for the scan */
+	ch_connection	conn;			/* connection for the scan */
 	int			numParams;		/* number of parameters passed to query */
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
@@ -324,11 +324,11 @@ clickhousedb_raw_query(PG_FUNCTION_ARGS)
 	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
 		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
 
-	ch_connection	conn = clickhouse_gate->connect(connstring);
-	ch_cursor	   *cursor = clickhouse_gate->simple_query(conn, query);
-	text		   *res = clickhouse_gate->fetch_raw_data(cursor);
-	clickhouse_gate->cursor_free(cursor);
-	clickhouse_gate->disconnect(conn);
+	ch_connection	conn = http_connect(connstring);
+	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
+	text		   *res = http_fetch_raw_data(cursor);
+	conn.methods->cursor_free(cursor);
+	conn.methods->disconnect(conn.conn);
 
 	if (res)
 		PG_RETURN_TEXT_P(res);
@@ -1025,42 +1025,26 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
  * temp_context is a working context that can be reset after each tuple.
  */
 static HeapTuple
-make_tuple_from_result_row(Relation rel,
-                           AttInMetadata *attinmeta,
-                           List *retrieved_attrs,
-                           ForeignScanState *fsstate,
-                           MemoryContext temp_context,
-                           char *query,
-						   ch_cursor *res_cursor)
+make_tuple_from_result_row(ChFdwScanState *fsstate, TupleDesc tupdesc)
 {
-	HeapTuple	tuple = NULL;
-	TupleDesc	tupdesc;
+	AttInMetadata *attinmeta = fsstate->attinmeta;
 	Datum	   *values;
-	bool	   *nulls;
+	HeapTuple	tuple = NULL;
 	ItemPointer ctid = NULL;
-	Oid			oid = InvalidOid;
-	MemoryContext oldcontext;
 	ListCell   *lc;
-	int			j;
-	int     r;
+	MemoryContext oldcontext;
+	Oid			oid = InvalidOid;
+	bool	   *nulls;
 	char      **row_values;
+	int			j;
+	int			r;
 
 	/*
 	 * Do the following work in a temp context that we reset after each tuple.
 	 * This cleans up not only the data we have direct access to, but any
 	 * cruft the I/O functions might leak.
 	 */
-	oldcontext = MemoryContextSwitchTo(temp_context);
-
-	if (rel)
-	{
-		tupdesc = RelationGetDescr(rel);
-	}
-	else
-	{
-		Assert(fsstate);
-		tupdesc = fsstate->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
-	}
+	oldcontext = MemoryContextSwitchTo(fsstate->temp_cxt);
 
 	values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
 	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
@@ -1070,10 +1054,11 @@ make_tuple_from_result_row(Relation rel,
 
 	j = 0;
 
-	if (list_length(retrieved_attrs))
+	if (list_length(fsstate->retrieved_attrs))
 	{
 		/* Parse clickhouse result */
-		row_values = clickhouse_gate->fetch_row(res_cursor, list_length(retrieved_attrs));
+		row_values = fsstate->conn.methods->fetch_row(fsstate->ch_cursor,
+			list_length(fsstate->retrieved_attrs));
 		if (row_values == NULL)
 			goto cleanup;
 
@@ -1081,7 +1066,7 @@ make_tuple_from_result_row(Relation rel,
 		 * i indexes columns in the relation, j indexes columns in the PGresult.
 		 */
 
-		foreach(lc, retrieved_attrs)
+		foreach(lc, fsstate->retrieved_attrs)
 		{
 			int		i = lfirst_int(lc);
 			char   *valstr = row_values[j];
@@ -1100,7 +1085,7 @@ make_tuple_from_result_row(Relation rel,
 	else
 	{
 		/* parse result of something like SELECT NULL */
-		row_values = clickhouse_gate->fetch_row(res_cursor, 1);
+		row_values = clickhouse_gate->fetch_row(fsstate->ch_cursor, 1);
 		if (row_values == NULL)
 			goto cleanup;
 	}
@@ -1140,23 +1125,9 @@ make_tuple_from_result_row(Relation rel,
 
 cleanup:
 	/* Clean up */
-	MemoryContextReset(temp_context);
+	MemoryContextReset(fsstate->temp_cxt);
 
 	return tuple;
-}
-
-static inline HeapTuple
-fetch_tuple(ForeignScanState *node)
-{
-	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-
-	return make_tuple_from_result_row(fsstate->rel,
-	                  fsstate->attinmeta,
-	                  fsstate->retrieved_attrs,
-	                  node,
-	                  fsstate->temp_cxt,
-	                  fsstate->query,
-					  fsstate->ch_cursor);
 }
 
 /*
@@ -1170,18 +1141,28 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	HeapTuple		tup;
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+	TupleDesc		tupdesc;
 
 	/* make query if needed */
 	if (fsstate->ch_cursor == NULL)
 	{
 		EState	*estate = node->ss.ps.state;
 		MemoryContext	old = MemoryContextSwitchTo(fsstate->batch_cxt);
-		fsstate->ch_cursor = clickhouse_gate->simple_query(fsstate->conn,
+		fsstate->ch_cursor = fsstate->conn.methods->simple_query(fsstate->conn.conn,
 				fsstate->query);
 		MemoryContextSwitchTo(old);
 	}
 
-	if ((tup = fetch_tuple(node)) == NULL)
+	if (fsstate->rel)
+		tupdesc = RelationGetDescr(fsstate->rel);
+	else
+	{
+		Assert(fsstate);
+		tupdesc = node->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
+	}
+
+	tup = make_tuple_from_result_row(fsstate, tupdesc);
+	if (tup == NULL)
 		return ExecClearTuple(slot);
 
 	/*
@@ -1219,8 +1200,6 @@ clickhouseEndForeignScan(ForeignScanState *node)
 	if (fsstate == NULL)
 		return;
 
-	/* Release remote connection */
-	ReleaseConnection(fsstate->conn);
 	if (fsstate->ch_cursor)
 		clickhouse_gate->cursor_free(fsstate->ch_cursor);
 
@@ -1439,7 +1418,7 @@ clickhouseEndForeignInsert(EState *estate,
 
 	if (fmstate)
 	{
-		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
+		fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
 
 		/* Destroy the execution state */
 		finish_foreign_modify(fmstate);
@@ -1810,10 +1789,7 @@ static void
 finish_foreign_modify(CHFdwModifyState *fmstate)
 {
 	Assert(fmstate != NULL);
-
-	/* Release remote connection */
-	ReleaseConnection(fmstate->conn);
-	fmstate->conn = NULL;
+	memset(&fmstate->conn, 0, sizeof(fmstate->conn));
 }
 
 /*
