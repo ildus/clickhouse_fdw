@@ -967,7 +967,7 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(user, false, true);
+	fsstate->conn = GetConnection(user);
 
 	/* Get private info created by planner functions. */
 	fsstate->query = strVal(list_nth(fsplan->fdw_private,
@@ -1611,8 +1611,7 @@ create_foreign_modify(EState *estate,
 	table = GetForeignTable(RelationGetRelid(rel));
 	user = GetUserMapping(userid, table->serverid);
 
-	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(user, true, false);
+	fmstate->conn = GetConnection(user);
 
 	/* Set up remote query information. */
 	fmstate->query = query;

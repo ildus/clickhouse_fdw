@@ -166,8 +166,7 @@ extern void reset_transmission_modes(int nestlevel);
 extern ForeignServer *get_foreign_server(Relation rel);
 
 /* in connection.c */
-extern ch_connection GetConnection(UserMapping *user, bool will_prep_stmt, bool read);
-extern void ReleaseConnection(ch_connection conn);
+extern ch_connection GetConnection(UserMapping *user);
 extern unsigned int GetCursorNumber(ch_connection conn);
 extern unsigned int GetPrepStmtNumber(ch_connection conn);
 extern void chfdw_exec_query(ch_connection conn, const char *query);
@@ -215,7 +214,6 @@ extern int is_equal_op(Oid opno);
 typedef struct ConnCacheKey
 {
 	Oid		userid;
-	bool    read;
 } ConnCacheKey;
 
 typedef struct ConnCacheEntry
@@ -223,14 +221,9 @@ typedef struct ConnCacheEntry
 	ConnCacheKey	key;			/* hash key (must be first) */
 	ch_connection	gate;			/* connection to foreign server, or NULL */
 	/* Remaining fields are invalid when conn is NULL: */
-	int			xact_depth;		/* 0 = no xact open, 1 = main xact open, 2 =
-                                 * one level of subxact open, etc */
-	bool		have_error;		/* have any subxacts aborted in this xact? */
-	bool		changing_xact_state;	/* xact state change in process */
-	bool		invalidated;	/* true if reconnect is pending */
-	bool		read;				/* Separate entry for read/write */
-	uint32		server_hashvalue;	/* hash value of foreign server OID */
-	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+	bool			invalidated;	/* true if reconnect is pending */
+	uint32			server_hashvalue;	/* hash value of foreign server OID */
+	uint32			mapping_hashvalue;	/* hash value of user mapping OID */
 } ConnCacheEntry;
 
 

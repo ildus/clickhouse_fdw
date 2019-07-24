@@ -255,11 +255,9 @@ binary_connect(ch_connection_details *details)
 			details->dbname, details->username, details->password);
 
 	if (conn == NULL)
-	{
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
 		         errmsg("could not make binary connection to ClickHouse")));
-	}
 
 	res.conn = conn;
 	res.methods = &binary_methods;
