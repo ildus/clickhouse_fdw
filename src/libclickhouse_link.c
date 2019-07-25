@@ -341,6 +341,7 @@ binary_simple_query(void *conn, const char *query)
 static Datum
 make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 {
+	Assert(rowval != NULL);
 	switch (coltype)
 	{
 		case chb_Int8:
@@ -444,14 +445,15 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	foreach(lc, attrs)
 	{
 		int		i = lfirst_int(lc);
+		void   *rowval = row_values[j];
 
-		if (state->coltypes[j] == chb_Void)
+		if (state->coltypes[j] == chb_Void || rowval == NULL)
 			nulls[i - 1] = true;
 		else
 		{
 			Oid restype;
 			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-			values[i - 1] = make_datum(row_values[j], state->coltypes[j], &restype);
+			values[i - 1] = make_datum(rowval, state->coltypes[j], &restype);
 			if (restype != pgtype)
 			{
 				/* try to convert */

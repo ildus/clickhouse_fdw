@@ -424,10 +424,6 @@ void **ch_binary_read_row(ch_binary_read_state_t *state)
 	assert(state->resp->values);
 	auto& values = *((std::vector<std::vector<ColumnRef>> *) state->resp->values);
 	try {
-		res = (void **) malloc(sizeof(void *) * state->resp->columns_count);
-		if (res == NULL)
-			throw std::bad_alloc();
-
 again:
 		assert(state->block < state->resp->blocks_count);
 		auto&	block = values[state->block];
@@ -435,6 +431,10 @@ again:
 
 		if (row_count == 0)
 			goto next_row;
+
+		res = (void **) malloc(sizeof(void *) * state->resp->columns_count);
+		if (res == NULL)
+			throw std::bad_alloc();
 
 		for (size_t i = 0; i < state->resp->columns_count; i++)
 		{
