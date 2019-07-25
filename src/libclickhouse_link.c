@@ -418,14 +418,15 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	{
 		if (state->resp->columns_count == 1 && (state->coltypes[0] == chb_Void))
 		{
-			/* SELECT NULL, null already contains nulls */
+			/* SELECT NULL, nulls array already contains nulls */
 			goto ok;
 		}
 		else
 		{
 			ch_binary_response_free(state->resp);
 			ch_binary_read_state_free(state);
-			elog(ERROR, "clickhouse_fdw: unexpected state: atttributes count == 0 and haven't got NULL in the response");
+			elog(ERROR, "clickhouse_fdw: unexpected state: atttributes "
+					"count == 0 and haven't got NULL in the response");
 		}
 	}
 	else if (attcount != state->resp->columns_count)
@@ -464,6 +465,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 				{
 					case COERCION_PATH_FUNC:
 						values[i - 1] = OidFunctionCall1(castfunc, values[i - 1]);
+						break;
 					case COERCION_PATH_RELABELTYPE:
 						/* all good */
 						break;

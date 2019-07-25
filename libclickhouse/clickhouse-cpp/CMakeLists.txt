@@ -4,6 +4,7 @@ INCLUDE (cmake/cpp17.cmake)
 INCLUDE (cmake/subdirs.cmake)
 
 OPTION(BUILD_BENCHMARK "Build benchmark" OFF)
+OPTION(BUILD_TESTS "Build tests" OFF)
 
 PROJECT (CLICKHOUSE-CLIENT LANGUAGES CXX)
 
@@ -32,11 +33,16 @@ PROJECT (CLICKHOUSE-CLIENT LANGUAGES CXX)
     SUBDIRS (
         clickhouse
         contrib/cityhash
-        contrib/gtest
         contrib/lz4
-        tests/simple
-        ut
     )
+
+    IF (BUILD_BENCHMARK)
+        SUBDIRS(
+            contrib/gtest
+            tests/simple
+            ut
+        )
+    ENDIF (BUILD_BENCHMARK)
 
     IF (BUILD_BENCHMARK)
         SUBDIRS(bench)
