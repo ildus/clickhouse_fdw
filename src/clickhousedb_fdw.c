@@ -1036,6 +1036,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	bool	   *nulls;
 	int			j;
 	int			r;
+	char      **row_values;
 
 	/*
 	 * Do the following work in a temp context that we reset after each tuple.
@@ -1050,46 +1051,36 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	/* Initialize to nulls for any columns not present in result */
 	memset(nulls, true, tupdesc->natts * sizeof(bool));
 
-	if (list_length(fsstate->retrieved_attrs))
+	row_values = fsstate->conn.methods->fetch_row(fsstate->ch_cursor,
+		fsstate->retrieved_attrs, tupdesc, values, nulls);
+
+	/* in both cases (binary and non binary), NULL means end of tuples */
+	if (row_values == NULL)
+		goto cleanup;
+
+	/* Parse clickhouse result */
+	if (!fsstate->conn.is_binary)
 	{
-		char      **row_values;
-		row_values = fsstate->conn.methods->fetch_row(fsstate->ch_cursor,
-			fsstate->retrieved_attrs, tupdesc, values, nulls);
-
-		/* in both cases (binary and non binary), NULL means end of tuples */
-		if (row_values == NULL)
-			goto cleanup;
-
-		/* Parse clickhouse result */
-		if (!fsstate->conn.is_binary)
+		/*
+		 * for non binary connections we will get strings which we will try
+		 * convert using postgres functions.
+		 */
+		j = 0;
+		foreach(lc, fsstate->retrieved_attrs)
 		{
-			/*
-			 * for non binary connections we will strings which we will try
-			 * convert using postgres functions.
-			 */
-			j = 0;
-			foreach(lc, fsstate->retrieved_attrs)
-			{
-				int		i = lfirst_int(lc);
-				char   *valstr = row_values[j];
+			int		i = lfirst_int(lc);
+			char   *valstr = row_values[j];
 
-				Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
 
-				/* Apply the input function even to nulls, to support domains */
-				nulls[i - 1] = (valstr == NULL);
-				values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
-											  valstr,
-											  attinmeta->attioparams[i - 1],
-											  attinmeta->atttypmods[i - 1]);
-				j++;
-			}
+			/* Apply the input function even to nulls, to support domains */
+			nulls[i - 1] = (valstr == NULL);
+			values[i - 1] = InputFunctionCall(&attinmeta->attinfuncs[i - 1],
+										  valstr,
+										  attinmeta->attioparams[i - 1],
+										  attinmeta->atttypmods[i - 1]);
+			j++;
 		}
-	}
-	else
-	{
-		/* parse result of something like SELECT NULL */
-		if (fsstate->conn.methods->fetch_row(fsstate->ch_cursor, NIL, NULL, NULL, NULL) == NULL)
-			goto cleanup;
 	}
 
 	MemoryContextSwitchTo(oldcontext);

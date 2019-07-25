@@ -416,9 +416,11 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 
 	if (attcount == 0)
 	{
-		if (state->resp->columns_count && state->coltypes[0] == chb_Void)
-			/* SELECT NULL */
-			return NULL;
+		if (state->resp->columns_count == 1 && (state->coltypes[0] == chb_Void))
+		{
+			/* SELECT NULL, null already contains nulls */
+			goto ok;
+		}
 		else
 		{
 			ch_binary_response_free(state->resp);
@@ -474,6 +476,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		j++;
 	}
 
+ok:
 	return (char **) values;
 }
 

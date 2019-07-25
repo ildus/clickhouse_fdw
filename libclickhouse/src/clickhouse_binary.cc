@@ -417,7 +417,6 @@ nested:
 void **ch_binary_read_row(ch_binary_read_state_t *state)
 {
 	void **res = NULL;
-	bool skip_block = false;
 
 	if (state->done || state->coltypes == NULL || state->error)
 		return NULL;
@@ -431,14 +430,11 @@ void **ch_binary_read_row(ch_binary_read_state_t *state)
 
 again:
 		assert(state->block < state->resp->blocks_count);
-		auto& block = values[state->block];
-
+		auto&	block = values[state->block];
 		size_t	row_count  = block[0]->Size();
+
 		if (row_count == 0)
-		{
-			skip_block = true;
-			goto skip;
-		}
+			goto next_row;
 
 		for (size_t i = 0; i < state->resp->columns_count; i++)
 		{
@@ -450,7 +446,7 @@ again:
 				state->coltypes[i] = chb_Void;
 		}
 
-skip:
+next_row:
 		state->row++;
 		if (state->row >= row_count)
 		{
@@ -458,7 +454,7 @@ skip:
 			state->block++;
 			if (state->block >= state->resp->blocks_count)
 				state->done = true;
-			else if (skip_block)
+			else if (row_count == 0)
 				goto again;
 		}
 	}
