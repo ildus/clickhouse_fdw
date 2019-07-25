@@ -25,7 +25,7 @@ uint64_t get_timestamp(char *str)
 static void test_simple_query(void **s)
 {
 	ch_binary_read_state_t	state;
-	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	assert_ptr_not_equal(conn, NULL);
 
 	// QUERY 1
@@ -252,7 +252,7 @@ static void test_query_canceling(void **s)
 {
 	bool cancel = false;
 
-	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	assert_ptr_not_equal(conn, NULL);
 	ch_binary_response_t	*res = ch_binary_simple_query(conn,
 		"select 1, NULL, number from numbers(3);", &cancel);
@@ -278,7 +278,7 @@ static void query(ch_binary_connection_t *conn, char *sql)
 
 static void test_insertion(void **s)
 {
-	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	ch_binary_response_t	*res;
 	ch_binary_read_state_t	state;
 
@@ -432,7 +432,7 @@ static void test_insertion(void **s)
 /* string, fixedstring, uuid, date, datetime */
 static void test_insertion_complex(void **s)
 {
-	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL);
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	ch_binary_response_t	*res;
 	ch_binary_read_state_t	state;
 

@@ -11,7 +11,7 @@ using namespace clickhouse;
 extern "C" {
 
 ch_binary_connection_t *ch_binary_connect(char *host, int port,
-		char *database, char *user, char *password)
+		char *database, char *user, char *password, char **error)
 {
 	ch_binary_connection_t	*conn = NULL;
 	ClientOptions	*options = new ClientOptions();
@@ -40,7 +40,8 @@ ch_binary_connection_t *ch_binary_connect(char *host, int port,
 	{
 		delete conn;
 		conn = NULL;
-		std::cout << e.what();
+		if (error)
+			*error = strdup(e.what());
 	}
 	return conn;
 }

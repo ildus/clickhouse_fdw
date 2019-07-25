@@ -225,9 +225,6 @@ typedef struct ConnCacheEntry
 	uint32			mapping_hashvalue;	/* hash value of user mapping OID */
 } ConnCacheEntry;
 
-
-extern libclickhouse_methods *clickhouse_gate;
-
 /* Custom behavior types */
 typedef enum {
 	CF_USUAL = 0,

@@ -229,7 +229,6 @@ clickhouseAcquireSampleRowsFunc(Relation relation, int elevel,
                                 double *totaldeadrows);
 static void clickhouseBeginForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *clickhouseIterateForeignScan(ForeignScanState *node);
-static void clickhouseReScanForeignScan(ForeignScanState *node);
 static void clickhouseEndForeignScan(ForeignScanState *node);
 static List *clickhousePlanForeignModify(PlannerInfo *root,
         ModifyTable *plan,
@@ -1089,7 +1088,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	else
 	{
 		/* parse result of something like SELECT NULL */
-		if (clickhouse_gate->fetch_row(fsstate->ch_cursor, NIL, NULL, NULL, NULL) == NULL)
+		if (fsstate->conn.methods->fetch_row(fsstate->ch_cursor, NIL, NULL, NULL, NULL) == NULL)
 			goto cleanup;
 	}
 
@@ -1176,21 +1175,6 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 }
 
 /*
- * clickhouseReScanForeignScan
- *		Restart the scan.
- */
-static void
-clickhouseReScanForeignScan(ForeignScanState *node)
-{
-	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-	if (fsstate->ch_cursor != NULL)
-	{
-		clickhouse_gate->cursor_free(fsstate->ch_cursor);
-		fsstate->ch_cursor = NULL;
-	}
-}
-
-/*
  * clickhouseEndForeignScan
  *		Finish scanning foreign table and dispose objects used for this scan
  */
@@ -1199,14 +1183,11 @@ clickhouseEndForeignScan(ForeignScanState *node)
 {
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 
-	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
-	if (fsstate == NULL)
-		return;
-
-	if (fsstate->ch_cursor)
-		clickhouse_gate->cursor_free(fsstate->ch_cursor);
-
-	/* MemoryContexts will be deleted automatically. */
+	if (fsstate && fsstate->ch_cursor)
+	{
+		fsstate->conn.methods->cursor_free(fsstate->ch_cursor);
+		fsstate->ch_cursor = NULL;
+	}
 }
 
 /*
@@ -2777,7 +2758,7 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 	routine->GetForeignPlan = clickhouseGetForeignPlan;
 	routine->BeginForeignScan = clickhouseBeginForeignScan;
 	routine->IterateForeignScan = clickhouseIterateForeignScan;
-	routine->ReScanForeignScan = clickhouseReScanForeignScan;
+	routine->ReScanForeignScan = clickhouseEndForeignScan;
 	routine->EndForeignScan = clickhouseEndForeignScan;
 
 	/* Functions for updating foreign tables */
