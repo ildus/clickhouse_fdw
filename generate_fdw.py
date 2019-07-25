@@ -20,12 +20,12 @@ parser.add_argument('-S', '--server_name', type=str, dest='server_name', default
 types_map = {
     'Int8': 'smallint',
     'UInt8': 'smallint',
-    'UInt16': 'smallint',
     'Int16': 'smallint',
+    'UInt16': 'integer',
     'Int32': 'integer',
-    'UInt32': 'integer',
+    'UInt32': 'bigint',
     'Int64': 'bigint',
-    'UInt64': 'bigint',
+    'UInt64': 'bigint', # overflow risk
     'Float32': 'real',
     'Float64': 'double precision',
     'Decimal': 'numeric',

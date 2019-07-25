@@ -1,7 +1,11 @@
+#include <limits.h>
 #include "postgres.h"
-#include "utils/builtins.h"
-#include "miscadmin.h"
+#include "catalog/pg_type_d.h"
 #include "foreign/foreign.h"
+#include "miscadmin.h"
+#include "parser/parse_coerce.h"
+#include "utils/builtins.h"
+
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
 #include "clickhouse_binary.hh"
@@ -327,6 +331,56 @@ binary_simple_query(void *conn, const char *query)
 	return cursor;
 }
 
+static Datum
+make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
+{
+	switch (coltype)
+	{
+		case chb_Int8:
+			*restype = INT2OID;
+			return Int16GetDatum((int16)(*(int8 *) rowval));
+		case chb_UInt8:
+			*restype = INT2OID;
+			return Int16GetDatum((int16)(*(uint8 *) rowval));
+		case chb_Int16:
+			*restype = INT2OID;
+			return Int16GetDatum(*(int16 *) rowval);
+		case chb_UInt16:
+			*restype = INT4OID;
+			return Int32GetDatum((int32)(*(uint16 *) rowval));
+		case chb_Int32:
+			*restype = INT4OID;
+			return Int32GetDatum(*(int32 *) rowval);
+		case chb_UInt32:
+			*restype = INT8OID;
+			return Int64GetDatum((int64)(*(uint32 *) rowval));
+		case chb_Int64:
+			*restype = INT8OID;
+			return Int64GetDatum(*(int64 *) rowval);
+		case chb_UInt64:
+			{
+				uint64	val = *(uint64 *) rowval;
+				if (val > LONG_MAX)
+					elog(ERROR, "clickhouse_fdw: int64 overflow");
+
+				*restype = INT8OID;
+				return Int64GetDatum((int64) val);
+			}
+		case chb_Float32:
+			*restype = FLOAT4OID;
+			return Float4GetDatum(*(float *) rowval);
+		case chb_Float64:
+			*restype = FLOAT8OID;
+			return Float8GetDatum(*(double *) rowval);
+		case chb_FixedString:
+		case chb_String:
+			*restype = TEXTOID;
+			return CStringGetTextDatum((const char *) rowval);
+	}
+
+	elog(ERROR, "clickhouse_fdw: invalid conversion");
+}
+
 static char **
 binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	Datum *values, bool *nulls)
@@ -345,7 +399,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("error while reading row from clickhouse: %s",
+		         errmsg("clickhouse_fdw: error while reading row from clickhouse: %s",
 					 error)));
 	}
 
@@ -358,7 +412,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		{
 			ch_binary_response_free(state->resp);
 			ch_binary_read_state_free(state);
-			elog(ERROR, "unexpected state: atttributes count == 0 and haven't got NULL in the response");
+			elog(ERROR, "clickhouse_fdw: unexpected state: atttributes count == 0 and haven't got NULL in the response");
 		}
 	}
 	else if (attcount != state->resp->columns_count)
@@ -368,18 +422,48 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("Columns mistmatch between PostgreSQL and ClickHouse"
+		         errmsg("clickhouse_fdw: columns mismatch in result"
 					    "\nQUERY: %s", cursor->query)));
 	}
 
 	j = 0;
-	foreach(lc, fsstate->retrieved_attrs)
+	foreach(lc, attrs)
 	{
-		Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-		int i = lfirst_int(lc);
+		int		i = lfirst_int(lc);
+		void   *val = row_values[j];
+
+		if (state->coltypes[j] == chb_Void)
+			nulls[i - 1] = true;
+		else
+		{
+			Oid restype;
+			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+			values[i - 1] = make_datum(row_values[j], state->coltypes[j], &restype);
+			if (restype != pgtype)
+			{
+				/* try to convert */
+				Oid			castfunc;
+				CoercionPathType ctype;
+
+				ctype = find_coercion_pathway(pgtype, restype,
+											  COERCION_EXPLICIT,
+											  &castfunc);
+				switch (ctype)
+				{
+					case COERCION_PATH_FUNC:
+						values[i - 1] = OidFunctionCall1(castfunc, values[i - 1]);
+					case COERCION_PATH_RELABELTYPE:
+						/* all good */
+						break;
+					default:
+						elog(ERROR, "clickhouse_fdw: could not cast value");
+				}
+			}
+		}
+		j++;
 	}
 
-	return NULL;
+	return (char **) values;
 }
 
 static void
@@ -396,5 +480,5 @@ binary_cursor_free(ch_cursor *cursor)
 static void
 binary_simple_insert(void *conn, const char *query)
 {
-	elog(ERROR, "insertion is not implemented for binary protocol yet");
+	elog(ERROR, "clickhouse_fdw: insertion is not implemented for binary protocol yet");
 }
