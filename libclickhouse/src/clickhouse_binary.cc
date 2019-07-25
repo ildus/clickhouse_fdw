@@ -203,6 +203,7 @@ do {												\
 					}
 					break;
 				default:
+					/* TODO: all types */
 					throw std::logic_error("unsupported type");
 			}
 		}
