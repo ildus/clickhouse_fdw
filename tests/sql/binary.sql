@@ -19,7 +19,9 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
 
 -- date and string types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
-    c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID
+    c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
+    c6 Enum8(''one'' = 1, ''two'' = 2),
+    c7 Enum16(''one'' = 1, ''two'' = 2, ''three'' = 3)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
@@ -57,12 +59,15 @@ CREATE FOREIGN TABLE fints (
     c10 float8
 ) SERVER loopback OPTIONS (table_name 'ints');
 
+CREATE TYPE numbers AS ENUM ('one', 'two', 'three');
 CREATE FOREIGN TABLE ftypes (
 	c1 date,
 	c2 timestamp without time zone,
     c3 text,
     c4 text,
-    c5 uuid
+    c5 uuid,
+    c6 numbers, -- Enum8
+    c7 numbers  -- Enum16
 ) SERVER loopback OPTIONS (table_name 'types');
 
 CREATE FOREIGN TABLE farrays (
@@ -78,7 +83,7 @@ SELECT NULL FROM fints LIMIT 2;
 
 -- types
 SELECT * FROM ftypes ORDER BY c1;
-SELECT c2, c1, c4, c3, c5 FROM ftypes ORDER BY c1;
+SELECT c2, c1, c4, c3, c5, c7, c6 FROM ftypes ORDER BY c1;
 
 -- arrays
 SELECT * FROM farrays ORDER BY c1;
