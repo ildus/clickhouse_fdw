@@ -138,7 +138,7 @@ http_simple_query(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse communication error: %s", error)));
+		         errmsg("clickhouse_fdw: communication error: %s", error)));
 	}
 
 	if (resp->http_status == 418)
@@ -148,7 +148,7 @@ http_simple_query(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse query was aborted")));
+		         errmsg("clickhouse_fdw: query was aborted")));
 	}
 	else if (resp->http_status != 200)
 	{
@@ -157,7 +157,7 @@ http_simple_query(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("CH:%s\nQUERY:%s", format_error(error), query)));
+		         errmsg("clickhouse_fdw:%s\nQUERY:%s", format_error(error), query)));
 	}
 
 	cursor = palloc(sizeof(ch_cursor));
@@ -184,7 +184,7 @@ http_simple_insert(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse communication error: %s", error)));
+		         errmsg("clickhouse_fdw: communication error: %s", error)));
 	}
 
 	if (resp->http_status != 200)
@@ -194,7 +194,7 @@ http_simple_insert(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("CH:%s\nQUERY:%s", format_error(error), query)));
+		         errmsg("clickhouse_fdw:%s\nQUERY:%s", format_error(error), query)));
 	}
 
 	ch_http_response_free(resp);
@@ -246,7 +246,7 @@ http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("Columns mistmatch between PostgreSQL and ClickHouse"
+		         errmsg("clickhouse_fdw; columns mismatch in result"
 					    "\nQUERY: %s\nRESULT: %s", cursor->query, resval)));
 	}
 
@@ -331,7 +331,7 @@ binary_simple_query(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("could not initialize read state for clickhouse: %s",
+		         errmsg("clickhouse_fdw: could not initialize read state: %s",
 					 error)));
 	}
 
@@ -408,7 +408,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw: error while reading row from clickhouse: %s",
+		         errmsg("clickhouse_fdw: error while reading row: %s",
 					 error)));
 	}
 
