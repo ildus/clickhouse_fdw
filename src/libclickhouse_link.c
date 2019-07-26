@@ -2,12 +2,14 @@
 #include "postgres.h"
 #include "catalog/pg_type_d.h"
 #include "foreign/foreign.h"
+#include "funcapi.h"
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
 #include "utils/lsyscache.h"
 #include "utils/uuid.h"
+#include "access/htup_details.h"
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
@@ -359,7 +361,7 @@ static Oid types_map[21] = {
 	TIMESTAMPOID,
 	InvalidOid,	/* chb_Array, depends on array type */
 	InvalidOid,	/* chb_Nullable, just skip it */
-	InvalidOid,	/* composite type, TYPTYPE_COMPOSITE */
+	InvalidOid,	/* composite type */
 	INT2OID,	/* enum8 */
 	INT2OID,	/* enum16 */
 	UUIDOID
@@ -465,6 +467,51 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 			{
 				int16 val = *(int16 *) rowval;
 				return Int16GetDatum(val);
+			}
+		case chb_Tuple:
+			{
+				Datum		result;
+				HeapTuple	htup;
+				Datum	   *tuple_values;
+				bool	   *tuple_nulls;
+				TupleDesc	desc;
+				size_t		i;
+
+				ch_binary_tuple_t *tuple = rowval;
+
+				desc = CreateTemplateTupleDesc(tuple->len, false);
+				tuple_values = palloc(sizeof(Datum) * desc->natts);
+
+				/* TODO: support NULLs in tuple */
+				tuple_nulls = palloc0(sizeof(bool) * desc->natts);
+
+				for (i = 0; i < desc->natts; ++i)
+				{
+					ch_binary_coltype	coltype = tuple->coltypes[i];
+					Oid elmtype = types_map[coltype];
+
+					if (elmtype == InvalidOid)
+						elog(ERROR, "clickhouse_fdw: tuple too complex for conversion");
+
+					TupleDescInitEntry(desc, (AttrNumber) i + 1, "",
+									   elmtype, -1, 0);
+
+					tuple_values[i] = make_datum(tuple->values[i], coltype, NULL);
+				}
+
+				desc = BlessTupleDesc(desc);
+
+				htup = heap_form_tuple(desc, tuple_values, tuple_nulls);
+				result = heap_copy_tuple_as_datum(htup, desc);
+				heap_freetuple(htup);
+
+				pfree(tuple_values);
+				pfree(tuple_nulls);
+
+				if (restype)
+					*restype = RECORDOID;
+
+				return result;
 			}
 	}
 

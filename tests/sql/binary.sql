@@ -44,6 +44,16 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
     [format(''num{0}'', toString(number)), format(''num{0}'', toString(number + 1))]
     FROM numbers(10);');
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
+    c1 Int8,
+    c2 Tuple(Int, String, Float32)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
+    number,
+    (number, toString(number), number + 1.0)
+    FROM numbers(10);');
+
 CREATE ROLE user1 SUPERUSER;
 CREATE USER MAPPING FOR user1 SERVER loopback;
 SET ROLE user1;
@@ -76,6 +86,12 @@ CREATE FOREIGN TABLE farrays (
     c2 text[]
 ) SERVER loopback OPTIONS (table_name 'arrays');
 
+CREATE TABLE tupformat(a int, b text, c float4);
+CREATE FOREIGN TABLE ftuples (
+    c1 int,
+    c2 tupformat
+) SERVER loopback OPTIONS (table_name 'tuples');
+
 -- integers
 SELECT * FROM fints ORDER BY c1;
 SELECT c2, c1, c8, c3, c4, c7, c6, c5 FROM fints ORDER BY c1;
@@ -88,6 +104,9 @@ SELECT c2, c1, c4, c3, c5, c7, c6 FROM ftypes ORDER BY c1;
 
 -- arrays
 SELECT * FROM farrays ORDER BY c1;
+
+-- tuples
+SELECT * FROM ftuples ORDER BY c1;
 
 RESET ROLE;
 DROP OWNED BY user1;

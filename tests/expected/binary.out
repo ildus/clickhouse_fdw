@@ -79,6 +79,23 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
  
 (1 row)
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
+    c1 Tuple(Int, String, Float32)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
+    (number, toString(number), number + 1.0)
+    FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 CREATE ROLE user1 SUPERUSER;
 CREATE USER MAPPING FOR user1 SERVER loopback;
 SET ROLE user1;
