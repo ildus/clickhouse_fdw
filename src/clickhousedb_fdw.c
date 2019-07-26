@@ -1487,8 +1487,8 @@ estimate_path_cost_size(PlannerInfo *root,
                         double *p_rows, int *p_width,
                         Cost *p_startup_cost, Cost *p_total_cost)
 {
-	*p_rows = 2;
-	*p_width = 2;
+	*p_rows = 1;
+	*p_width = 1;
 	*p_startup_cost = 1.0;
 	*p_total_cost = -1.0;
 }

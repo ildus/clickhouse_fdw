@@ -5,6 +5,7 @@
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"
 #include "utils/builtins.h"
+#include "utils/timestamp.h"
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
@@ -313,7 +314,7 @@ binary_simple_query(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse query error: %s", error)));
+		         errmsg("clickhouse_fdw: %s", error)));
 	}
 
 	cursor = palloc(sizeof(ch_cursor));
@@ -384,7 +385,13 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 		case chb_String:
 			*restype = TEXTOID;
 			return CStringGetTextDatum((const char *) rowval);
-		/* TODO: other types */
+		case chb_DateTime:
+		case chb_Date:
+			{
+				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
+				*restype = TIMESTAMPOID;
+				return TimestampGetDatum(t);
+			}
 	}
 
 	elog(ERROR, "clickhouse_fdw: invalid conversion");
