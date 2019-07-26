@@ -360,8 +360,8 @@ static Oid types_map[21] = {
 	InvalidOid,	/* chb_Array, depends on array type */
 	InvalidOid,	/* chb_Nullable, just skip it */
 	InvalidOid,	/* composite type, TYPTYPE_COMPOSITE */
-	INT4OID,	/* enum8 */
-	INT4OID,	/* enum16 */
+	INT2OID,	/* enum8 */
+	INT2OID,	/* enum16 */
 	UUIDOID
 };
 
@@ -459,12 +459,12 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 		case chb_Enum8:
 			{
 				int8 val = *(int8 *) rowval;
-				return Int32GetDatum((int) val);
+				return Int16GetDatum((int16) val);
 			}
 		case chb_Enum16:
 			{
 				int16 val = *(int16 *) rowval;
-				return Int32GetDatum((int) val);
+				return Int16GetDatum(val);
 			}
 	}
 

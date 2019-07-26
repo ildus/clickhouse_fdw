@@ -29,7 +29,9 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
     addMinutes(addSeconds(addDays(toDateTime(''1990-01-01 10:00:00''), number), number), number),
     format(''number {0}'', toString(number)),
     format(''num {0}'', toString(number)),
-    format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number))
+    format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number)),
+    ''two'',
+    ''three''
     FROM numbers(10);');
 
 -- array types
@@ -59,15 +61,14 @@ CREATE FOREIGN TABLE fints (
     c10 float8
 ) SERVER loopback OPTIONS (table_name 'ints');
 
-CREATE TYPE numbers AS ENUM ('one', 'two', 'three');
 CREATE FOREIGN TABLE ftypes (
 	c1 date,
 	c2 timestamp without time zone,
     c3 text,
     c4 text,
     c5 uuid,
-    c6 numbers, -- Enum8
-    c7 numbers  -- Enum16
+    c6 smallint, -- Enum8
+    c7 smallint  -- Enum16
 ) SERVER loopback OPTIONS (table_name 'types');
 
 CREATE FOREIGN TABLE farrays (
