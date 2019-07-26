@@ -11,6 +11,11 @@ typedef struct ch_binary_response_t
 	bool				success;
 } ch_binary_response_t;
 
+/*
+ * order is very important !!!!,
+ * look at clickhouse-cpp code, also external code (clickhouse_link.c) depends
+ * on that
+ */
 typedef enum {
 	chb_Void = 0,
 	chb_Int8,

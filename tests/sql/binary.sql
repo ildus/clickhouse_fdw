@@ -1,6 +1,7 @@
 CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
-CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver 'binary');
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw
+    OPTIONS(dbname 'regression', driver 'binary');
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
@@ -62,6 +63,11 @@ CREATE FOREIGN TABLE fdates (
     c4 text
 ) SERVER loopback OPTIONS (table_name 'dates');
 
+CREATE FOREIGN TABLE farrays (
+	c1 int[],
+    c2 text[]
+) SERVER loopback OPTIONS (table_name 'arrays');
+
 -- integers
 SELECT * FROM fints ORDER BY c1;
 SELECT c2, c1, c8, c3, c4, c7, c6, c5 FROM fints ORDER BY c1;
@@ -71,6 +77,9 @@ SELECT NULL FROM fints LIMIT 2;
 -- dates
 SELECT * FROM fdates ORDER BY c1;
 SELECT c2, c1, c4, c3 FROM fdates ORDER BY c1;
+
+-- arrays
+SELECT * FROM farrays ORDER BY c1;
 
 RESET ROLE;
 DROP OWNED BY user1;

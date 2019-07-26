@@ -6,6 +6,7 @@
 #include "parser/parse_coerce.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
+#include "utils/lsyscache.h"
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
@@ -339,32 +340,53 @@ binary_simple_query(void *conn, const char *query)
 	return cursor;
 }
 
+static Oid types_map[21] = {
+	InvalidOid, /* chb_Void */
+	INT2OID,
+	INT2OID,
+	INT4OID,
+	INT8OID,
+	INT2OID,	/* chb_UInt8 */
+	INT4OID,
+	INT8OID,
+	INT8OID,	/* overflow risk */
+	FLOAT4OID,
+	FLOAT8OID,
+	TEXTOID,
+	TEXTOID,
+	TIMESTAMPOID,
+	TIMESTAMPOID,
+	InvalidOid,	/* chb_Array, depends on array type */
+	InvalidOid,	/* chb_Nullable, just skip it */
+	InvalidOid,	/* composite type, TYPTYPE_COMPOSITE */
+	chb_Enum8,
+	chb_Enum16,
+	chb_UUID
+};
+
 static Datum
 make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 {
 	Assert(rowval != NULL);
+
+	if (restype)
+		*restype = types_map[coltype];
+
 	switch (coltype)
 	{
 		case chb_Int8:
-			*restype = INT2OID;
 			return Int16GetDatum((int16)(*(int8 *) rowval));
 		case chb_UInt8:
-			*restype = INT2OID;
 			return Int16GetDatum((int16)(*(uint8 *) rowval));
 		case chb_Int16:
-			*restype = INT2OID;
 			return Int16GetDatum(*(int16 *) rowval);
 		case chb_UInt16:
-			*restype = INT4OID;
 			return Int32GetDatum((int32)(*(uint16 *) rowval));
 		case chb_Int32:
-			*restype = INT4OID;
 			return Int32GetDatum(*(int32 *) rowval);
 		case chb_UInt32:
-			*restype = INT8OID;
 			return Int64GetDatum((int64)(*(uint32 *) rowval));
 		case chb_Int64:
-			*restype = INT8OID;
 			return Int64GetDatum(*(int64 *) rowval);
 		case chb_UInt64:
 			{
@@ -372,29 +394,63 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 				if (val > LONG_MAX)
 					elog(ERROR, "clickhouse_fdw: int64 overflow");
 
-				*restype = INT8OID;
 				return Int64GetDatum((int64) val);
 			}
 		case chb_Float32:
-			*restype = FLOAT4OID;
 			return Float4GetDatum(*(float *) rowval);
 		case chb_Float64:
-			*restype = FLOAT8OID;
 			return Float8GetDatum(*(double *) rowval);
 		case chb_FixedString:
 		case chb_String:
-			*restype = TEXTOID;
 			return CStringGetTextDatum((const char *) rowval);
 		case chb_DateTime:
 		case chb_Date:
 			{
 				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
-				*restype = TIMESTAMPOID;
 				return TimestampGetDatum(t);
+			}
+		case chb_Array:
+			{
+				size_t		i;
+				Datum	   *out_datums;
+				ch_binary_array_t *arr = rowval;
+				Oid			elmtype = types_map[arr->coltype],
+							arraytype;
+				int			lb = 1;
+				ArrayType  *aout;
+				int16		typlen;
+				bool		typbyval;
+				char		typalign;
+
+				if (elmtype == InvalidOid)
+					/* TODO: support more complex arrays. But first check that
+					 * ClickHouse supports them (thigs like multidimensional
+					 * arrays and such */
+					elog(ERROR, "clickhouse_fdw: array too complex for conversion");
+
+				arraytype = get_array_type(elmtype);
+				if (arraytype == InvalidOid)
+					elog(ERROR, "clickhouse_fdw: could not find array type for %d", elmtype);
+
+				if (restype)
+					*restype = arraytype;
+
+				if (arr->len == 0)
+					return PointerGetDatum(construct_empty_array(elmtype));
+
+				out_datums = palloc(sizeof(Datum) * arr->len);
+
+				for (i = 0; i < arr->len; ++i)
+					out_datums[i] = make_datum(arr->values[i], arr->coltype, NULL);
+
+				get_typlenbyvalalign(elmtype, &typlen, &typbyval, &typalign);
+				aout = construct_array(out_datums, arr->len, elmtype,
+					typlen, typbyval, typalign);
+				return PointerGetDatum(aout);
 			}
 	}
 
-	elog(ERROR, "clickhouse_fdw: invalid conversion");
+	elog(ERROR, "clickhouse_fdw: %d type from ClickHouse is not supported", coltype);
 }
 
 static char **
@@ -479,7 +535,8 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 						/* all good */
 						break;
 					default:
-						elog(ERROR, "clickhouse_fdw: could not cast value");
+						elog(ERROR, "clickhouse_fdw: could not cast value from %d to %d",
+								restype, pgtype);
 				}
 			}
 			nulls[i - 1] = false;
