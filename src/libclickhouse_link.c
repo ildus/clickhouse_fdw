@@ -7,6 +7,7 @@
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
 #include "utils/lsyscache.h"
+#include "utils/uuid.h"
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
@@ -361,7 +362,7 @@ static Oid types_map[21] = {
 	InvalidOid,	/* composite type, TYPTYPE_COMPOSITE */
 	chb_Enum8,
 	chb_Enum16,
-	chb_UUID
+	UUIDOID
 };
 
 static Datum
@@ -447,6 +448,13 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 				aout = construct_array(out_datums, arr->len, elmtype,
 					typlen, typbyval, typalign);
 				return PointerGetDatum(aout);
+			}
+		case chb_UUID:
+			{
+				pg_uuid_t	*val = (pg_uuid_t *) rowval;
+				StaticAssertStmt(val + offsetof(pg_uuid_t, data) == val,
+					"pg_uuid_t should have only array");
+				return UUIDPGetDatum(val);
 			}
 	}
 

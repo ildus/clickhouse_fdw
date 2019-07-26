@@ -18,15 +18,16 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
     number + 6, number + 7, number + 8.1, number + 9.2 FROM numbers(10);');
 
 -- date and string types
-SELECT clickhousedb_raw_query('CREATE TABLE regression.dates (
-    c1 Date, c2 DateTime, c3 String, c4 FixedString(5)
+SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
+    c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
-SELECT clickhousedb_raw_query('INSERT INTO regression.dates SELECT
+SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
     addDays(toDate(''1990-01-01''), number),
     addMinutes(addSeconds(addDays(toDateTime(''1990-01-01 10:00:00''), number), number), number),
     format(''number {0}'', toString(number)),
-    format(''num {0}'', toString(number))
+    format(''num {0}'', toString(number)),
+    format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number))
     FROM numbers(10);');
 
 -- array types
@@ -56,12 +57,13 @@ CREATE FOREIGN TABLE fints (
     c10 float8
 ) SERVER loopback OPTIONS (table_name 'ints');
 
-CREATE FOREIGN TABLE fdates (
+CREATE FOREIGN TABLE ftypes (
 	c1 date,
 	c2 timestamp without time zone,
     c3 text,
-    c4 text
-) SERVER loopback OPTIONS (table_name 'dates');
+    c4 text,
+    c5 uuid
+) SERVER loopback OPTIONS (table_name 'types');
 
 CREATE FOREIGN TABLE farrays (
 	c1 int[],
@@ -74,9 +76,9 @@ SELECT c2, c1, c8, c3, c4, c7, c6, c5 FROM fints ORDER BY c1;
 SELECT a, b FROM (SELECT c1 * 10 as a, c8 * 11 as b FROM fints ORDER BY a LIMIT 2) t1;
 SELECT NULL FROM fints LIMIT 2;
 
--- dates
-SELECT * FROM fdates ORDER BY c1;
-SELECT c2, c1, c4, c3 FROM fdates ORDER BY c1;
+-- types
+SELECT * FROM ftypes ORDER BY c1;
+SELECT c2, c1, c4, c3, c5 FROM ftypes ORDER BY c1;
 
 -- arrays
 SELECT * FROM farrays ORDER BY c1;
