@@ -52,7 +52,7 @@ size_t write_data(void *contents, size_t size, size_t nmemb, void *userp)
 ch_http_connection_t *ch_http_connection(char *connstring)
 {
 	curl_error_happened = false;
-	ch_http_connection_t *conn = malloc(sizeof(ch_http_connection_t));
+	ch_http_connection_t *conn = calloc(sizeof(ch_http_connection_t), 1);
 	if (conn == NULL)
 	{
 		curl_error_happened = true;

@@ -26,19 +26,19 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
-
 #include "clickhousedb_fdw.h"
 
 /*
  * Connection cache (initialized on first use)
  */
 static HTAB *ConnectionHash = NULL;
+static List *cursors = NIL;
 static void chfdw_xact_callback(XactEvent event, void *arg);
 static void chfdw_subxact_callback(SubXactEvent event,
                                    SubTransactionId mySubid,
                                    SubTransactionId parentSubid,
                                    void *arg);
-static void pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
+static void chfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
 
 
 static ch_connection
@@ -109,12 +109,12 @@ GetConnection(UserMapping *user)
 		 * Register some callback functions that manage connection cleanup.
 		 * This should be done just once in each backend.
 		 */
-		RegisterXactCallback(chfdw_xact_callback, NULL);
+		RegisterXactCallback(chfdw_xact_callback, cursors);
 		RegisterSubXactCallback(chfdw_subxact_callback, NULL);
 		CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
-		                              pgfdw_inval_callback, (Datum) 0);
+		                              chfdw_inval_callback, (Datum) 0);
 		CacheRegisterSyscacheCallback(USERMAPPINGOID,
-		                              pgfdw_inval_callback, (Datum) 0);
+		                              chfdw_inval_callback, (Datum) 0);
 	}
 
 	/* Create hash key for the entry.  Assume no pad bytes in key struct */
@@ -179,12 +179,38 @@ GetConnection(UserMapping *user)
 	return entry->gate;
 }
 
+void
+chfdw_register_cursor(ch_cursor *cursor)
+{
+	MemoryContext	old = MemoryContextSwitchTo(TopMemoryContext);
+	cursors = lappend(cursors, cursor);
+	MemoryContextSwitchTo(old);
+}
+
+void
+chfdw_unregister_cursor(ch_cursor *cursor)
+{
+	MemoryContext	old = MemoryContextSwitchTo(TopMemoryContext);
+	cursors = list_delete_ptr(cursors, cursor);
+	MemoryContextSwitchTo(old);
+}
+
 /*
  * chfdw_xact_callback --- cleanup at main-transaction end.
  */
 static void
 chfdw_xact_callback(XactEvent event, void *arg)
 {
+	ListCell	*lc;
+	List		*cursors = (List *) arg;
+
+	foreach(lc, cursors)
+	{
+		ch_cursor *cursor = lfirst(lc);
+		cursor->free(cursor);
+	}
+	list_free(cursors);
+	cursors = NIL;
 }
 
 /*
@@ -212,7 +238,7 @@ chfdw_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
  * individual option values, but it seems too much effort for the gain.
  */
 static void
-pgfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
+chfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
 {
 	HASH_SEQ_STATUS scan;
 	ConnCacheEntry *entry;

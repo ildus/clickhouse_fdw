@@ -418,6 +418,7 @@ nested:
 void **ch_binary_read_row(ch_binary_read_state_t *state)
 {
 	void **res = NULL;
+	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
 
 	if (state->done || state->coltypes == NULL || state->error)
 		return NULL;
@@ -468,6 +469,8 @@ next_row:
 		res = NULL;
 	}
 
+	std::shared_ptr<void> ptr(res, free);
+	gc->push_back(ptr);
 	return res;
 }
 
@@ -476,12 +479,13 @@ void ch_binary_read_state_free(ch_binary_read_state_t *state)
 	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
 
 	if (state->coltypes)
-		delete state->coltypes;
+		delete[] state->coltypes;
 
 	if (state->error)
 		free(state->error);
 
 	gc->clear();
+	delete gc;
 }
 
 }

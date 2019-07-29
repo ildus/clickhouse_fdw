@@ -170,6 +170,7 @@ http_simple_query(void *conn, const char *query)
 	cursor->query_response = resp;
 	cursor->read_state = palloc0(sizeof(ch_http_read_state));
 	cursor->query = pstrdup(query);
+	cursor->free = http_cursor_free;
 	ch_http_read_state_init(cursor->read_state, resp->data, resp->datasize);
 
 	return cursor;
@@ -328,6 +329,7 @@ binary_simple_query(void *conn, const char *query)
 	state = (ch_binary_read_state_t *) palloc0(sizeof(ch_binary_read_state_t));
 	cursor->query = pstrdup(query);
 	cursor->read_state = state;
+	cursor->free = binary_cursor_free;
 	ch_binary_read_state_init(cursor->read_state, resp);
 
 	if (state->error)
@@ -620,8 +622,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	if (state->error)
 	{
 		char *error = pstrdup(state->error);
-		ch_binary_response_free(state->resp);
-		ch_binary_read_state_free(state);
+		binary_cursor_free(cursor);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
@@ -641,16 +642,14 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		}
 		else
 		{
-			ch_binary_response_free(state->resp);
-			ch_binary_read_state_free(state);
+			binary_cursor_free(cursor);
 			elog(ERROR, "clickhouse_fdw: unexpected state: atttributes "
 					"count == 0 and haven't got NULL in the response");
 		}
 	}
 	else if (attcount != state->resp->columns_count)
 	{
-		ch_binary_response_free(state->resp);
-		ch_binary_read_state_free(state);
+		binary_cursor_free(cursor);
 
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),

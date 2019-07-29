@@ -1143,6 +1143,7 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 		MemoryContext	old = MemoryContextSwitchTo(fsstate->batch_cxt);
 		fsstate->ch_cursor = fsstate->conn.methods->simple_query(fsstate->conn.conn,
 				fsstate->query);
+		chfdw_register_cursor(fsstate->ch_cursor);
 		MemoryContextSwitchTo(old);
 	}
 
@@ -1177,6 +1178,7 @@ clickhouseEndForeignScan(ForeignScanState *node)
 	if (fsstate && fsstate->ch_cursor)
 	{
 		fsstate->conn.methods->cursor_free(fsstate->ch_cursor);
+		chfdw_unregister_cursor(fsstate->ch_cursor);
 		fsstate->ch_cursor = NULL;
 	}
 }

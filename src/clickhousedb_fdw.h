@@ -18,11 +18,13 @@
 #include "catalog/pg_operator.h"
 
 /* libclickhouse_link.c */
-typedef struct
+typedef struct ch_cursor ch_cursor;
+typedef struct ch_cursor
 {
 	void	*query_response;
 	void	*read_state;
 	char	*query;
+	void	(*free)(ch_cursor *cursor);	/* cleaning method */
 } ch_cursor;
 
 typedef void (*disconnect_method)(void *conn);
@@ -165,6 +167,8 @@ extern void reset_transmission_modes(int nestlevel);
 extern ForeignServer *get_foreign_server(Relation rel);
 
 /* in connection.c */
+extern void chfdw_register_cursor(ch_cursor *cursor);
+extern void chfdw_unregister_cursor(ch_cursor *cursor);
 extern ch_connection GetConnection(UserMapping *user);
 extern unsigned int GetCursorNumber(ch_connection conn);
 extern unsigned int GetPrepStmtNumber(ch_connection conn);
