@@ -599,7 +599,7 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				/* all good */
 				break;
 			default:
-				elog(ERROR, "clickhouse_fdw: could not cast value from %d to %d",
+				elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
 						format_type_be(valtype), format_type_be(pgtype));
 		}
 	}

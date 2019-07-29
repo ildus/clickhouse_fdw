@@ -3,12 +3,12 @@
 
 Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differences:
 
-* remove ODBC, use HTTP instead (binary in the future)
+* remove ODBC, use HTTP or binary protocols
 * fix JOINS
 * push down `CASE WHEN`
 * support `coalesce`, `date_trunc` and other specific functions
 * support query cancelation
-* use `cmake` for Makefile generation (for out for source builds)
+* use `cmake` for Makefile generation (for out for source builds and proper dependency checks)
 * support arrays and `ANY`, `ALL` functions
 * support CollapsingMergeTree engine (with `sign` column) in aggregations
 * add infrastructure for adding custom behaviours in the code (for custom types)
@@ -42,7 +42,7 @@ be installed in the system.
 git clone https://github.com/ildus/clickhouse_fdw.git
 cd clickhouse_fdw
 mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=DEBUG ..
+cmake ..
 make && make install
 ```
 
@@ -58,7 +58,7 @@ tax_bills_nyc and tax_bills:
     USE test_database;
 
 
-    CREATE TABLE tax_bills_nyc 
+    CREATE TABLE tax_bills_nyc
     (
         bbl Int64,
         owner_name String,
@@ -191,16 +191,6 @@ Join pushdown is also a very new feature of PostgreSQL FDW’s. The `clickhouse_
     )))
     (4 rows)
 
-Limitations
-------------
-
-There are some limitations and ToDos. In some instances, more research is needed to implement cases such as these:
-
-* all configuration parameters of ClickHouse database.
-* complex join pushdown support.
-* delete from a ClickHouse partition
-
 [1]: https://www.postgresql.org/
 [2]: http://www.clickhouse.com
 [3]: https://github.com/ildus/clickhouse_fdw/issues/new
-[4]: CONTRIBUTING.md

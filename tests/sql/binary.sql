@@ -86,6 +86,11 @@ CREATE FOREIGN TABLE farrays (
     c2 text[]
 ) SERVER loopback OPTIONS (table_name 'arrays');
 
+CREATE FOREIGN TABLE farrays2 (
+	c1 int8[],
+    c2 text[]
+) SERVER loopback OPTIONS (table_name 'arrays');
+
 CREATE TABLE tupformat(a int, b text, c float4);
 CREATE FOREIGN TABLE ftuples (
     c1 int,
@@ -104,6 +109,7 @@ SELECT c2, c1, c4, c3, c5, c7, c6 FROM ftypes ORDER BY c1;
 
 -- arrays
 SELECT * FROM farrays ORDER BY c1;
+SELECT * FROM farrays2 ORDER BY c1;
 
 -- tuples
 SELECT * FROM ftuples ORDER BY c1;

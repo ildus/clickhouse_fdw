@@ -126,6 +126,10 @@ CREATE FOREIGN TABLE farrays (
 	c1 int[],
     c2 text[]
 ) SERVER loopback OPTIONS (table_name 'arrays');
+CREATE FOREIGN TABLE farrays2 (
+	c1 int8[],
+    c2 text[]
+) SERVER loopback OPTIONS (table_name 'arrays');
 CREATE TABLE tupformat(a int, b text, c float4);
 CREATE FOREIGN TABLE ftuples (
     c1 int,
@@ -223,6 +227,8 @@ SELECT * FROM farrays ORDER BY c1;
  {9,10} | {num9,num10}
 (10 rows)
 
+SELECT * FROM farrays2 ORDER BY c1;
+ERROR:  clickhouse_fdw: could not cast value from integer[] to bigint[]
 -- tuples
 SELECT * FROM ftuples ORDER BY c1;
  c1 |    c2    
