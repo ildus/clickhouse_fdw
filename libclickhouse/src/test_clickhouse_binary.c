@@ -259,7 +259,7 @@ static void test_query_canceling(void **s)
 	assert_true(res->success);
 	cancel = true;
 	res = ch_binary_simple_query(conn,
-		"select number, sleepEachRow(1) from numbers(1, 10);", &cancel);
+		"select number, sleep(3) from numbers(1, 100000);", &cancel);
 	assert_false(res->success);
 	assert_string_equal(res->error, "query was canceled");
 	ch_binary_response_free(res);
@@ -428,6 +428,52 @@ static void test_insertion(void **s)
 	ch_binary_response_free(res);
 	ch_binary_close(conn);
 }
+static void test_tuples(void **s)
+{
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
+	ch_binary_response_t	*res;
+	ch_binary_read_state_t	state;
+
+	assert_ptr_not_equal(conn, NULL);
+
+	query(conn, "DROP DATABASE IF EXISTS test");
+	query(conn, "CREATE DATABASE test");
+	query(conn, "CREATE TABLE test.tuples (c1 Int8, c2 Tuple(Int, String, Float32)"
+				") ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);");
+	query(conn, "INSERT INTO test.tuples SELECT number,"
+		"(number, toString(number), number + 1.0) FROM numbers(10);");
+
+	res = ch_binary_simple_query(conn, "select * from test.tuples order by c1", NULL);
+	if (!res->success)
+		printf("%s\n", res->error);
+	assert_true(res->success);
+	ch_binary_read_state_init(&state, res);
+
+	void **values = ch_binary_read_row(&state);
+	assert_int_equal(*(uint8_t *) values[0], 0);
+
+	ch_binary_tuple_t *tuple = values[1];
+	assert_int_equal(tuple->len, 3);
+
+	assert_int_equal(*(int32_t *) tuple->values[0], 0);
+	assert_string_equal((char *) tuple->values[1], "0");
+	assert_float_equal(*(float *) tuple->values[2], 1.0, 0.1);
+
+	// 2 row
+	values = ch_binary_read_row(&state);
+	assert_int_equal(*(uint8_t *) values[0], 1);
+
+	tuple = values[1];
+	assert_int_equal(tuple->len, 3);
+
+	assert_int_equal(*(int32_t *) tuple->values[0], 1);
+	assert_string_equal((char *) tuple->values[1], "1");
+	assert_float_equal(*(float *) tuple->values[2], 2.0, 0.1);
+
+	ch_binary_read_state_free(&state);
+	ch_binary_response_free(res);
+	ch_binary_close(conn);
+}
 
 /* string, fixedstring, uuid, date, datetime */
 static void test_insertion_complex(void **s)
@@ -529,10 +575,11 @@ static void test_insertion_complex(void **s)
 
 int main(void) {
     const struct CMUnitTest tests[] = {
-        //cmocka_unit_test(test_simple_query),
-        //cmocka_unit_test(test_query_canceling),
+		cmocka_unit_test(test_simple_query),
+		cmocka_unit_test(test_query_canceling),
         cmocka_unit_test(test_insertion),
         cmocka_unit_test(test_insertion_complex),
+        cmocka_unit_test(test_tuples),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

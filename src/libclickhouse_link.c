@@ -549,7 +549,7 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 						PinTupleDesc(pgdesc);
 					}
 
-					tupmap = convert_tuples_by_position(pgdesc, desc,
+					tupmap = convert_tuples_by_position(desc, pgdesc,
 						"clickhouse_fdw: could not map tuple to returned type");
 					if (tupmap)
 					{
@@ -559,12 +559,16 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 						htup = temptup;
 					}
 
+					ret = heap_copy_tuple_as_datum(htup, pgdesc);
+					heap_freetuple(htup);
 					if (pinned)
 						ReleaseTupleDesc(pgdesc);
 				}
-
-				ret = heap_copy_tuple_as_datum(htup, desc);
-				heap_freetuple(htup);
+				else
+				{
+					ret = heap_copy_tuple_as_datum(htup, desc);
+					heap_freetuple(htup);
+				}
 
 				/* no additional conversion here */
 				return ret;

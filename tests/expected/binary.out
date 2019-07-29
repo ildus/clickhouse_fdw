@@ -80,7 +80,8 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
 (1 row)
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
-    c1 Tuple(Int, String, Float32)
+    c1 Int8,
+    c2 Tuple(Int, String, Float32)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
  clickhousedb_raw_query 
@@ -89,6 +90,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
 (1 row)
 
 SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
+    number,
     (number, toString(number), number + 1.0)
     FROM numbers(10);');
  clickhousedb_raw_query 
@@ -124,6 +126,11 @@ CREATE FOREIGN TABLE farrays (
 	c1 int[],
     c2 text[]
 ) SERVER loopback OPTIONS (table_name 'arrays');
+CREATE TABLE tupformat(a int, b text, c float4);
+CREATE FOREIGN TABLE ftuples (
+    c1 int,
+    c2 tupformat
+) SERVER loopback OPTIONS (table_name 'tuples');
 -- integers
 SELECT * FROM fints ORDER BY c1;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -214,6 +221,22 @@ SELECT * FROM farrays ORDER BY c1;
  {7,8}  | {num7,num8}
  {8,9}  | {num8,num9}
  {9,10} | {num9,num10}
+(10 rows)
+
+-- tuples
+SELECT * FROM ftuples ORDER BY c1;
+ c1 |    c2    
+----+----------
+  0 | (0,0,1)
+  1 | (1,1,2)
+  2 | (2,2,3)
+  3 | (3,3,4)
+  4 | (4,4,5)
+  5 | (5,5,6)
+  6 | (6,6,7)
+  7 | (7,7,8)
+  8 | (8,8,9)
+  9 | (9,9,10)
 (10 rows)
 
 RESET ROLE;

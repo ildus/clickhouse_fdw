@@ -347,19 +347,19 @@ nested:
 				auto tuple = col->As<ColumnTuple>();
 
 				std::shared_ptr<ch_binary_tuple_t> res(new ch_binary_tuple_t());
-				std::shared_ptr<ch_binary_coltype> coltypes(new ch_binary_coltype[tuple->Size()],
+				std::shared_ptr<ch_binary_coltype> coltypes(new ch_binary_coltype[tuple->TupleSize()],
 						std::default_delete<ch_binary_coltype[]>());
 				std::shared_ptr<void *> values(new void*[tuple->Size()],
 						std::default_delete<void*[]>());
 
-				for (size_t i = 0; i < tuple->Size(); i++)
+				for (size_t i = 0; i < tuple->TupleSize(); i++)
 				{
 					auto col = (*tuple)[i];
 					coltypes.get()[i] = (ch_binary_coltype)((*tuple)[i]->Type()->GetCode());
 					values.get()[i] = get_value(state, (*tuple)[i], coltypes.get()[i], row);
 				}
 
-				res->len = tuple->Size();
+				res->len = tuple->TupleSize();
 				res->coltypes = coltypes.get();
 				res->values = values.get();
 

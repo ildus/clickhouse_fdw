@@ -36,13 +36,13 @@ PROJECT (CLICKHOUSE-CLIENT LANGUAGES CXX)
         contrib/lz4
     )
 
-    IF (BUILD_BENCHMARK)
+	IF (BUILD_TESTS)
         SUBDIRS(
             contrib/gtest
             tests/simple
             ut
         )
-    ENDIF (BUILD_BENCHMARK)
+	ENDIF (BUILD_TESTS)
 
     IF (BUILD_BENCHMARK)
         SUBDIRS(bench)

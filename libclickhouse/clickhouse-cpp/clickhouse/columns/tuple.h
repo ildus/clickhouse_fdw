@@ -33,6 +33,9 @@ public:
     /// Returns count of rows in the column.
     size_t Size() const override;
 
+    /// Returns count of columns in the tuple.
+    size_t TupleSize() const  { return columns_.size(); }
+
     /// Makes slice of the current column.
     ColumnRef Slice(size_t, size_t) override { return ColumnRef(); }
 
