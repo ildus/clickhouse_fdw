@@ -1036,7 +1036,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	bool	   *nulls;
 	int			j;
 	int			r;
-	char      **row_values;
+	void      **row_values;
 
 	/*
 	 * Do the following work in a temp context that we reset after each tuple.
@@ -1069,7 +1069,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 		foreach(lc, fsstate->retrieved_attrs)
 		{
 			int		i = lfirst_int(lc);
-			char   *valstr = row_values[j];
+			char   *valstr = (char *) row_values[j];
 
 			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
 

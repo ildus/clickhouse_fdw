@@ -8,6 +8,7 @@
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
 #include "utils/lsyscache.h"
+#include "utils/typcache.h"
 #include "utils/uuid.h"
 #include "access/htup_details.h"
 
@@ -22,7 +23,7 @@ static void http_disconnect(void *conn);
 static ch_cursor *http_simple_query(void *conn, const char *query);
 static void http_simple_insert(void *conn, const char *query);
 static void http_cursor_free(ch_cursor *);
-static char **http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
+static void **http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	Datum *values, bool *nulls);
 
 static libclickhouse_methods http_methods = {
@@ -37,7 +38,7 @@ static void binary_disconnect(void *conn);
 static ch_cursor *binary_simple_query(void *conn, const char *query);
 static void binary_cursor_free(ch_cursor *cursor);
 static void binary_simple_insert(void *conn, const char *query);
-static char **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc,
+static void **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc,
 		Datum *values, bool *nulls);
 
 static libclickhouse_methods binary_methods = {
@@ -216,7 +217,7 @@ http_cursor_free(ch_cursor *cursor)
 	pfree(cursor);
 }
 
-static char **
+static void **
 http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool *n)
 {
 	int		rc = CH_CONT;
@@ -250,12 +251,13 @@ http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool
 		char *resval = pnstrdup(state->data, state->maxpos + 1);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw; columns mismatch in result"
-					    "\nQUERY: %s\nRESULT: %s", cursor->query, resval)));
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg_internal("clickhouse_fdw: columns mismatch"),
+				 errdetail("Number of returned columns does not match "
+						   "expected column count (%d).", attcount)));
 	}
 
-	return values;
+	return (void **) values;
 }
 
 text *
@@ -368,57 +370,67 @@ static Oid types_map[21] = {
 };
 
 static Datum
-make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
+make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 {
+	Datum	ret;
+	Oid		valtype = types_map[coltype];
+
 	Assert(rowval != NULL);
-
-	if (restype)
-		*restype = types_map[coltype];
-
 	switch (coltype)
 	{
 		case chb_Int8:
-			return Int16GetDatum((int16)(*(int8 *) rowval));
+			ret = Int16GetDatum((int16)(*(int8 *) rowval));
+			break;
 		case chb_UInt8:
-			return Int16GetDatum((int16)(*(uint8 *) rowval));
+			ret = Int16GetDatum((int16)(*(uint8 *) rowval));
+			break;
 		case chb_Int16:
-			return Int16GetDatum(*(int16 *) rowval);
+			ret = Int16GetDatum(*(int16 *) rowval);
+			break;
 		case chb_UInt16:
-			return Int32GetDatum((int32)(*(uint16 *) rowval));
+			ret = Int32GetDatum((int32)(*(uint16 *) rowval));
+			break;
 		case chb_Int32:
-			return Int32GetDatum(*(int32 *) rowval);
+			ret = Int32GetDatum(*(int32 *) rowval);
+			break;
 		case chb_UInt32:
-			return Int64GetDatum((int64)(*(uint32 *) rowval));
+			ret = Int64GetDatum((int64)(*(uint32 *) rowval));
+			break;
 		case chb_Int64:
-			return Int64GetDatum(*(int64 *) rowval);
+			ret = Int64GetDatum(*(int64 *) rowval);
+			break;
 		case chb_UInt64:
 			{
 				uint64	val = *(uint64 *) rowval;
 				if (val > LONG_MAX)
 					elog(ERROR, "clickhouse_fdw: int64 overflow");
 
-				return Int64GetDatum((int64) val);
+				ret = Int64GetDatum((int64) val);
 			}
+			break;
 		case chb_Float32:
-			return Float4GetDatum(*(float *) rowval);
+			ret = Float4GetDatum(*(float *) rowval);
+			break;
 		case chb_Float64:
-			return Float8GetDatum(*(double *) rowval);
+			ret = Float8GetDatum(*(double *) rowval);
+			break;
 		case chb_FixedString:
 		case chb_String:
-			return CStringGetTextDatum((const char *) rowval);
+			ret = CStringGetTextDatum((const char *) rowval);
+			break;
 		case chb_DateTime:
 		case chb_Date:
 			{
 				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
-				return TimestampGetDatum(t);
+				ret = TimestampGetDatum(t);
 			}
+			break;
 		case chb_Array:
 			{
 				size_t		i;
 				Datum	   *out_datums;
 				ch_binary_array_t *arr = rowval;
-				Oid			elmtype = types_map[arr->coltype],
-							arraytype;
+				Oid			elmtype = types_map[arr->coltype];
 				int			lb = 1;
 				ArrayType  *aout;
 				int16		typlen;
@@ -431,43 +443,46 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 					 * arrays and such */
 					elog(ERROR, "clickhouse_fdw: array too complex for conversion");
 
-				arraytype = get_array_type(elmtype);
-				if (arraytype == InvalidOid)
+				valtype = get_array_type(elmtype);
+				if (valtype == InvalidOid)
 					elog(ERROR, "clickhouse_fdw: could not find array type for %d", elmtype);
 
-				if (restype)
-					*restype = arraytype;
-
 				if (arr->len == 0)
-					return PointerGetDatum(construct_empty_array(elmtype));
+					ret = PointerGetDatum(construct_empty_array(elmtype));
+				else
+				{
+					out_datums = palloc(sizeof(Datum) * arr->len);
 
-				out_datums = palloc(sizeof(Datum) * arr->len);
+					for (i = 0; i < arr->len; ++i)
+						out_datums[i] = make_datum(arr->values[i], arr->coltype, InvalidOid);
 
-				for (i = 0; i < arr->len; ++i)
-					out_datums[i] = make_datum(arr->values[i], arr->coltype, NULL);
-
-				get_typlenbyvalalign(elmtype, &typlen, &typbyval, &typalign);
-				aout = construct_array(out_datums, arr->len, elmtype,
-					typlen, typbyval, typalign);
-				return PointerGetDatum(aout);
+					get_typlenbyvalalign(elmtype, &typlen, &typbyval, &typalign);
+					aout = construct_array(out_datums, arr->len, elmtype,
+						typlen, typbyval, typalign);
+					ret = PointerGetDatum(aout);
+				}
 			}
+			break;
 		case chb_UUID:
 			{
 				pg_uuid_t	*val = (pg_uuid_t *) rowval;
 				StaticAssertStmt(val + offsetof(pg_uuid_t, data) == val,
 					"pg_uuid_t should have only array");
-				return UUIDPGetDatum(val);
+				ret = UUIDPGetDatum(val);
 			}
+			break;
 		case chb_Enum8:
 			{
 				int8 val = *(int8 *) rowval;
-				return Int16GetDatum((int16) val);
+				ret = Int16GetDatum((int16) val);
 			}
+			break;
 		case chb_Enum16:
 			{
 				int16 val = *(int16 *) rowval;
-				return Int16GetDatum(val);
+				ret = Int16GetDatum(val);
 			}
+			break;
 		case chb_Tuple:
 			{
 				Datum		result;
@@ -496,29 +511,99 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid *restype)
 					TupleDescInitEntry(desc, (AttrNumber) i + 1, "",
 									   elmtype, -1, 0);
 
-					tuple_values[i] = make_datum(tuple->values[i], coltype, NULL);
+					tuple_values[i] = make_datum(tuple->values[i], coltype, InvalidOid);
 				}
 
 				desc = BlessTupleDesc(desc);
 
 				htup = heap_form_tuple(desc, tuple_values, tuple_nulls);
-				result = heap_copy_tuple_as_datum(htup, desc);
-				heap_freetuple(htup);
-
 				pfree(tuple_values);
 				pfree(tuple_nulls);
 
-				if (restype)
-					*restype = RECORDOID;
+				if (pgtype != RECORDOID)
+				{
+					bool			pinned = false;
+					TupleDesc		pgdesc;
+					TypeCacheEntry *typentry;
+					TupleConversionMap *tupmap;
+					HeapTuple		temptup;
 
-				return result;
+					typentry = lookup_type_cache(pgtype,
+												 TYPECACHE_TUPDESC |
+												 TYPECACHE_DOMAIN_BASE_INFO);
+
+					if (typentry->typtype == TYPTYPE_DOMAIN)
+						pgdesc = lookup_rowtype_tupdesc_noerror(typentry->domainBaseType,
+															  typentry->domainBaseTypmod,
+															  false);
+					else
+					{
+						if (typentry->tupDesc == NULL)
+							ereport(ERROR,
+									(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+									 errmsg("type %s is not composite",
+											format_type_be(pgtype))));
+
+						pinned = true;
+						pgdesc = typentry->tupDesc;
+						PinTupleDesc(pgdesc);
+					}
+
+					tupmap = convert_tuples_by_position(pgdesc, desc,
+						"clickhouse_fdw: could not map tuple to returned type");
+					if (tupmap)
+					{
+						temptup = do_convert_tuple(htup, tupmap);
+						pfree(tupmap);
+						heap_freetuple(htup);
+						htup = temptup;
+					}
+
+					if (pinned)
+						ReleaseTupleDesc(pgdesc);
+				}
+
+				ret = heap_copy_tuple_as_datum(htup, desc);
+				heap_freetuple(htup);
+
+				/* no additional conversion here */
+				return ret;
 			}
+			break;
+		default:
+			elog(ERROR, "clickhouse_fdw: %d type from ClickHouse is not supported", coltype);
 	}
 
-	elog(ERROR, "clickhouse_fdw: %d type from ClickHouse is not supported", coltype);
+	Assert(valtype != InvalidOid);
+	Assert(valtype != RECORDOID);
+
+	if (pgtype != InvalidOid && valtype != pgtype)
+	{
+		Oid			castfunc;
+		CoercionPathType ctype;
+
+		/* try to convert */
+		ctype = find_coercion_pathway(pgtype, valtype,
+									  COERCION_EXPLICIT,
+									  &castfunc);
+		switch (ctype)
+		{
+			case COERCION_PATH_FUNC:
+				ret = OidFunctionCall1(castfunc, ret);
+				break;
+			case COERCION_PATH_RELABELTYPE:
+				/* all good */
+				break;
+			default:
+				elog(ERROR, "clickhouse_fdw: could not cast value from %d to %d",
+						format_type_be(valtype), format_type_be(pgtype));
+		}
+	}
+
+	return ret;
 }
 
-static char **
+static void **
 binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	Datum *values, bool *nulls)
 {
@@ -564,9 +649,11 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		ch_binary_read_state_free(state);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw: columns mismatch in result"
-					    "\nquery: %s", cursor->query)));
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg_internal("clickhouse_fdw: columns mismatch"),
+				 errdetail("Number of returned columns (%d) does not match "
+						   "expected column count (%d).",
+						   state->resp->columns_count, attcount)));
 	}
 
 	j = 0;
@@ -581,36 +668,15 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		{
 			Oid restype;
 			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-			values[i - 1] = make_datum(rowval, state->coltypes[j], &restype);
-			if (restype != pgtype)
-			{
-				/* try to convert */
-				Oid			castfunc;
-				CoercionPathType ctype;
 
-				ctype = find_coercion_pathway(pgtype, restype,
-											  COERCION_EXPLICIT,
-											  &castfunc);
-				switch (ctype)
-				{
-					case COERCION_PATH_FUNC:
-						values[i - 1] = OidFunctionCall1(castfunc, values[i - 1]);
-						break;
-					case COERCION_PATH_RELABELTYPE:
-						/* all good */
-						break;
-					default:
-						elog(ERROR, "clickhouse_fdw: could not cast value from %d to %d",
-								restype, pgtype);
-				}
-			}
+			values[i - 1] = make_datum(rowval, state->coltypes[j], pgtype);
 			nulls[i - 1] = false;
 		}
 		j++;
 	}
 
 ok:
-	return (char **) values;
+	return (void **) values;
 }
 
 static void
