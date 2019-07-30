@@ -154,47 +154,6 @@ typedef struct CHFdwModifyState
 	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
 } CHFdwModifyState;
 
-/*
- * Workspace for analyzing a foreign table.
- */
-typedef struct CHFdwAnalyzeState
-{
-	Relation	rel;			/* relcache entry for the foreign table */
-	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
-	List	   *retrieved_attrs;	/* attr numbers retrieved by query */
-
-	/* collected sample rows */
-	HeapTuple  *rows;			/* array of size targrows */
-	int			targrows;		/* target # of sample rows */
-	int			numrows;		/* # of sample rows collected */
-
-	/* for random sampling */
-	double		samplerows;		/* # of rows fetched */
-	double		rowstoskip;		/* # of rows to skip before next sample */
-	ReservoirStateData rstate;	/* state for reservoir sampling */
-
-	/* working memory contexts */
-	MemoryContext anl_cxt;		/* context for per-analyze lifespan data */
-	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
-} CHFdwAnalyzeState;
-
-/*
- * Identify the attribute where data conversion fails.
- */
-typedef struct ConversionLocation
-{
-	Relation	rel;			/* foreign table's relcache entry. */
-	AttrNumber	cur_attno;		/* attribute number being processed, or 0 */
-
-	/*
-	 * In case of foreign join push down, fdw_scan_tlist is used to identify
-	 * the Var node corresponding to the error location and
-	 * fsstate->ss.ps.state gives access to the RTEs of corresponding relation
-	 * to get the relation name and attribute name.
-	 */
-	ForeignScanState *fsstate;
-} ConversionLocation;
-
 /* Callback argument for ec_member_matches_foreign */
 typedef struct
 {
@@ -267,9 +226,6 @@ static void estimate_path_cost_size(PlannerInfo *root,
                                     List *pathkeys,
                                     double *p_rows, int *p_width,
                                     Cost *p_startup_cost, Cost *p_total_cost);
-static bool ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
-                                      EquivalenceClass *ec, EquivalenceMember *em,
-                                      void *arg);
 static CHFdwModifyState *create_foreign_modify(EState *estate,
         RangeTblEntry *rte,
         ResultRelInfo *resultRelInfo,
@@ -1492,37 +1448,6 @@ estimate_path_cost_size(PlannerInfo *root,
 	*p_width = 1;
 	*p_startup_cost = 1.0;
 	*p_total_cost = -1.0;
-}
-
-/*
- * Detect whether we want to process an EquivalenceClass member.
- *
- * This is a callback for use by generate_implied_equalities_for_column.
- */
-static bool
-ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
-                          EquivalenceClass *ec, EquivalenceMember *em,
-                          void *arg)
-{
-	ec_member_foreign_arg *state = (ec_member_foreign_arg *) arg;
-	Expr	   *expr = em->em_expr;
-
-	/*
-	 * If we've identified what we're processing in the current scan, we only
-	 * want to match that expression.
-	 */
-	if (state->current != NULL)
-		return equal(expr, state->current);
-
-	/*
-	 * Otherwise, ignore anything we've already processed.
-	 */
-	if (list_member(state->already_used, expr))
-		return false;
-
-	/* This is the new target to process. */
-	state->current = expr;
-	return true;
 }
 
 /*

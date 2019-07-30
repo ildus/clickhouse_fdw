@@ -166,8 +166,8 @@ http_simple_query(void *conn, const char *query)
 		         errmsg("clickhouse_fdw:%s\nQUERY:%s", format_error(error), query)));
 	}
 
-	/* we could not control deallocate properly libclickhouse memory, so
-	 * we we use memory context callbacks for that */
+	/* we could not control properly deallocation of libclickhouse memory, so
+	 * we use memory context callbacks for that */
 	tempcxt = AllocSetContextCreate(PortalContext, "clickhouse_fdw cursor",
 										ALLOCSET_DEFAULT_SIZES);
 	oldcxt = MemoryContextSwitchTo(tempcxt);
