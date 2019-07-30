@@ -116,7 +116,7 @@ typedef struct ChFdwScanState
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
-	void	   *ch_cursor;	/* result of query from clickhouse */
+	ch_cursor  *ch_cursor;		/* result of query from clickhouse */
 
 	/* for storing result tuple */
 	HeapTuple  tuple;			/* array of currently-retrieved tuples */
@@ -326,7 +326,8 @@ clickhousedb_raw_query(PG_FUNCTION_ARGS)
 	ch_connection	conn = http_connect(connstring);
 	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
 	text		   *res = http_fetch_raw_data(cursor);
-	conn.methods->cursor_free(cursor);
+
+	MemoryContextDelete(cursor->memcxt);
 	conn.methods->disconnect(conn.conn);
 
 	if (res)
@@ -1143,7 +1144,6 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 		MemoryContext	old = MemoryContextSwitchTo(fsstate->batch_cxt);
 		fsstate->ch_cursor = fsstate->conn.methods->simple_query(fsstate->conn.conn,
 				fsstate->query);
-		chfdw_register_cursor(fsstate->ch_cursor);
 		MemoryContextSwitchTo(old);
 	}
 
@@ -1177,8 +1177,7 @@ clickhouseEndForeignScan(ForeignScanState *node)
 
 	if (fsstate && fsstate->ch_cursor)
 	{
-		fsstate->conn.methods->cursor_free(fsstate->ch_cursor);
-		chfdw_unregister_cursor(fsstate->ch_cursor);
+		MemoryContextDelete(fsstate->ch_cursor->memcxt);
 		fsstate->ch_cursor = NULL;
 	}
 }

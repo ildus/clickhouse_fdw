@@ -22,7 +22,7 @@ static bool		initialized = false;
 static void http_disconnect(void *conn);
 static ch_cursor *http_simple_query(void *conn, const char *query);
 static void http_simple_insert(void *conn, const char *query);
-static void http_cursor_free(ch_cursor *);
+static void http_cursor_free(void *);
 static void **http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	Datum *values, bool *nulls);
 
@@ -30,13 +30,12 @@ static libclickhouse_methods http_methods = {
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
 	.simple_insert=http_simple_insert,
-	.cursor_free=http_cursor_free,
 	.fetch_row=http_fetch_row
 };
 
 static void binary_disconnect(void *conn);
 static ch_cursor *binary_simple_query(void *conn, const char *query);
-static void binary_cursor_free(ch_cursor *cursor);
+static void binary_cursor_free(void *cursor);
 static void binary_simple_insert(void *conn, const char *query);
 static void **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc,
 		Datum *values, bool *nulls);
@@ -45,7 +44,6 @@ static libclickhouse_methods binary_methods = {
 	.disconnect=binary_disconnect,
 	.simple_query=binary_simple_query,
 	.simple_insert=binary_simple_insert,
-	.cursor_free=binary_cursor_free,
 	.fetch_row=binary_fetch_row
 };
 
@@ -130,6 +128,8 @@ kill_query(void *conn, const char *query_id)
 static ch_cursor *
 http_simple_query(void *conn, const char *query)
 {
+	MemoryContext	tempcxt,
+					oldcxt;
 	ch_cursor	*cursor;
 
 	ch_http_set_progress_func(http_progress_callback);
@@ -166,12 +166,23 @@ http_simple_query(void *conn, const char *query)
 		         errmsg("clickhouse_fdw:%s\nQUERY:%s", format_error(error), query)));
 	}
 
+	/* we could not control deallocate properly libclickhouse memory, so
+	 * we we use memory context callbacks for that */
+	tempcxt = AllocSetContextCreate(PortalContext, "clickhouse_fdw cursor",
+										ALLOCSET_DEFAULT_SIZES);
+	oldcxt = MemoryContextSwitchTo(tempcxt);
+
 	cursor = palloc(sizeof(ch_cursor));
 	cursor->query_response = resp;
 	cursor->read_state = palloc0(sizeof(ch_http_read_state));
 	cursor->query = pstrdup(query);
-	cursor->free = http_cursor_free;
 	ch_http_read_state_init(cursor->read_state, resp->data, resp->datasize);
+
+	cursor->memcxt = tempcxt;
+	cursor->callback.func = http_cursor_free;
+	cursor->callback.arg = cursor;
+	MemoryContextRegisterResetCallback(tempcxt, &cursor->callback);
+	MemoryContextSwitchTo(oldcxt);
 
 	return cursor;
 }
@@ -208,14 +219,12 @@ http_simple_insert(void *conn, const char *query)
 }
 
 static void
-http_cursor_free(ch_cursor *cursor)
+http_cursor_free(void *c)
 {
+	ch_cursor *cursor = c;
+
 	ch_http_read_state_free(cursor->read_state);
-	pfree(cursor->read_state);
-	if (cursor->query)
-		pfree(cursor->query);
 	ch_http_response_free(cursor->query_response);
-	pfree(cursor);
 }
 
 static void **
@@ -308,6 +317,8 @@ binary_disconnect(void *conn)
 static ch_cursor *
 binary_simple_query(void *conn, const char *query)
 {
+	MemoryContext	tempcxt,
+					oldcxt;
 	ch_cursor	*cursor;
 	ch_binary_read_state_t *state;
 
@@ -324,24 +335,29 @@ binary_simple_query(void *conn, const char *query)
 		         errmsg("clickhouse_fdw: %s", error)));
 	}
 
+	tempcxt = AllocSetContextCreate(PortalContext, "clickhouse_fdw cursor",
+										ALLOCSET_DEFAULT_SIZES);
+
+	oldcxt = MemoryContextSwitchTo(tempcxt);
 	cursor = palloc(sizeof(ch_cursor));
 	cursor->query_response = resp;
 	state = (ch_binary_read_state_t *) palloc0(sizeof(ch_binary_read_state_t));
 	cursor->query = pstrdup(query);
 	cursor->read_state = state;
-	cursor->free = binary_cursor_free;
 	ch_binary_read_state_init(cursor->read_state, resp);
+
+	cursor->memcxt = tempcxt;
+	cursor->callback.func = binary_cursor_free;
+	cursor->callback.arg = cursor;
+	MemoryContextRegisterResetCallback(tempcxt, &cursor->callback);
+	MemoryContextSwitchTo(oldcxt);
 
 	if (state->error)
 	{
-		char *error = pstrdup(state->error);
-		ch_binary_read_state_free(state);
-		ch_binary_response_free(resp);
-
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
 		         errmsg("clickhouse_fdw: could not initialize read state: %s",
-					 error)));
+					 state->error)));
 	}
 
 	return cursor;
@@ -620,15 +636,10 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	size_t					attcount = list_length(attrs);
 
 	if (state->error)
-	{
-		char *error = pstrdup(state->error);
-		binary_cursor_free(cursor);
-
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
 		         errmsg("clickhouse_fdw: error while reading row: %s",
-					 error)));
-	}
+					 state->error)));
 
 	if (row_values == NULL)
 		return NULL;
@@ -641,16 +652,11 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 			goto ok;
 		}
 		else
-		{
-			binary_cursor_free(cursor);
 			elog(ERROR, "clickhouse_fdw: unexpected state: atttributes "
 					"count == 0 and haven't got NULL in the response");
-		}
 	}
 	else if (attcount != state->resp->columns_count)
 	{
-		binary_cursor_free(cursor);
-
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg_internal("clickhouse_fdw: columns mismatch"),
@@ -683,14 +689,11 @@ ok:
 }
 
 static void
-binary_cursor_free(ch_cursor *cursor)
+binary_cursor_free(void *c)
 {
+	ch_cursor *cursor = c;
 	ch_binary_read_state_free(cursor->read_state);
-	pfree(cursor->read_state);
-	if (cursor->query)
-		pfree(cursor->query);
 	ch_binary_response_free(cursor->query_response);
-	pfree(cursor);
 }
 
 static void

@@ -33,11 +33,6 @@
  */
 static HTAB *ConnectionHash = NULL;
 static List *cursors = NIL;
-static void chfdw_xact_callback(XactEvent event, void *arg);
-static void chfdw_subxact_callback(SubXactEvent event,
-                                   SubTransactionId mySubid,
-                                   SubTransactionId parentSubid,
-                                   void *arg);
 static void chfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
 
 
@@ -109,8 +104,6 @@ GetConnection(UserMapping *user)
 		 * Register some callback functions that manage connection cleanup.
 		 * This should be done just once in each backend.
 		 */
-		RegisterXactCallback(chfdw_xact_callback, cursors);
-		RegisterSubXactCallback(chfdw_subxact_callback, NULL);
 		CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
 		                              chfdw_inval_callback, (Datum) 0);
 		CacheRegisterSyscacheCallback(USERMAPPINGOID,
@@ -177,49 +170,6 @@ GetConnection(UserMapping *user)
 	}
 
 	return entry->gate;
-}
-
-void
-chfdw_register_cursor(ch_cursor *cursor)
-{
-	MemoryContext	old = MemoryContextSwitchTo(TopMemoryContext);
-	cursors = lappend(cursors, cursor);
-	MemoryContextSwitchTo(old);
-}
-
-void
-chfdw_unregister_cursor(ch_cursor *cursor)
-{
-	MemoryContext	old = MemoryContextSwitchTo(TopMemoryContext);
-	cursors = list_delete_ptr(cursors, cursor);
-	MemoryContextSwitchTo(old);
-}
-
-/*
- * chfdw_xact_callback --- cleanup at main-transaction end.
- */
-static void
-chfdw_xact_callback(XactEvent event, void *arg)
-{
-	ListCell	*lc;
-	List		*cursors = (List *) arg;
-
-	foreach(lc, cursors)
-	{
-		ch_cursor *cursor = lfirst(lc);
-		cursor->free(cursor);
-	}
-	list_free(cursors);
-	cursors = NIL;
-}
-
-/*
- * chfdw_subxact_callback --- cleanup at subtransaction end.
- */
-static void
-chfdw_subxact_callback(SubXactEvent event, SubTransactionId mySubid,
-                       SubTransactionId parentSubid, void *arg)
-{
 }
 
 /*
