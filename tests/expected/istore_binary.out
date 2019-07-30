@@ -1,0 +1,117 @@
+CREATE EXTENSION clickhouse_fdw;
+CREATE EXTENSION istore;
+CREATE SERVER ch_default FOREIGN DATA WRAPPER clickhouse_fdw
+	OPTIONS(dbname 'regression', driver 'binary');
+CREATE USER MAPPING FOR CURRENT_USER SERVER ch_default;
+SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	CREATE TABLE regression.t2 (`dt` Date, id Int32, `a_keys` Array(Int32), `a_values` Array(Int32))
+	ENGINE = MergeTree()
+	PARTITION BY dt
+	ORDER BY (dt, id)
+	SETTINGS index_granularity = 8192');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t2
+	VALUES (''2019-10-10'', 1, [1,2,3], [11, 22, 33])');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t2
+	VALUES (''2019-10-10'', 2, [1,2,3,4], [11,22, 33,44])');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.t2
+	VALUES (''2019-10-11'', 3, [3,4,5], [33, 44, 55])');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+CREATE FOREIGN TABLE t2 (dt date NOT NULL, id int, a istore) SERVER ch_default;
+-- check all good
+EXPLAIN (VERBOSE) SELECT * FROM t2 ORDER BY dt;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Foreign Scan on public.t2  (cost=1.00..-1.00 rows=1 width=40)
+   Output: dt, id, a
+   Remote SQL: SELECT dt, id, (a_keys,a_values) FROM regression.t2 ORDER BY dt ASC
+(3 rows)
+
+SELECT * FROM t2 ORDER BY id;
+     dt     | id |                     a                      
+------------+----+--------------------------------------------
+ 10-10-2019 |  1 | "1"=>"11", "2"=>"22", "3"=>"33"
+ 10-10-2019 |  2 | "1"=>"11", "2"=>"22", "3"=>"33", "4"=>"44"
+ 10-11-2019 |  3 | "3"=>"33", "4"=>"44", "5"=>"55"
+(3 rows)
+
+EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Sort  (cost=-0.99..-0.98 rows=1 width=36)
+   Output: dt, (sum(a))
+   Sort Key: t2.dt
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=36)
+         Output: dt, (sum(a))
+         Relations: Aggregate on (t2)
+         Remote SQL: SELECT dt, sumMap(a_keys,a_values) FROM regression.t2 GROUP BY dt
+(7 rows)
+
+SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
+     dt     |                    sum                     
+------------+--------------------------------------------
+ 10-10-2019 | "1"=>"22", "2"=>"44", "3"=>"66", "4"=>"44"
+ 10-11-2019 | "3"=>"33", "4"=>"44", "5"=>"55"
+(2 rows)
+
+EXPLAIN (VERBOSE) SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Sort  (cost=-0.99..-0.98 rows=1 width=12)
+   Output: dt, (sum((a -> 1)))
+   Sort Key: t2.dt
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=12)
+         Output: dt, (sum((a -> 1)))
+         Relations: Aggregate on (t2)
+         Remote SQL: SELECT dt, sum(a_values[indexOf(a_keys,1)]) FROM regression.t2 GROUP BY dt
+(7 rows)
+
+SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
+     dt     | sum 
+------------+-----
+ 10-10-2019 |  22
+ 10-11-2019 |   0
+(2 rows)
+
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to server ch_default
+drop cascades to user mapping for ildus on server ch_default
+drop cascades to foreign table t2
+DROP EXTENSION istore CASCADE;
