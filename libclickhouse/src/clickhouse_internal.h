@@ -4,7 +4,13 @@ typedef struct ch_http_connection_t
 {
 	CURL			   *curl;
 	CURLU			   *url;
-	ch_http_format_t	format;
 	char			   *base_url;
 	size_t				base_url_len;
 } ch_http_connection_t;
+
+typedef struct ch_binary_connection_t
+{
+	void			  *client;
+	void			  *options;
+	char			  *error;
+} ch_binary_connection_t;

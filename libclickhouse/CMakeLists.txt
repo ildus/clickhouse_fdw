@@ -1,9 +1,14 @@
 cmake_minimum_required(VERSION 3.5)
-project(libclickhouse VERSION 1.0.0 LANGUAGES C)
+project(libclickhouse VERSION 1.0.0 LANGUAGES C CXX)
+
+add_subdirectory (clickhouse-cpp)
+target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
+target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set(src
 	src/clickhouse_http.c
 	src/clickhouse_parser.c
+	src/clickhouse_binary.cc
 )
 
 add_library(clickhouse SHARED ${src})
@@ -27,8 +32,9 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL libcurl REQUIRED)
+pkg_check_modules(UUID_LIB uuid REQUIRED)
 
-target_link_libraries(clickhouse ${CURL_LDFLAGS})
+target_link_libraries(clickhouse ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static)
 
 target_include_directories(clickhouse
     PUBLIC
@@ -36,7 +42,9 @@ target_include_directories(clickhouse
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/clickhouse-cpp
 		${CURL_INCLUDE_DIRS}
+		${UUID_LIB_INCLUDE_DIRS}
 )
 
 if (BUILD_TESTS)
@@ -44,6 +52,7 @@ if (BUILD_TESTS)
 	find_package(cmocka 1.1.3)
 
 	list(APPEND tests_names "test_clickhouse_http")
+	list(APPEND tests_names "test_clickhouse_binary")
 	list(APPEND tests_options "-Wall -Werror -Wextra")
 	#list(APPEND tests_link "-Wl,--wrap,free")
 
@@ -52,7 +61,7 @@ if (BUILD_TESTS)
 	math(EXPR count "${count} - 1")
 	foreach(i RANGE ${count})
 		list(GET tests_names ${i} test_name)
-		list(GET tests_options ${i} test_options)
+		list(GET tests_options 0 test_options)
 		#list(GET tests_link ${i} test_link)
 		add_executable(${test_name} src/${test_name}.c)
 		target_include_directories(${test_name}

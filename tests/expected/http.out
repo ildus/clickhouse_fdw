@@ -1,7 +1,7 @@
 CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
 CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
-CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver 'http');
 CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE ROLE user1 SUPERUSER;
 SET ROLE user1;
@@ -137,7 +137,7 @@ INSERT INTO ftcopy VALUES
 EXPLAIN (VERBOSE) SELECT * FROM ftcopy ORDER BY c1;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- Foreign Scan on public.ftcopy  (cost=1.00..-1.00 rows=2 width=64)
+ Foreign Scan on public.ftcopy  (cost=1.00..-1.00 rows=1 width=64)
    Output: c1, c2, c3, c4, c5, c6
    Remote SQL: SELECT c1, c2, c3, c4, c5, c6 FROM regression.tcopy ORDER BY c1 ASC
 (3 rows)
@@ -175,11 +175,11 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 
 ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  CH:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
+ERROR:  clickhouse_fdw:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  CH:Code: 192, e.displayText() = DB::Exception: Unknown user no such user
+ERROR:  clickhouse_fdw:Code: 192, e.displayText() = DB::Exception: Unknown user no such user
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
@@ -358,9 +358,9 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT t1.c1, t2.c1 FROM ft2 t1 LEFT JOIN ft1 t2 ON
 EXPLAIN SELECT DISTINCT t1.c1, t2.c1 FROM ft2 t1 LEFT JOIN ft1 t2 ON (t1.c1 = t2.c1) order by t1.c1 LIMIT 10;
                          QUERY PLAN                          
 -------------------------------------------------------------
- Limit  (cost=1.00..-0.99 rows=1 width=8)
+ Limit  (cost=1.00..-1.00 rows=1 width=8)
    ->  Unique  (cost=1.00..-0.99 rows=1 width=8)
-         ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=2)
+         ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=1)
                Relations: (ft2 t1) LEFT JOIN (ft1 t2)
 (4 rows)
 

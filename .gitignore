@@ -1,4 +1,4 @@
-tests/pgsql/regression.diffs
-tests/pgsql/regression.out
-tests/pgsql/results
-tests/pgsql/results/clickhouse_fdw.out
+tests/regression.diffs
+tests/regression.out
+tests/results
+tests/results/*.out

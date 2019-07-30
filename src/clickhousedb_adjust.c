@@ -1,18 +1,21 @@
 #include "postgres.h"
 #include "strings.h"
+#include "access/heapam.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
-#include "access/heapam.h"
+#include "catalog/dependency.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
-#include "commands/extension.h"
 #include "commands/defrem.h"
-#include "utils/hsearch.h"
-#include "utils/syscache.h"
-#include "utils/inval.h"
-#include "utils/rel.h"
-#include "catalog/dependency.h"
+#include "commands/extension.h"
+#include "parser/parse_func.h"
+#include "utils/builtins.h"
 #include "utils/fmgroids.h"
+#include "utils/hsearch.h"
+#include "utils/inval.h"
+#include "utils/lsyscache.h"
+#include "utils/rel.h"
+#include "utils/syscache.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -179,6 +182,32 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 	return entry;
 }
 
+static Oid
+find_rowfunc(char *procname, Oid rettype)
+{
+	Oid		argtypes[1] = {RECORDOID};
+	Oid		procOid;
+	List   *funcname = NIL;
+
+	funcname = list_make1(makeString(procname));
+	procOid = LookupFuncName(funcname, 1, argtypes, false);
+	if (!OidIsValid(procOid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("function %s does not exist",
+						func_signature_string(funcname, 1, NIL, argtypes))));
+
+
+	if (get_func_rettype(procOid) != rettype)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("typmod_in function %s must return type %s",
+						procname, format_type_be(rettype))));
+
+	list_free_deep(funcname);
+	return procOid;
+}
+
 CustomObjectDef *checkForCustomType(Oid typeoid)
 {
 	const char *proname;
@@ -193,31 +222,41 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 	entry = hash_search(custom_objects_cache, (void *) &typeoid, HASH_FIND, NULL);
 	if (!entry)
 	{
-		Oid extoid = getExtensionOfObject(TypeRelationId, typeoid);
-		char *extname = get_extension_name(extoid);
+		HeapTuple	tp;
 
 		entry = hash_search(custom_objects_cache, (void *) &typeoid, HASH_ENTER, NULL);
 		entry->cf_type = CF_USUAL;
 		entry->custom_name[0] = '\0';
+		entry->rowfunc = InvalidOid;
 
-		if (extname)
+		tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeoid));
+		if (HeapTupleIsValid(tp))
 		{
-			if (strcmp(extname, "istore") == 0)
+			Form_pg_type typtup = (Form_pg_type) GETSTRUCT(tp);
+			char *name = NameStr(typtup->typname);
+			if (strcmp(name, "istore") == 0)
 			{
 				entry->cf_type = CF_ISTORE_TYPE; /* bigistore or istore */
 				strcpy(entry->custom_name, "Tuple(Array(Int32), Array(Int64))");
+				entry->rowfunc = find_rowfunc("row_to_istore", typeoid);
 			}
-			else if (strcmp(extname, "ajtime") == 0)
+			else if (strcmp(name, "bigistore") == 0)
+			{
+				entry->cf_type = CF_ISTORE_TYPE; /* bigistore or istore */
+				strcpy(entry->custom_name, "Tuple(Array(Int32), Array(Int64))");
+				entry->rowfunc = find_rowfunc("row_to_bigistore", typeoid);
+			}
+			else if (strcmp(name, "ajtime") == 0)
 			{
 				entry->cf_type = CF_AJTIME_TYPE; /* ajtime */
-				strcpy(entry->custom_name, "DateTime");
+				strcpy(entry->custom_name, "timestamp");
 			}
-			else if (strcmp(extname, "country") == 0)
+			else if (strcmp(name, "country") == 0)
 			{
 				entry->cf_type = CF_COUNTRY_TYPE; /* adjust country type */
 				strcpy(entry->custom_name, "text");
 			}
-			pfree(extname);
+			ReleaseSysCache(tp);
 		}
 	}
 

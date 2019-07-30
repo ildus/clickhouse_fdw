@@ -101,12 +101,10 @@ static void deparseTargetList(StringInfo buf,
 				  RangeTblEntry *rte,
 				  Index rtindex,
 				  Relation rel,
-				  bool is_returning,
 				  Bitmapset *attrs_used,
 				  bool qualify_col,
 				  List **retrieved_attrs);
 static void deparseExplicitTargetList(List *tlist,
-						  bool is_returning,
 						  List **retrieved_attrs,
 						  deparse_expr_cxt *context);
 static void deparseSubqueryTargetList(deparse_expr_cxt *context);
@@ -986,7 +984,7 @@ deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
 		 * For a join or upper relation the input tlist gives the list of
 		 * columns required to be fetched from the foreign server.
 		 */
-		deparseExplicitTargetList(tlist, false, retrieved_attrs, context);
+		deparseExplicitTargetList(tlist, retrieved_attrs, context);
 	}
 	else
 	{
@@ -1002,7 +1000,7 @@ deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
 		 */
 		Relation	rel = heap_open(rte->relid, NoLock);
 
-		deparseTargetList(buf, rte, foreignrel->relid, rel, false,
+		deparseTargetList(buf, rte, foreignrel->relid, rel,
 						  fpinfo->attrs_used, false, retrieved_attrs);
 		heap_close(rel, NoLock);
 	}
@@ -1055,7 +1053,6 @@ deparseTargetList(StringInfo buf,
 				  RangeTblEntry *rte,
 				  Index rtindex,
 				  Relation rel,
-				  bool is_returning,
 				  Bitmapset *attrs_used,
 				  bool qualify_col,
 				  List **retrieved_attrs)
@@ -1070,9 +1067,6 @@ deparseTargetList(StringInfo buf,
 	/* If there's a whole-row reference, we'll need all the columns. */
 	have_wholerow = bms_is_member(0 - FirstLowInvalidHeapAttributeNumber,
 								  attrs_used);
-
-	if (is_returning)
-		elog(ERROR, "clickhouse does not support RETURNING expresssions");
 
 	first = true;
 	for (i = 1; i <= tupdesc->natts; i++)
@@ -1113,7 +1107,7 @@ deparseTargetList(StringInfo buf,
 		elog(ERROR, "clickhouse does not support system columns");
 
 	/* Don't generate bad syntax if no undropped columns */
-	if (first && !is_returning)
+	if (first)
 	{
 		appendStringInfoString(buf, "NULL");
 	}
@@ -1199,13 +1193,9 @@ get_jointype_name(JoinType jointype)
  *
  * retrieved_attrs is the list of continuously increasing integers starting
  * from 1. It has same number of entries as tlist.
- *
- * This is used for both SELECT and RETURNING targetlists; the is_returning
- * parameter is true only for a RETURNING targetlist.
  */
 static void
 deparseExplicitTargetList(List *tlist,
-                          bool is_returning,
                           List **retrieved_attrs,
                           deparse_expr_cxt *context)
 {
@@ -1213,7 +1203,6 @@ deparseExplicitTargetList(List *tlist,
 	StringInfo	buf = context->buf;
 	int			i = 0;
 
-	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	*retrieved_attrs = NIL;
 
 	foreach (lc, tlist)
@@ -1221,13 +1210,7 @@ deparseExplicitTargetList(List *tlist,
 		TargetEntry *tle = lfirst_node(TargetEntry, lc);
 
 		if (i > 0)
-		{
 			appendStringInfoString(buf, ", ");
-		}
-		else if (is_returning)
-		{
-			appendStringInfoString(buf, " RETURNING ");
-		}
 
 		deparseExpr((Expr *) tle->expr, context);
 
@@ -1235,11 +1218,8 @@ deparseExplicitTargetList(List *tlist,
 		i++;
 	}
 
-	if (i == 0 && !is_returning)
-	{
+	if (i == 0)
 		appendStringInfoString(buf, "NULL");
-	}
-	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
 
 /*
@@ -1264,9 +1244,8 @@ deparseSubqueryTargetList(deparse_expr_cxt *context)
 		Node	   *node = (Node *) lfirst(lc);
 
 		if (!first)
-		{
 			appendStringInfoString(buf, ", ");
-		}
+
 		first = false;
 
 		deparseExpr((Expr *) node, context);
@@ -1274,9 +1253,7 @@ deparseSubqueryTargetList(deparse_expr_cxt *context)
 
 	/* Don't generate bad syntax if no expressions */
 	if (first)
-	{
 		appendStringInfoString(buf, "NULL");
-	}
 }
 
 /*

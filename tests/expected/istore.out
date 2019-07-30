@@ -133,7 +133,7 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.t4 VALUES (''2019-10-11'',
 EXPLAIN (VERBOSE) SELECT * FROM t2 ORDER BY dt;
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
- Foreign Scan on public.t2  (cost=1.00..-1.00 rows=2 width=40)
+ Foreign Scan on public.t2  (cost=1.00..-1.00 rows=1 width=40)
    Output: dt, id, a
    Remote SQL: SELECT dt, id, (a_keys,a_values) FROM regression.t2 ORDER BY dt ASC
 (3 rows)
@@ -149,10 +149,10 @@ SELECT * FROM t2 ORDER BY id;
 EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
- Sort  (cost=-0.99..-0.98 rows=2 width=36)
+ Sort  (cost=-0.99..-0.98 rows=1 width=36)
    Output: dt, (sum(a))
    Sort Key: t2.dt
-   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=36)
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=36)
          Output: dt, (sum(a))
          Relations: Aggregate on (t2)
          Remote SQL: SELECT dt, sumMap(a_keys,a_values) FROM regression.t2 GROUP BY dt
@@ -168,10 +168,10 @@ SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
 EXPLAIN (VERBOSE) SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
- Sort  (cost=-0.99..-0.98 rows=2 width=12)
+ Sort  (cost=-0.99..-0.98 rows=1 width=12)
    Output: dt, (sum((a -> 1)))
    Sort Key: t2.dt
-   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=12)
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=12)
          Output: dt, (sum((a -> 1)))
          Relations: Aggregate on (t2)
          Remote SQL: SELECT dt, sum(a_values[indexOf(a_keys,1)]) FROM regression.t2 GROUP BY dt
@@ -187,10 +187,10 @@ SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
 EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
- Sort  (cost=-0.99..-0.98 rows=2 width=36)
+ Sort  (cost=-0.99..-0.98 rows=1 width=36)
    Output: dt, (sum(a))
    Sort Key: t3.dt
-   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=36)
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=36)
          Output: dt, (sum(a))
          Relations: Aggregate on (t3)
          Remote SQL: SELECT dt, sumMap(a_keys,arrayMap(x -> x * sign,a_values)) FROM regression.t3 GROUP BY dt
@@ -206,10 +206,10 @@ SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;
 EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t4 GROUP BY dt ORDER BY dt;
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
- Sort  (cost=-0.99..-0.98 rows=2 width=36)
+ Sort  (cost=-0.99..-0.98 rows=1 width=36)
    Output: dt, (sum(a))
    Sort Key: t4.dt
-   ->  Foreign Scan  (cost=1.00..-1.00 rows=2 width=36)
+   ->  Foreign Scan  (cost=1.00..-1.00 rows=1 width=36)
          Output: dt, (sum(a))
          Relations: Aggregate on (t4)
          Remote SQL: SELECT dt, sumMap(a_keys,arrayMap(x -> x * Sign,a_values)) FROM regression.t4 GROUP BY dt
@@ -262,7 +262,7 @@ SERVER ch_default OPTIONS (table_name 't5', engine 'CollapsingMergeTree(Sign)');
 EXPLAIN (VERBOSE) SELECT sum(val) FROM t5;
                        QUERY PLAN                        
 ---------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (sum(val))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sum(val * Sign) FROM regression.t5
@@ -277,7 +277,7 @@ SELECT sum(val) FROM t5;
 EXPLAIN (VERBOSE) SELECT sum(val + 10) FROM t5;
                            QUERY PLAN                           
 ----------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (sum((val + 10)))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sum((val + 10) * Sign) FROM regression.t5
@@ -292,7 +292,7 @@ SELECT sum(val + 10) FROM t5;
 EXPLAIN (VERBOSE) SELECT sum(val) FILTER (WHERE val > 6) FROM t5;
                              QUERY PLAN                              
 ---------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (sum(val) FILTER (WHERE (val > 6)))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sumIf(val * Sign,(val > 6)) FROM regression.t5
@@ -307,7 +307,7 @@ SELECT sum(val) FILTER (WHERE val > 6) FROM t5;
 EXPLAIN (VERBOSE) SELECT count(*) FROM t5;
                     QUERY PLAN                     
 ---------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (count(*))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sum(Sign) FROM regression.t5
@@ -322,7 +322,7 @@ SELECT count(*) FROM t5;
 EXPLAIN (VERBOSE) SELECT count(val) FROM t5;
                               QUERY PLAN                               
 -----------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (count(val))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sumIf(Sign,(val) IS NOT NULL) FROM regression.t5
@@ -337,7 +337,7 @@ SELECT count(val) FROM t5;
 EXPLAIN (VERBOSE) SELECT count(val + 10) FROM t5;
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (count((val + 10)))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sumIf(Sign,((val + 10)) IS NOT NULL) FROM regression.t5
@@ -352,7 +352,7 @@ SELECT count(val + 10) FROM t5;
 EXPLAIN (VERBOSE) SELECT count(val) FILTER (WHERE val > 6) FROM t5;
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=8)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=8)
    Output: (count(val) FILTER (WHERE (val > 6)))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sumIf(Sign,(val > 6) AND (val) IS NOT NULL) FROM regression.t5
@@ -367,7 +367,7 @@ SELECT count(val) FILTER (WHERE val > 6) FROM t5;
 EXPLAIN (VERBOSE) SELECT avg(val) FROM t5;
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=32)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=32)
    Output: (avg(val))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sum(val * Sign) / sumIf(Sign,val IS NOT NULL) FROM regression.t5
@@ -382,7 +382,7 @@ SELECT avg(val) FROM t5;
 EXPLAIN (VERBOSE) SELECT avg(val + 10) FROM t5;
                                              QUERY PLAN                                              
 -----------------------------------------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=32)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=32)
    Output: (avg((val + 10)))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sum((val + 10) * Sign) / sumIf(Sign,(val + 10) IS NOT NULL) FROM regression.t5
@@ -397,7 +397,7 @@ SELECT avg(val + 10) FROM t5;
 EXPLAIN (VERBOSE) SELECT avg(val) FILTER (WHERE val > 6) FROM t5;
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
- Foreign Scan  (cost=1.00..-1.00 rows=2 width=32)
+ Foreign Scan  (cost=1.00..-1.00 rows=1 width=32)
    Output: (avg(val) FILTER (WHERE (val > 6)))
    Relations: Aggregate on (t5)
    Remote SQL: SELECT sumIf(val * Sign,(val > 6)) / sumIf(Sign,(val > 6) AND val IS NOT NULL) FROM regression.t5

@@ -113,12 +113,12 @@ typedef struct ChFdwScanState
 	List	   *retrieved_attrs;	/* list of retrieved attribute numbers */
 
 	/* for remote query execution */
-	ch_connection conn;			/* connection for the scan */
+	ch_connection	conn;			/* connection for the scan */
 	int			numParams;		/* number of parameters passed to query */
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
-	ch_cursor  *cursor;			/* result of query from clickhouse */
+	ch_cursor  *ch_cursor;		/* result of query from clickhouse */
 
 	/* for storing result tuple */
 	HeapTuple  tuple;			/* array of currently-retrieved tuples */
@@ -156,47 +156,6 @@ typedef struct CHFdwModifyState
 	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
 } CHFdwModifyState;
 
-/*
- * Workspace for analyzing a foreign table.
- */
-typedef struct CHFdwAnalyzeState
-{
-	Relation	rel;			/* relcache entry for the foreign table */
-	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
-	List	   *retrieved_attrs;	/* attr numbers retrieved by query */
-
-	/* collected sample rows */
-	HeapTuple  *rows;			/* array of size targrows */
-	int			targrows;		/* target # of sample rows */
-	int			numrows;		/* # of sample rows collected */
-
-	/* for random sampling */
-	double		samplerows;		/* # of rows fetched */
-	double		rowstoskip;		/* # of rows to skip before next sample */
-	ReservoirStateData rstate;	/* state for reservoir sampling */
-
-	/* working memory contexts */
-	MemoryContext anl_cxt;		/* context for per-analyze lifespan data */
-	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
-} CHFdwAnalyzeState;
-
-/*
- * Identify the attribute where data conversion fails.
- */
-typedef struct ConversionLocation
-{
-	Relation	rel;			/* foreign table's relcache entry. */
-	AttrNumber	cur_attno;		/* attribute number being processed, or 0 */
-
-	/*
-	 * In case of foreign join push down, fdw_scan_tlist is used to identify
-	 * the Var node corresponding to the error location and
-	 * fsstate->ss.ps.state gives access to the RTEs of corresponding relation
-	 * to get the relation name and attribute name.
-	 */
-	ForeignScanState *fsstate;
-} ConversionLocation;
-
 /* Callback argument for ec_member_matches_foreign */
 typedef struct
 {
@@ -232,7 +191,6 @@ clickhouseAcquireSampleRowsFunc(Relation relation, int elevel,
                                 double *totaldeadrows);
 static void clickhouseBeginForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *clickhouseIterateForeignScan(ForeignScanState *node);
-static void clickhouseReScanForeignScan(ForeignScanState *node);
 static void clickhouseEndForeignScan(ForeignScanState *node);
 static List *clickhousePlanForeignModify(PlannerInfo *root,
         ModifyTable *plan,
@@ -262,6 +220,7 @@ static bool clickhouseAnalyzeForeignTable(Relation relation,
         BlockNumber *totalpages);
 static bool clickhouseRecheckForeignScan(ForeignScanState *node,
         TupleTableSlot *slot);
+
 /*
  * Helper functions
  */
@@ -271,9 +230,6 @@ static void estimate_path_cost_size(PlannerInfo *root,
                                     List *pathkeys,
                                     double *p_rows, int *p_width,
                                     Cost *p_startup_cost, Cost *p_total_cost);
-static bool ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
-                                      EquivalenceClass *ec, EquivalenceMember *em,
-                                      void *arg);
 static CHFdwModifyState *create_foreign_modify(EState *estate,
         RangeTblEntry *rte,
         ResultRelInfo *resultRelInfo,
@@ -327,11 +283,12 @@ clickhousedb_raw_query(PG_FUNCTION_ARGS)
 	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
 		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
 
-	ch_connection	conn = clickhouse_gate->connect(connstring);
-	ch_cursor	   *cursor = clickhouse_gate->simple_query(conn, query);
-	text		   *res = clickhouse_gate->fetch_raw_data(cursor);
-	clickhouse_gate->cursor_free(cursor);
-	clickhouse_gate->disconnect(conn);
+	ch_connection	conn = http_connect(connstring);
+	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
+	text		   *res = http_fetch_raw_data(cursor);
+
+	MemoryContextDelete(cursor->memcxt);
+	conn.methods->disconnect(conn.conn);
 
 	if (res)
 		PG_RETURN_TEXT_P(res);
@@ -987,7 +944,7 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(user, false, true);
+	fsstate->conn = GetConnection(user);
 
 	/* Get private info created by planner functions. */
 	fsstate->query = strVal(list_nth(fsplan->fdw_private,
@@ -1045,42 +1002,26 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
  * temp_context is a working context that can be reset after each tuple.
  */
 static HeapTuple
-make_tuple_from_result_row(Relation rel,
-                           AttInMetadata *attinmeta,
-                           List *retrieved_attrs,
-                           ForeignScanState *fsstate,
-                           MemoryContext temp_context,
-                           char *query,
-						   ch_cursor *res_cursor)
+fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 {
-	HeapTuple	tuple = NULL;
-	TupleDesc	tupdesc;
+	AttInMetadata *attinmeta = fsstate->attinmeta;
 	Datum	   *values;
-	bool	   *nulls;
+	HeapTuple	tuple = NULL;
 	ItemPointer ctid = NULL;
-	Oid			oid = InvalidOid;
-	MemoryContext oldcontext;
 	ListCell   *lc;
+	MemoryContext oldcontext;
+	Oid			oid = InvalidOid;
+	bool	   *nulls;
 	int			j;
-	int     r;
-	char      **row_values;
+	int			r;
+	void      **row_values;
 
 	/*
 	 * Do the following work in a temp context that we reset after each tuple.
 	 * This cleans up not only the data we have direct access to, but any
 	 * cruft the I/O functions might leak.
 	 */
-	oldcontext = MemoryContextSwitchTo(temp_context);
-
-	if (rel)
-	{
-		tupdesc = RelationGetDescr(rel);
-	}
-	else
-	{
-		Assert(fsstate);
-		tupdesc = fsstate->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
-	}
+	oldcontext = MemoryContextSwitchTo(fsstate->temp_cxt);
 
 	values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
 	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
@@ -1088,23 +1029,25 @@ make_tuple_from_result_row(Relation rel,
 	/* Initialize to nulls for any columns not present in result */
 	memset(nulls, true, tupdesc->natts * sizeof(bool));
 
-	j = 0;
+	row_values = fsstate->conn.methods->fetch_row(fsstate->ch_cursor,
+		fsstate->retrieved_attrs, tupdesc, values, nulls);
 
-	if (list_length(retrieved_attrs))
+	/* in both cases (binary and non binary), NULL means end of tuples */
+	if (row_values == NULL)
+		goto cleanup;
+
+	/* Parse clickhouse result */
+	if (!fsstate->conn.is_binary)
 	{
-		/* Parse clickhouse result */
-		row_values = clickhouse_gate->fetch_row(res_cursor, list_length(retrieved_attrs));
-		if (row_values == NULL)
-			goto cleanup;
-
 		/*
-		 * i indexes columns in the relation, j indexes columns in the PGresult.
+		 * for non binary connections we will get strings which we will try
+		 * convert using postgres functions.
 		 */
-
-		foreach(lc, retrieved_attrs)
+		j = 0;
+		foreach(lc, fsstate->retrieved_attrs)
 		{
 			int		i = lfirst_int(lc);
-			char   *valstr = row_values[j];
+			char   *valstr = (char *) row_values[j];
 
 			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
 
@@ -1116,13 +1059,6 @@ make_tuple_from_result_row(Relation rel,
 										  attinmeta->atttypmods[i - 1]);
 			j++;
 		}
-	}
-	else
-	{
-		/* parse result of something like SELECT NULL */
-		row_values = clickhouse_gate->fetch_row(res_cursor, 1);
-		if (row_values == NULL)
-			goto cleanup;
 	}
 
 	MemoryContextSwitchTo(oldcontext);
@@ -1160,23 +1096,9 @@ make_tuple_from_result_row(Relation rel,
 
 cleanup:
 	/* Clean up */
-	MemoryContextReset(temp_context);
+	MemoryContextReset(fsstate->temp_cxt);
 
 	return tuple;
-}
-
-static inline HeapTuple
-fetch_tuple(ForeignScanState *node)
-{
-	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-
-	return make_tuple_from_result_row(fsstate->rel,
-	                  fsstate->attinmeta,
-	                  fsstate->retrieved_attrs,
-	                  node,
-	                  fsstate->temp_cxt,
-	                  fsstate->query,
-					  fsstate->cursor);
 }
 
 /*
@@ -1191,47 +1113,41 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
 	struct timeval time1,time2;
+	TupleDesc		tupdesc;
 
 	/* make query if needed */
-	if (fsstate->cursor == NULL)
+	if (fsstate->ch_cursor == NULL)
 	{
 		EState	*estate = node->ss.ps.state;
 		MemoryContext	old = MemoryContextSwitchTo(fsstate->batch_cxt);
-		fsstate->cursor = clickhouse_gate->simple_query(fsstate->conn,
+		fsstate->ch_cursor = fsstate->conn.methods->simple_query(fsstate->conn.conn,
 				fsstate->query);
 
-		time_used += fsstate->cursor->request_time;
+		time_used += fsstate->ch_cursor->request_time;
 		MemoryContextSwitchTo(old);
 	}
 
+	if (fsstate->rel)
+		tupdesc = RelationGetDescr(fsstate->rel);
+	else
+	{
+		Assert(fsstate);
+		tupdesc = node->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
+	}
+
 	gettimeofday(&time1, NULL);
-
-	if ((tup = fetch_tuple(node)) == NULL)
-		return ExecClearTuple(slot);
-
+	tup = fetch_tuple(fsstate, tupdesc);
 	gettimeofday(&time2, NULL);
 	time_used += time_diff(&time1, &time2);
+
+	if (tup == NULL)
+		return ExecClearTuple(slot);
 
 	/*
 	 * Return the next tuple.
 	 */
 	ExecStoreTuple(tup, slot, InvalidBuffer, false);
 	return slot;
-}
-
-/*
- * clickhouseReScanForeignScan
- *		Restart the scan.
- */
-static void
-clickhouseReScanForeignScan(ForeignScanState *node)
-{
-	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
-	if (fsstate->cursor != NULL)
-	{
-		clickhouse_gate->cursor_free(fsstate->cursor);
-		fsstate->cursor = NULL;
-	}
 }
 
 /*
@@ -1244,17 +1160,11 @@ clickhouseEndForeignScan(ForeignScanState *node)
 	ChFdwScanState *fsstate = (ChFdwScanState *) node->fdw_state;
 
 	time_used = 0;
-
-	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
-	if (fsstate == NULL)
-		return;
-
-	/* Release remote connection */
-	ReleaseConnection(fsstate->conn);
-	if (fsstate->cursor)
-		clickhouse_gate->cursor_free(fsstate->cursor);
-
-	/* MemoryContexts will be deleted automatically. */
+	if (fsstate && fsstate->ch_cursor)
+	{
+		MemoryContextDelete(fsstate->ch_cursor->memcxt);
+		fsstate->ch_cursor = NULL;
+	}
 }
 
 /*
@@ -1469,7 +1379,7 @@ clickhouseEndForeignInsert(EState *estate,
 
 	if (fmstate)
 	{
-		clickhouse_gate->simple_insert(fmstate->conn, fmstate->sql.data);
+		fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
 
 		/* Destroy the execution state */
 		finish_foreign_modify(fmstate);
@@ -1573,37 +1483,6 @@ estimate_path_cost_size(PlannerInfo *root,
 }
 
 /*
- * Detect whether we want to process an EquivalenceClass member.
- *
- * This is a callback for use by generate_implied_equalities_for_column.
- */
-static bool
-ec_member_matches_foreign(PlannerInfo *root, RelOptInfo *rel,
-                          EquivalenceClass *ec, EquivalenceMember *em,
-                          void *arg)
-{
-	ec_member_foreign_arg *state = (ec_member_foreign_arg *) arg;
-	Expr	   *expr = em->em_expr;
-
-	/*
-	 * If we've identified what we're processing in the current scan, we only
-	 * want to match that expression.
-	 */
-	if (state->current != NULL)
-		return equal(expr, state->current);
-
-	/*
-	 * Otherwise, ignore anything we've already processed.
-	 */
-	if (list_member(state->already_used, expr))
-		return false;
-
-	/* This is the new target to process. */
-	state->current = expr;
-	return true;
-}
-
-/*
  * Force assorted GUC parameters to settings that ensure that we'll output
  * data values in a form that is unambiguous to the remote server.
  *
@@ -1665,8 +1544,7 @@ create_foreign_modify(EState *estate,
 	table = GetForeignTable(RelationGetRelid(rel));
 	user = GetUserMapping(userid, table->serverid);
 
-	/* Open connection; report that we'll create a prepared statement. */
-	fmstate->conn = GetConnection(user, true, false);
+	fmstate->conn = GetConnection(user);
 
 	/* Set up remote query information. */
 	fmstate->query = query;
@@ -1843,10 +1721,7 @@ static void
 finish_foreign_modify(CHFdwModifyState *fmstate)
 {
 	Assert(fmstate != NULL);
-
-	/* Release remote connection */
-	ReleaseConnection(fmstate->conn);
-	fmstate->conn = NULL;
+	memset(&fmstate->conn, 0, sizeof(fmstate->conn));
 }
 
 /*
@@ -2829,6 +2704,16 @@ find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel)
 	return NULL;
 }
 
+static List *
+clickhouseImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
+{
+	ForeignServer       *server;
+
+	server = GetForeignServer(serverOid);
+	return construct_create_tables(stmt, server);
+}
+
+
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
  * to my callback routines.
@@ -2844,7 +2729,7 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 	routine->GetForeignPlan = clickhouseGetForeignPlan;
 	routine->BeginForeignScan = clickhouseBeginForeignScan;
 	routine->IterateForeignScan = clickhouseIterateForeignScan;
-	routine->ReScanForeignScan = clickhouseReScanForeignScan;
+	routine->ReScanForeignScan = clickhouseEndForeignScan;
 	routine->EndForeignScan = clickhouseEndForeignScan;
 
 	/* Functions for updating foreign tables */
@@ -2870,6 +2755,9 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 
 	/* Support functions for upper relation push-down */
 	routine->GetForeignUpperPaths = clickhouseGetForeignUpperPaths;
+
+	/* IMPORT FOREIGN SCHEMA */
+	routine->ImportForeignSchema = clickhouseImportForeignSchema;
 
 	PG_RETURN_POINTER(routine);
 }
