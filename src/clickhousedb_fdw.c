@@ -217,6 +217,7 @@ static bool clickhouseAnalyzeForeignTable(Relation relation,
         BlockNumber *totalpages);
 static bool clickhouseRecheckForeignScan(ForeignScanState *node,
         TupleTableSlot *slot);
+
 /*
  * Helper functions
  */
@@ -2660,6 +2661,16 @@ find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel)
 	return NULL;
 }
 
+static List *
+clickhouseImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
+{
+	ForeignServer       *server;
+
+	server = GetForeignServer(serverOid);
+	return construct_create_tables(stmt, server);
+}
+
+
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
  * to my callback routines.
@@ -2701,6 +2712,9 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 
 	/* Support functions for upper relation push-down */
 	routine->GetForeignUpperPaths = clickhouseGetForeignUpperPaths;
+
+	/* IMPORT FOREIGN SCHEMA */
+	routine->ImportForeignSchema = clickhouseImportForeignSchema;
 
 	PG_RETURN_POINTER(routine);
 }

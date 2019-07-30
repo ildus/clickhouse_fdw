@@ -701,3 +701,9 @@ binary_simple_insert(void *conn, const char *query)
 {
 	elog(ERROR, "clickhouse_fdw: insertion is not implemented for binary protocol yet");
 }
+
+List *
+construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
+{
+	elog(ERROR, "clickhouse_fdw: IMPORT FOREIGN SCHEMA is not implemented yet");
+}

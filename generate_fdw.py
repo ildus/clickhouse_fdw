@@ -33,10 +33,10 @@ types_map = {
     'String': 'text',
     'Date': 'date',
     'DateTime': 'timestamp',
-    'UUID': 'text',
+    'UUID': 'uuid',
     'FixedString': 'text',
-    'Enum8': 'text',
-    'Enum16': 'text'
+    'Enum8': 'int2',
+    'Enum16': 'int2'
 }
 
 

@@ -63,6 +63,7 @@ typedef struct {
 ch_connection http_connect(char *connstring);
 ch_connection binary_connect(ch_connection_details *details);
 text *http_fetch_raw_data(ch_cursor *cursor);
+List *construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server);
 
 typedef enum {
 	CH_DEFAULT,
