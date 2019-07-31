@@ -1,7 +1,6 @@
-#include <limits.h>
 #include "postgres.h"
+
 #include "catalog/pg_type_d.h"
-#include "foreign/foreign.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"

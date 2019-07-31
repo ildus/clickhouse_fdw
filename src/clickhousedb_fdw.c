@@ -14,18 +14,16 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
-#include "access/sysattr.h"
-#include "catalog/pg_class.h"
+#include "catalog/pg_class_d.h"
+#include "catalog/pg_type_d.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
-#include "commands/vacuum.h"
 #include "foreign/fdwapi.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
-#include "optimizer/clauses.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
@@ -34,14 +32,8 @@
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
-#include "utils/guc.h"
 #include "utils/lsyscache.h"
-#include "utils/memutils.h"
 #include "utils/rel.h"
-#include "utils/sampling.h"
-#include "utils/selfuncs.h"
-#include "utils/datetime.h"
-#include "utils/fmgroids.h"
 
 #include "clickhousedb_fdw.h"
 
@@ -1452,29 +1444,6 @@ estimate_path_cost_size(PlannerInfo *root,
 }
 
 /*
- * Force assorted GUC parameters to settings that ensure that we'll output
- * data values in a form that is unambiguous to the remote server.
- *
- * reset_transmission_modes() to undo things.
- */
-int
-set_transmission_modes(void)
-{
-	int     nestlevel = NewGUCNestLevel();
-
-	return nestlevel;
-}
-
-/*
- * Undo the effects of set_transmission_modes().
- */
-void
-reset_transmission_modes(int nestlevel)
-{
-	AtEOXact_GUC(true, nestlevel);
-}
-
-/*
  * create_foreign_modify
  *		Construct an execution state of a foreign insert
  *		operation
@@ -1572,10 +1541,7 @@ extend_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 	/* get following parameters from slot */
 	if (slot != NULL && fmstate->target_attrs != NIL)
 	{
-		int			nestlevel;
 		ListCell   *lc;
-
-		nestlevel = set_transmission_modes();
 
 		foreach (lc, fmstate->target_attrs)
 		{
@@ -1673,7 +1639,6 @@ extend_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 			pindex++;
 		}
 		appendStringInfoChar(&fmstate->sql, '\n');
-		reset_transmission_modes(nestlevel);
 	}
 
 	Assert(pindex == fmstate->p_nums);
