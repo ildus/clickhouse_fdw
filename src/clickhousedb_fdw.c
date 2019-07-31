@@ -13,9 +13,6 @@
 /* PosrgreSQL main header file */
 #include "postgres.h"
 
-/* Clikhouse FDW main header file */
-#include "clickhousedb_fdw.h"
-
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "catalog/pg_class.h"
@@ -45,6 +42,9 @@
 #include "utils/selfuncs.h"
 #include "utils/datetime.h"
 #include "utils/fmgroids.h"
+
+#include "clickhousedb_fdw.h"
+
 PG_MODULE_MAGIC;
 
 

@@ -21,3 +21,5 @@ script:
 env:
     - PG_VERSION=11  CHECK_CODE=clang
     - PG_VERSION=11  CHECK_CODE=false
+    - PG_VERSION=12  CHECK_CODE=clang
+    - PG_VERSION=12  CHECK_CODE=false

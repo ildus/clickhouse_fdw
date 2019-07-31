@@ -8,8 +8,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef POSTGRES_FDW_H
-#define POSTGRES_FDW_H
+#ifndef CLICKHOUSE_FDW_H
+#define CLICKHOUSE_FDW_H
 
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
@@ -277,4 +277,4 @@ extern Datum ch_time_out(PG_FUNCTION_ARGS);
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);
 
-#endif							/* POSTGRES_FDW_H */
+#endif							/* CLICKHOUSE_FDW_H */

@@ -27,4 +27,5 @@ ADD . /pg/src
 WORKDIR /pg/src
 RUN chmod -R go+rwX /pg/src
 USER postgres
+ARG CHECK_CODE
 ENTRYPOINT PGDATA=${PGDATA} CHECK_CODE=${CHECK_CODE} bash run_tests.sh
