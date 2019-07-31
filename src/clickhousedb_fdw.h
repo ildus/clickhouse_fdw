@@ -165,8 +165,6 @@ typedef struct CHFdwRelationInfo
 } CHFdwRelationInfo;
 
 /* in clickhouse_fdw.c */
-extern int	set_transmission_modes(void);
-extern void reset_transmission_modes(int nestlevel);
 extern ForeignServer *get_foreign_server(Relation rel);
 
 /* in connection.c */
