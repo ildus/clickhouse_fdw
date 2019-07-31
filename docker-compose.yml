@@ -1,0 +1,13 @@
+version: '2'
+services:
+    tests:
+        build:
+            context: .
+        network_mode: "host"
+
+    clickhouse:
+        image: yandex/clickhouse-server
+        ports:
+            - "8123:8123"
+            - "9000:9000"
+        network_mode: "host"
