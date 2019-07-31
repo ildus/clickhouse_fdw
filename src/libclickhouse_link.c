@@ -1,7 +1,6 @@
-#include <limits.h>
 #include "postgres.h"
+
 #include "catalog/pg_type_d.h"
-#include "foreign/foreign.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"
@@ -274,7 +273,7 @@ http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg_internal("clickhouse_fdw: columns mismatch"),
 				 errdetail("Number of returned columns does not match "
-						   "expected column count (%d).", attcount)));
+						   "expected column count (%lu).", attcount)));
 	}
 
 	return (void **) values;
@@ -694,8 +693,8 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg_internal("clickhouse_fdw: columns mismatch"),
-				 errdetail("Number of returned columns (%d) does not match "
-						   "expected column count (%d).",
+				 errdetail("Number of returned columns (%lu) does not match "
+						   "expected column count (%lu).",
 						   state->resp->columns_count, attcount)));
 	}
 

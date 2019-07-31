@@ -8,8 +8,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef POSTGRES_FDW_H
-#define POSTGRES_FDW_H
+#ifndef CLICKHOUSE_FDW_H
+#define CLICKHOUSE_FDW_H
 
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
@@ -297,4 +297,4 @@ extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);
 extern double time_diff(struct timeval *prior, struct timeval *latter);
 
-#endif							/* POSTGRES_FDW_H */
+#endif							/* CLICKHOUSE_FDW_H */
