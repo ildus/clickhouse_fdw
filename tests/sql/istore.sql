@@ -117,5 +117,7 @@ EXPLAIN (VERBOSE) SELECT avg(val) FILTER (WHERE val > 6) FROM t5;
 SELECT avg(val) FILTER (WHERE val > 6) FROM t5;
 
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
+
+DROP USER MAPPING FOR CURRENT_USER SERVER ch_default;
 DROP EXTENSION clickhouse_fdw CASCADE;
 DROP EXTENSION istore CASCADE;

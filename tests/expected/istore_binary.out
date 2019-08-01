@@ -109,9 +109,9 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
  
 (1 row)
 
+DROP USER MAPPING FOR CURRENT_USER SERVER ch_default;
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to server ch_default
-drop cascades to user mapping for ildus on server ch_default
 drop cascades to foreign table t2
 DROP EXTENSION istore CASCADE;

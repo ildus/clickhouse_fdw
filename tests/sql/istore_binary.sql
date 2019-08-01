@@ -32,5 +32,7 @@ EXPLAIN (VERBOSE) SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
 SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
 
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
+
+DROP USER MAPPING FOR CURRENT_USER SERVER ch_default;
 DROP EXTENSION clickhouse_fdw CASCADE;
 DROP EXTENSION istore CASCADE;

@@ -9,7 +9,7 @@ RUN if [ "${CHECK_CODE}" = "clang" ] ; then \
 
 RUN if [ "${CHECK_CODE}" = "false" ] ; then \
 	echo 'http://dl-3.alpinelinux.org/alpine/edge/main' > /etc/apk/repositories; \
-	apk --no-cache add curl python3 gcc g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev;\
+	apk --no-cache add curl python3 gcc g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git;\
 	fi
 
 ENV LANG=C.UTF-8 PGDATA=/pg/data CHECK_CODE=${CHECK_CODE}
