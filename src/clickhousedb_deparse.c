@@ -1123,9 +1123,6 @@ appendConditions(List *exprs, deparse_expr_cxt *context)
 	bool		is_first = true;
 	StringInfo	buf = context->buf;
 
-	/* Make sure any constants in the exprs are printed portably */
-	nestlevel = set_transmission_modes();
-
 	foreach (lc, exprs)
 	{
 		Expr	   *expr = (Expr *) lfirst(lc);
@@ -1148,8 +1145,6 @@ appendConditions(List *exprs, deparse_expr_cxt *context)
 
 		is_first = false;
 	}
-
-	reset_transmission_modes(nestlevel);
 }
 
 /* Output join name for given join type */
@@ -3336,9 +3331,6 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 	RelOptInfo *baserel = context->scanrel;
 	StringInfo	buf = context->buf;
 
-	/* Make sure any constants in the exprs are printed portably */
-	nestlevel = set_transmission_modes();
-
 	appendStringInfoString(buf, " ORDER BY");
 	foreach (lcell, pathkeys)
 	{
@@ -3357,7 +3349,6 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 
 		delim = ", ";
 	}
-	reset_transmission_modes(nestlevel);
 }
 
 /*
