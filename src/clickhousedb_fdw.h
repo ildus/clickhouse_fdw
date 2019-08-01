@@ -289,7 +289,8 @@ extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 #define ExecStoreHeapTuple(tup,slot,free) \
 	ExecStoreTuple(tup,slot,InvalidBuffer,free)
 
-#define execute_attr_map_tuple(tup, tupmap) do_convert_tuple(tup, tupmap)
+#define execute_attr_map_tuple		do_convert_tuple
+#define create_foreign_join_path	create_foreignscan_path
 
 #define T_SubscriptingRef	T_ArrayRef
 #define SubscriptingRef		ArrayRef
