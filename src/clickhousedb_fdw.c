@@ -28,12 +28,16 @@
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
-#include "optimizer/var.h"
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+
+#if PG_VERSION_NUM >= 120000
+#include "access/table.h"
+#include "optimizer/optimizer.h"
+#endif
 
 #include "clickhousedb_fdw.h"
 
@@ -982,7 +986,6 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	ItemPointer ctid = NULL;
 	ListCell   *lc;
 	MemoryContext oldcontext;
-	Oid			oid = InvalidOid;
 	bool	   *nulls;
 	int			j;
 	int			r;
@@ -1058,14 +1061,6 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	HeapTupleHeaderSetXmin(tuple->t_data, InvalidTransactionId);
 	HeapTupleHeaderSetCmin(tuple->t_data, InvalidTransactionId);
 
-	/*
-	 * If we have an OID to return, install it.
-	 */
-	if (OidIsValid(oid))
-	{
-		HeapTupleSetOid(tuple, oid);
-	}
-
 cleanup:
 	/* Clean up */
 	MemoryContextReset(fsstate->temp_cxt);
@@ -1111,7 +1106,7 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	/*
 	 * Return the next tuple.
 	 */
-	ExecStoreTuple(tup, slot, InvalidBuffer, false);
+	ExecStoreHeapTuple(tup, slot, false);
 	return slot;
 }
 

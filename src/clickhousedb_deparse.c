@@ -21,7 +21,6 @@
 #include "commands/defrem.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/tlist.h"
-#include "optimizer/var.h"
 #include "parser/parsetree.h"
 #include "utils/arrayaccess.h"
 #include "utils/builtins.h"
@@ -33,6 +32,10 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+
+#if PG_VERSION_NUM >= 120000
+#include "access/table.h"
+#endif
 
 #include "clickhousedb_fdw.h"
 
@@ -113,7 +116,7 @@ static void deparseExpr(Expr *expr, deparse_expr_cxt *context);
 static void deparseVar(Var *node, deparse_expr_cxt *context);
 static void deparseConst(Const *node, deparse_expr_cxt *context, int showtype);
 static void deparseParam(Param *node, deparse_expr_cxt *context);
-static void deparseArrayRef(ArrayRef *node, deparse_expr_cxt *context);
+static void deparseSubscriptingRef(SubscriptingRef *node, deparse_expr_cxt *context);
 static void deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context);
 static void deparseOpExpr(OpExpr *node, deparse_expr_cxt *context);
 static void deparseOperatorName(StringInfo buf, Form_pg_operator opform);
@@ -303,9 +306,7 @@ foreign_expr_walker(Node *node,
 			 * ensure that local and remote values match (tableoid, in
 			 * particular, almost certainly doesn't match).
 			 */
-			if (var->varattno < 0 &&
-			        var->varattno != SelfItemPointerAttributeNumber &&
-			        var->varattno != ObjectIdAttributeNumber)
+			if (var->varattno < 0)
 				return false;
 		}
 	}
@@ -318,9 +319,9 @@ foreign_expr_walker(Node *node,
 		return false;
 	}
 	break;
-	case T_ArrayRef:
+	case T_SubscriptingRef:
 	{
-		ArrayRef   *ar = (ArrayRef *) node;
+		SubscriptingRef   *ar = (SubscriptingRef *) node;
 
 		/* Assignment should not be in restrictions. */
 		if (ar->refassgnexpr != NULL)
@@ -1091,10 +1092,6 @@ deparseTargetList(StringInfo buf,
 	                  attrs_used))
 		elog(ERROR, "clickhouse does not support system columns");
 
-	if (bms_is_member(ObjectIdAttributeNumber - FirstLowInvalidHeapAttributeNumber,
-	                  attrs_used))
-		elog(ERROR, "clickhouse does not support system columns");
-
 	/* Don't generate bad syntax if no undropped columns */
 	if (first)
 	{
@@ -1739,8 +1736,8 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_Const:
 		deparseConst((Const *) node, context, 0);
 		break;
-	case T_ArrayRef:
-		deparseArrayRef((ArrayRef *) node, context);
+	case T_SubscriptingRef:
+		deparseSubscriptingRef((SubscriptingRef *) node, context);
 		break;
 	case T_FuncExpr:
 		deparseFuncExpr((FuncExpr *) node, context);
@@ -2103,7 +2100,7 @@ cleanup:
  * Deparse an array subscript expression.
  */
 static void
-deparseArrayRef(ArrayRef *node, deparse_expr_cxt *context)
+deparseSubscriptingRef(SubscriptingRef *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *lowlist_item;
@@ -2648,7 +2645,7 @@ deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context)
 	bool		first = true;
 	ListCell   *lc;
 
-	appendStringInfoString(buf, "array(");
+	appendStringInfoString(buf, "[");
 	foreach(lc, node->elements)
 	{
 		if (!first)
@@ -2656,7 +2653,7 @@ deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context)
 		deparseExpr(lfirst(lc), context);
 		first = false;
 	}
-	appendStringInfoChar(buf, ')');
+	appendStringInfoChar(buf, ']');
 
 	/* If the array is empty, we need an explicit cast to the array type. */
 	if (node->elements == NIL)

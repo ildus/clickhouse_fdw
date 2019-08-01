@@ -13,9 +13,15 @@
 
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
-#include "nodes/relation.h"
 #include "utils/relcache.h"
 #include "catalog/pg_operator.h"
+
+#if PG_VERSION_NUM < 120000
+#include "optimizer/var.h"
+#else
+#include "optimizer/optimizer.h"
+#include "nodes/pathnodes.h"
+#endif
 
 /* libclickhouse_link.c */
 typedef struct ch_cursor ch_cursor;
@@ -274,5 +280,22 @@ extern Datum ch_time_out(PG_FUNCTION_ARGS);
 
 extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);
+
+/* compat */
+#if PG_VERSION_NUM < 120000
+
+#define CreateTemplateTupleDescCompat(natts) \
+	CreateTemplateTupleDesc(natts, false)
+#define ExecStoreHeapTuple(tup,slot,free) \
+	ExecStoreTuple(tup,slot,InvalidBuffer,free)
+
+#define execute_attr_map_tuple(tup, tupmap) do_convert_tuple(tup, tupmap)
+
+#define T_SubscriptingRef	T_ArrayRef
+#define SubscriptingRef		ArrayRef
+#else
+#define CreateTemplateTupleDescCompat(natts) \
+	CreateTemplateTupleDesc(natts)
+#endif
 
 #endif							/* CLICKHOUSE_FDW_H */
