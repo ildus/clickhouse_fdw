@@ -65,7 +65,7 @@ set_state_error(ch_binary_read_state_t *state, const char *str)
 }
 
 ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
-	const char *query, volatile bool *cancel)
+	const char *query, bool (*check_cancel)(void) )
 {
 	Client	*client = (Client *) conn->client;
 	auto resp = new ch_binary_response_t();
@@ -75,8 +75,8 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	assert(resp->values == NULL);
 	try
 	{
-		client->SelectCancelable(chquery, [&resp, &values, &cancel] (const Block& block) {
-			if (cancel && *cancel)
+		client->SelectCancelable(chquery, [&resp, &values, &check_cancel] (const Block& block) {
+			if (check_cancel && check_cancel())
 			{
 				set_resp_error(resp, "query was canceled");
 				return false;

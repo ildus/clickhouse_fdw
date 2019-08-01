@@ -29,12 +29,16 @@
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
-#include "optimizer/var.h"
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
+
+#if PG_VERSION_NUM >= 120000
+#include "access/table.h"
+#include "optimizer/optimizer.h"
+#endif
 
 #include "clickhousedb_fdw.h"
 
@@ -215,11 +219,7 @@ static bool clickhouseRecheckForeignScan(ForeignScanState *node,
 /*
  * Helper functions
  */
-static void estimate_path_cost_size(PlannerInfo *root,
-                                    RelOptInfo *foreignrel,
-                                    List *param_join_conds,
-                                    List *pathkeys,
-                                    double *p_rows, int *p_width,
+static void estimate_path_cost_size(double *p_rows, int *p_width,
                                     Cost *p_startup_cost, Cost *p_total_cost);
 static CHFdwModifyState *create_foreign_modify(EState *estate,
         RangeTblEntry *rte,
@@ -444,14 +444,12 @@ get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	 */
 	if (rel->has_eclass_joins)
 	{
-		foreach (lc, root->eq_classes)
+		foreach(lc, root->eq_classes)
 		{
 			EquivalenceClass *cur_ec = (EquivalenceClass *) lfirst(lc);
 
 			if (eclass_useful_for_merging(root, cur_ec, rel))
-			{
 				useful_eclass_list = lappend(useful_eclass_list, cur_ec);
-			}
 		}
 	}
 
@@ -461,9 +459,7 @@ get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	 * quickly.
 	 */
 	if (rel->joininfo == NIL)
-	{
 		return useful_eclass_list;
-	}
 
 	/* If this is a child rel, we must use the topmost parent rel to search. */
 	if (IS_OTHER_REL(rel))
@@ -472,20 +468,16 @@ get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
 		relids = rel->top_parent_relids;
 	}
 	else
-	{
 		relids = rel->relids;
-	}
 
 	/* Check each join clause in turn. */
-	foreach (lc, rel->joininfo)
+	foreach(lc, rel->joininfo)
 	{
 		RestrictInfo *restrictinfo = (RestrictInfo *) lfirst(lc);
 
 		/* Consider only mergejoinable clauses */
 		if (restrictinfo->mergeopfamilies == NIL)
-		{
 			continue;
-		}
 
 		/* Make sure we've got canonical ECs. */
 		update_mergeclause_eclasses(root, restrictinfo);
@@ -517,10 +509,10 @@ get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
 		 */
 		if (bms_overlap(relids, restrictinfo->right_ec->ec_relids))
 			useful_eclass_list = list_append_unique_ptr(useful_eclass_list,
-			                     restrictinfo->right_ec);
+														restrictinfo->right_ec);
 		else if (bms_overlap(relids, restrictinfo->left_ec->ec_relids))
 			useful_eclass_list = list_append_unique_ptr(useful_eclass_list,
-			                     restrictinfo->left_ec);
+														restrictinfo->left_ec);
 	}
 
 	return useful_eclass_list;
@@ -552,7 +544,7 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	{
 		bool		query_pathkeys_ok = true;
 
-		foreach (lc, root->query_pathkeys)
+		foreach(lc, root->query_pathkeys)
 		{
 			PathKey    *pathkey = (PathKey *) lfirst(lc);
 			EquivalenceClass *pathkey_ec = pathkey->pk_eclass;
@@ -569,8 +561,8 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 			 * checking ec_has_volatile here saves some cycles.
 			 */
 			if (pathkey_ec->ec_has_volatile ||
-			        !(em_expr = find_em_expr_for_rel(pathkey_ec, rel)) ||
-			        !is_foreign_expr(root, rel, em_expr))
+				!(em_expr = find_em_expr_for_rel(pathkey_ec, rel)) ||
+				!is_foreign_expr(root, rel, em_expr))
 			{
 				query_pathkeys_ok = false;
 				break;
@@ -593,9 +585,7 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	 * bail out if we can't use remote estimates.
 	 */
 	if (!fpinfo->use_remote_estimate)
-	{
 		return useful_pathkeys_list;
-	}
 
 	/* Get the list of interesting EquivalenceClasses. */
 	useful_eclass_list = get_useful_ecs_for_relation(root, rel);
@@ -615,7 +605,7 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 	 * need to be a bit cautious here.  It would sure be nice to have a local
 	 * cache of information about remote index definitions...
 	 */
-	foreach (lc, useful_eclass_list)
+	foreach(lc, useful_eclass_list)
 	{
 		EquivalenceClass *cur_ec = lfirst(lc);
 		Expr	   *em_expr;
@@ -623,24 +613,20 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 
 		/* If redundant with what we did above, skip it. */
 		if (cur_ec == query_ec)
-		{
 			continue;
-		}
 
 		/* If no pushable expression for this rel, skip it. */
 		em_expr = find_em_expr_for_rel(cur_ec, rel);
 		if (em_expr == NULL || !is_foreign_expr(root, rel, em_expr))
-		{
 			continue;
-		}
 
 		/* Looks like we can generate a pathkey, so let's do it. */
 		pathkey = make_canonical_pathkey(root, cur_ec,
-		                                 linitial_oid(cur_ec->ec_opfamilies),
-		                                 BTLessStrategyNumber,
-		                                 false);
+										 linitial_oid(cur_ec->ec_opfamilies),
+										 BTLessStrategyNumber,
+										 false);
 		useful_pathkeys_list = lappend(useful_pathkeys_list,
-		                               list_make1(pathkey));
+									   list_make1(pathkey));
 	}
 
 	return useful_pathkeys_list;
@@ -851,12 +837,11 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	 * Items in the list must match order in enum FdwScanPrivateIndex.
 	 */
 	fdw_private = list_make3(makeString(sql.data),
-	                         retrieved_attrs,
-	                         makeInteger(fpinfo->fetch_size));
-
+							 retrieved_attrs,
+							 makeInteger(fpinfo->fetch_size));
 	if (IS_JOIN_REL(foreignrel) || IS_UPPER_REL(foreignrel))
 		fdw_private = lappend(fdw_private,
-		                      makeString(fpinfo->relation_name->data));
+							  makeString(fpinfo->relation_name->data));
 
 	gettimeofday(&time2, NULL);
 	time_used += time_diff(&time1, &time2);
@@ -869,13 +854,13 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	 * because then they wouldn't be subject to later planner processing.
 	 */
 	return make_foreignscan(tlist,
-	                        local_exprs,
-	                        scan_relid,
-	                        params_list,
-	                        fdw_private,
-	                        fdw_scan_tlist,
-	                        fdw_recheck_quals,
-	                        outer_plan);
+							local_exprs,
+							scan_relid,
+							params_list,
+							fdw_private,
+							fdw_scan_tlist,
+							fdw_recheck_quals,
+							outer_plan);
 }
 
 /*
@@ -895,14 +880,11 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	int			rtindex;
 	int			numParams;
 
-
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
 	 */
 	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
-	{
 		return;
-	}
 
 	/*
 	 * We'll save private state in node->fdw_state.
@@ -917,13 +899,9 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	 * result from any.
 	 */
 	if (fsplan->scan.scanrelid > 0)
-	{
 		rtindex = fsplan->scan.scanrelid;
-	}
 	else
-	{
 		rtindex = bms_next_member(fsplan->fs_relids, -1);
-	}
 	rte = rt_fetch(rtindex, estate->es_range_table);
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
 
@@ -939,11 +917,11 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 
 	/* Get private info created by planner functions. */
 	fsstate->query = strVal(list_nth(fsplan->fdw_private,
-	                                 FdwScanPrivateSelectSql));
+									 FdwScanPrivateSelectSql));
 	fsstate->retrieved_attrs = (List *) list_nth(fsplan->fdw_private,
-	                           FdwScanPrivateRetrievedAttrs);
+												 FdwScanPrivateRetrievedAttrs);
 	fsstate->fetch_size = intVal(list_nth(fsplan->fdw_private,
-	                                      FdwScanPrivateFetchSize));
+										  FdwScanPrivateFetchSize));
 
 	/* Create contexts for batches of tuples and per-tuple temp workspace. */
 	fsstate->batch_cxt = AllocSetContextCreate(estate->es_query_cxt,
@@ -977,11 +955,11 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	fsstate->numParams = numParams;
 	if (numParams > 0)
 		prepare_query_params((PlanState *) node,
-		                     fsplan->fdw_exprs,
-		                     numParams,
-		                     &fsstate->param_flinfo,
-		                     &fsstate->param_exprs,
-		                     &fsstate->param_values);
+							 fsplan->fdw_exprs,
+							 numParams,
+							 &fsstate->param_flinfo,
+							 &fsstate->param_exprs,
+							 &fsstate->param_values);
 }
 
 /*
@@ -1001,7 +979,6 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	ItemPointer ctid = NULL;
 	ListCell   *lc;
 	MemoryContext oldcontext;
-	Oid			oid = InvalidOid;
 	bool	   *nulls;
 	int			j;
 	int			r;
@@ -1077,14 +1054,6 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	HeapTupleHeaderSetXmin(tuple->t_data, InvalidTransactionId);
 	HeapTupleHeaderSetCmin(tuple->t_data, InvalidTransactionId);
 
-	/*
-	 * If we have an OID to return, install it.
-	 */
-	if (OidIsValid(oid))
-	{
-		HeapTupleSetOid(tuple, oid);
-	}
-
 cleanup:
 	/* Clean up */
 	MemoryContextReset(fsstate->temp_cxt);
@@ -1137,7 +1106,7 @@ clickhouseIterateForeignScan(ForeignScanState *node)
 	/*
 	 * Return the next tuple.
 	 */
-	ExecStoreTuple(tup, slot, InvalidBuffer, false);
+	ExecStoreHeapTuple(tup, slot, false);
 	return slot;
 }
 
@@ -1388,21 +1357,16 @@ clickhouseRecheckForeignScan(ForeignScanState *node, TupleTableSlot *slot)
 	PlanState  *outerPlan = outerPlanState(node);
 	TupleTableSlot *result;
 
-
 	/* For base foreign relations, it suffices to set fdw_recheck_quals */
 	if (scanrelid > 0)
-	{
 		return true;
-	}
 
 	Assert(outerPlan != NULL);
 
 	/* Execute a local join execution plan */
 	result = ExecProcNode(outerPlan);
 	if (TupIsNull(result))
-	{
 		return false;
-	}
 
 	/* Store result in the given slot */
 	ExecCopySlot(slot, result);
@@ -1460,11 +1424,7 @@ clickhouseExplainForeignScan(ForeignScanState *node, ExplainState *es)
  * p_startup_cost and p_total_cost variables.
  */
 static void
-estimate_path_cost_size(PlannerInfo *root,
-                        RelOptInfo *foreignrel,
-                        List *param_join_conds,
-                        List *pathkeys,
-                        double *p_rows, int *p_width,
+estimate_path_cost_size(double *p_rows, int *p_width,
                         Cost *p_startup_cost, Cost *p_total_cost)
 {
 	*p_rows = 1;
@@ -2054,16 +2014,15 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	fpinfo->rel_startup_cost = -1;
 	fpinfo->rel_total_cost = -1;
 
-
 	/*
 	 * Set the string describing this join relation to be used in EXPLAIN
 	 * output of corresponding ForeignScan.
 	 */
 	fpinfo->relation_name = makeStringInfo();
 	appendStringInfo(fpinfo->relation_name, "(%s) %s JOIN (%s)",
-	                 fpinfo_o->relation_name->data,
-	                 get_jointype_name(fpinfo->jointype),
-	                 fpinfo_i->relation_name->data);
+					 fpinfo_o->relation_name->data,
+					 get_jointype_name(fpinfo->jointype),
+					 fpinfo_i->relation_name->data);
 
 	/*
 	 * Set the relation index.  This is defined as the position of this
@@ -2073,14 +2032,14 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	 */
 	Assert(fpinfo->relation_index == 0);	/* shouldn't be set yet */
 	fpinfo->relation_index =
-	    list_length(root->parse->rtable) + list_length(root->join_rel_list);
+		list_length(root->parse->rtable) + list_length(root->join_rel_list);
 
 	return true;
 }
 
 static void
 add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
-                                Path *epq_path)
+								Path *epq_path)
 {
 	List	   *useful_pathkeys_list = NIL; /* List of all pathkeys */
 	ListCell   *lc;
@@ -2088,7 +2047,7 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 	useful_pathkeys_list = get_useful_pathkeys_for_relation(root, rel);
 
 	/* Create one path for each set of pathkeys we found above. */
-	foreach (lc, useful_pathkeys_list)
+	foreach(lc, useful_pathkeys_list)
 	{
 		double		rows;
 		int			width;
@@ -2097,8 +2056,7 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 		List	   *useful_pathkeys = lfirst(lc);
 		Path	   *sorted_epq_path;
 
-		estimate_path_cost_size(root, rel, NIL, useful_pathkeys,
-		                        &rows, &width, &startup_cost, &total_cost);
+		estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost);
 
 		/*
 		 * The EPQ path must be at least as well sorted as the path itself, in
@@ -2106,25 +2064,37 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 		 */
 		sorted_epq_path = epq_path;
 		if (sorted_epq_path != NULL &&
-		        !pathkeys_contained_in(useful_pathkeys,
-		                               sorted_epq_path->pathkeys))
+			!pathkeys_contained_in(useful_pathkeys,
+								   sorted_epq_path->pathkeys))
 			sorted_epq_path = (Path *)
-			                  create_sort_path(root,
-			                                   rel,
-			                                   sorted_epq_path,
-			                                   useful_pathkeys,
-			                                   -1.0);
+				create_sort_path(root,
+								 rel,
+								 sorted_epq_path,
+								 useful_pathkeys,
+								 -1.0);
 
-		add_path(rel, (Path *)
-		         create_foreignscan_path(root, rel,
-		                                 NULL,
-		                                 rows,
-		                                 startup_cost,
-		                                 total_cost,
-		                                 useful_pathkeys,
-		                                 NULL,
-		                                 sorted_epq_path,
-		                                 NIL));
+		if (IS_SIMPLE_REL(rel))
+			add_path(rel, (Path *)
+					 create_foreignscan_path(root, rel,
+											 NULL,
+											 rows,
+											 startup_cost,
+											 total_cost,
+											 useful_pathkeys,
+											 NULL,
+											 sorted_epq_path,
+											 NIL));
+		else
+			add_path(rel, (Path *)
+					 create_foreign_join_path(root, rel,
+											  NULL,
+											  rows,
+											  startup_cost,
+											  total_cost,
+											  useful_pathkeys,
+											  NULL,
+											  sorted_epq_path,
+											  NIL));
 	}
 }
 
@@ -2147,7 +2117,7 @@ merge_fdw_options(CHFdwRelationInfo *fpinfo,
 
 	/* fpinfo_i may be NULL, but if present the servers must both match. */
 	Assert(!fpinfo_i ||
-	       fpinfo_i->server->serverid == fpinfo_o->server->serverid);
+		   fpinfo_i->server->serverid == fpinfo_o->server->serverid);
 
 	/*
 	 * Copy the server specific FDW options.  (For a join, both relations come
@@ -2172,7 +2142,7 @@ merge_fdw_options(CHFdwRelationInfo *fpinfo,
 		 * best.
 		 */
 		fpinfo->use_remote_estimate = fpinfo_o->use_remote_estimate ||
-		                              fpinfo_i->use_remote_estimate;
+			fpinfo_i->use_remote_estimate;
 
 		/*
 		 * Set fetch size to maximum of the joining sides, since we are
@@ -2211,9 +2181,7 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 	 * Skip if this join combination has been considered already.
 	 */
 	if (joinrel->fdw_private)
-	{
 		return;
-	}
 
 	/*
 	 * Create unfinished CHFdwRelationInfo entry which is used to indicate
@@ -2247,10 +2215,10 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 	 * JOIN_INNER.
 	 */
 	fpinfo->local_conds_sel = clauselist_selectivity(root,
-	                          fpinfo->local_conds,
-	                          0,
-	                          JOIN_INNER,
-	                          NULL);
+													 fpinfo->local_conds,
+													 0,
+													 JOIN_INNER,
+													 NULL);
 	cost_qual_eval(&fpinfo->local_conds_cost, fpinfo->local_conds, root);
 
 	/*
@@ -2259,12 +2227,11 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 	 */
 	if (!fpinfo->use_remote_estimate)
 		fpinfo->joinclause_sel = clauselist_selectivity(root, fpinfo->joinclauses,
-		                         0, fpinfo->jointype,
-		                         extra->sjinfo);
+														0, fpinfo->jointype,
+														extra->sjinfo);
 
 	/* Estimate costs for bare join relation */
-	estimate_path_cost_size(root, joinrel, NIL, NIL, &rows,
-	                        &width, &startup_cost, &total_cost);
+	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost);
 	/* Now update this information in the joinrel */
 	joinrel->rows = rows;
 	joinrel->reltarget->width = width;
@@ -2277,16 +2244,16 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 	 * Create a new join path and add it to the joinrel which represents a
 	 * join between foreign tables.
 	 */
-	joinpath = create_foreignscan_path(root,
-	                                   joinrel,
-	                                   NULL,	/* default pathtarget */
-	                                   rows,
-	                                   startup_cost,
-	                                   total_cost,
-	                                   NIL, /* no pathkeys */
-	                                   NULL,	/* no required_outer */
-	                                   epq_path,
-	                                   NIL);	/* no fdw_private */
+	joinpath = create_foreign_join_path(root,
+										joinrel,
+										NULL,	/* default pathtarget */
+										rows,
+										startup_cost,
+										total_cost,
+										NIL,	/* no pathkeys */
+										NULL,
+										epq_path,
+										NIL);	/* no fdw_private */
 
 	/* Add generated path into joinrel by add_path(). */
 	add_path(joinrel, (Path *) joinpath);
@@ -2339,7 +2306,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	 * expressions into target list which will be passed to foreign server.
 	 */
 	i = 0;
-	foreach (lc, grouping_target->exprs)
+	foreach(lc, grouping_target->exprs)
 	{
 		Expr	   *expr = (Expr *) lfirst(lc);
 		Index		sgref = get_pathtarget_sortgroupref(grouping_target, i);
@@ -2390,9 +2357,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 				 * cannot push down aggregation to the foreign server.
 				 */
 				if (!is_foreign_expr(root, grouped_rel, (Expr *) aggvars))
-				{
 					return false;
-				}
 
 				/*
 				 * Add aggregates, if any, into the targetlist.  Plain Vars
@@ -2404,14 +2369,12 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 				 * GROUP BY column would cause the foreign server to complain
 				 * that the shipped query is invalid.
 				 */
-				foreach (l, aggvars)
+				foreach(l, aggvars)
 				{
 					Expr	   *expr = (Expr *) lfirst(l);
 
 					if (IsA(expr, Aggref))
-					{
 						tlist = add_to_flat_tlist(tlist, list_make1(expr));
-					}
 				}
 			}
 		}
@@ -2427,7 +2390,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	{
 		ListCell   *lc;
 
-		foreach (lc, (List *) havingQual)
+		foreach(lc, (List *) havingQual)
 		{
 			Expr	   *expr = (Expr *) lfirst(lc);
 			RestrictInfo *rinfo;
@@ -2438,13 +2401,13 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			 */
 			Assert(!IsA(expr, RestrictInfo));
 			rinfo = make_restrictinfo(expr,
-			                          true,
-			                          false,
-			                          false,
-			                          root->qual_security_level,
-			                          grouped_rel->relids,
-			                          NULL,
-			                          NULL);
+									  true,
+									  false,
+									  false,
+									  root->qual_security_level,
+									  grouped_rel->relids,
+									  NULL,
+									  NULL);
 			if (is_foreign_expr(root, grouped_rel, expr))
 				fpinfo->remote_conds = lappend(fpinfo->remote_conds, rinfo);
 			else
@@ -2461,16 +2424,16 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 		List	   *aggvars = NIL;
 		ListCell   *lc;
 
-		foreach (lc, fpinfo->local_conds)
+		foreach(lc, fpinfo->local_conds)
 		{
 			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
 
 			aggvars = list_concat(aggvars,
-			                      pull_var_clause((Node *) rinfo->clause,
-			                                      PVC_INCLUDE_AGGREGATES));
+								  pull_var_clause((Node *) rinfo->clause,
+												  PVC_INCLUDE_AGGREGATES));
 		}
 
-		foreach (lc, aggvars)
+		foreach(lc, aggvars)
 		{
 			Expr	   *expr = (Expr *) lfirst(lc);
 
@@ -2510,7 +2473,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	 */
 	fpinfo->relation_name = makeStringInfo();
 	appendStringInfo(fpinfo->relation_name, "Aggregate on (%s)",
-	                 ofpinfo->relation_name->data);
+					 ofpinfo->relation_name->data);
 
 	return true;
 }
@@ -2582,13 +2545,11 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 
 	/* Nothing to be done, if there is no grouping or aggregation required. */
 	if (!parse->groupClause && !parse->groupingSets && !parse->hasAggs &&
-	        !root->hasHavingQual)
-	{
+		!root->hasHavingQual)
 		return;
-	}
 
 	Assert(extra->patype == PARTITIONWISE_AGGREGATE_NONE ||
-	       extra->patype == PARTITIONWISE_AGGREGATE_FULL);
+		   extra->patype == PARTITIONWISE_AGGREGATE_FULL);
 
 	/* save the input_rel as outerrel in fpinfo */
 	fpinfo->outerrel = input_rel;
@@ -2609,13 +2570,10 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	 * translated Vars.
 	 */
 	if (!foreign_grouping_ok(root, grouped_rel, extra->havingQual))
-	{
 		return;
-	}
 
 	/* Estimate the cost of push down */
-	estimate_path_cost_size(root, grouped_rel, NIL, NIL, &rows,
-	                        &width, &startup_cost, &total_cost);
+	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost);
 
 	/* Now update this information in the fpinfo */
 	fpinfo->rows = rows;
@@ -2624,6 +2582,7 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	fpinfo->total_cost = total_cost;
 
 	/* Create and add foreign path to the grouping relation. */
+#if (PG_VERSION_NUM < 120000)
 	grouppath = create_foreignscan_path(root,
 	                                    grouped_rel,
 	                                    grouped_rel->reltarget,
@@ -2634,6 +2593,17 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	                                    NULL,	/* no required_outer */
 	                                    NULL,
 	                                    NIL);	/* no fdw_private */
+#else
+	grouppath = create_foreign_upper_path(root,
+										  grouped_rel,
+										  grouped_rel->reltarget,
+										  rows,
+										  startup_cost,
+										  total_cost,
+										  NIL,	/* no pathkeys */
+										  NULL,
+										  NIL); /* no fdw_private */
+#endif
 
 	/* Add generated path into grouped_rel by add_path(). */
 	add_path(grouped_rel, (Path *) grouppath);
@@ -2648,12 +2618,12 @@ find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel)
 {
 	ListCell   *lc_em;
 
-	foreach (lc_em, ec->ec_members)
+	foreach(lc_em, ec->ec_members)
 	{
 		EquivalenceMember *em = lfirst(lc_em);
 
 		if (bms_is_subset(em->em_relids, rel->relids) &&
-		        !bms_is_empty(em->em_relids))
+			!bms_is_empty(em->em_relids))
 		{
 			/*
 			 * If there is more than one equivalence member whose Vars are

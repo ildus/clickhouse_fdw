@@ -248,18 +248,25 @@ static void test_simple_query(void **s)
 	ch_binary_close(conn);
 }
 
+static bool cancel_false(void)
+{
+	return false;
+}
+
+static bool cancel_true(void)
+{
+	return true;
+}
+
 static void test_query_canceling(void **s)
 {
-	bool cancel = false;
-
 	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	assert_ptr_not_equal(conn, NULL);
 	ch_binary_response_t	*res = ch_binary_simple_query(conn,
-		"select 1, NULL, number from numbers(3);", &cancel);
+		"select 1, NULL, number from numbers(3);", &cancel_false);
 	assert_true(res->success);
-	cancel = true;
 	res = ch_binary_simple_query(conn,
-		"select number, sleep(3) from numbers(1, 100000);", &cancel);
+		"select number, sleep(3) from numbers(1, 100000);", &cancel_true);
 	assert_false(res->success);
 	assert_string_equal(res->error, "query was canceled");
 	ch_binary_response_free(res);

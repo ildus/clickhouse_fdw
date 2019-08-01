@@ -55,6 +55,15 @@ static int http_progress_callback(void *clientp, double dltotal, double dlnow,
 	return 0;
 }
 
+static bool is_canceled(void)
+{
+	/* this variable is bool on pg < 12, but sig_atomic_t on above versions */
+	if (QueryCancelPending)
+		return true;
+
+	return false;
+}
+
 ch_connection
 http_connect(char *connstring)
 {
@@ -331,8 +340,7 @@ binary_simple_query(void *conn, const char *query)
 	ch_cursor	*cursor;
 	ch_binary_read_state_t *state;
 
-	ch_binary_response_t *resp = ch_binary_simple_query(conn, query,
-		&QueryCancelPending);
+	ch_binary_response_t *resp = ch_binary_simple_query(conn, query, &is_canceled);
 
 	if (!resp->success)
 	{
@@ -531,7 +539,7 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				if (tuple->len == 0)
 					elog(ERROR, "clickhouse_fdw: returned tuple is empty");
 
-				desc = CreateTemplateTupleDesc(tuple->len, false);
+				desc = CreateTemplateTupleDescCompat(tuple->len);
 				tuple_values = palloc(sizeof(Datum) * desc->natts);
 
 				/* TODO: support NULLs in tuple */
@@ -604,7 +612,7 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 						"clickhouse_fdw: could not map tuple to returned type");
 					if (tupmap)
 					{
-						temptup = do_convert_tuple(htup, tupmap);
+						temptup = execute_attr_map_tuple(htup, tupmap);
 						pfree(tupmap);
 						heap_freetuple(htup);
 						htup = temptup;

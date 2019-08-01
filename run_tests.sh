@@ -12,15 +12,16 @@ echo CHECK_CODE=$CHECK_CODE
 
 status=0
 
+# run cmake
+mkdir -p build
+pushd build
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+
 # perform code analysis if necessary
 if [ "$CHECK_CODE" = "clang" ]; then
-    scan-build --status-bugs make USE_PGXS=1 || status=$?
+    scan-build --status-bugs make || status=$?
     exit $status
 fi
-
-# run cmake
-mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Debug ..
 
 # initialize database
 initdb
@@ -47,6 +48,7 @@ export PG_REGRESS_DIFF_OPTS="-w -U3" # for alpine's diff (BusyBox)
 PGPORT=55435 make installcheck || status=$?
 
 # show diff if it exists
-if test -f regression.diffs; then cat regression.diffs; fi
+popd
+if test -f tests/regression.diffs; then cat tests/regression.diffs; fi
 
 exit $status
