@@ -2322,7 +2322,11 @@ findIStoreFunction(Oid isoid, char *name)
 		proctup = &catlist->members[i]->tuple;
 		procform = (Form_pg_proc) GETSTRUCT(proctup);
 		if (procform->proargtypes.values[0] == isoid)
+#if PG_VERSION_NUM < 120000
 			result = HeapTupleGetOid(proctup);
+#else
+			result = procform->oid;
+#endif
 	}
 
 	ReleaseSysCacheList(catlist);
