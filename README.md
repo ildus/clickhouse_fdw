@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=master)](https://travis-ci.org/adjust/clickhouse_fdw)
+master: [![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=master)](https://travis-ci.org/adjust/clickhouse_fdw) adjust: [![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=adjust)](https://travis-ci.org/adjust/clickhouse_fdw)
 
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
@@ -28,7 +28,7 @@ for these resource intensive operations.
 Supported PostgreSQL Versions
 ------------------------------
 
-PostgreSQL 11+
+PostgreSQL 11-12
 
 Installation
 ----------------
