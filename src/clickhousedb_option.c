@@ -48,7 +48,6 @@ static ChFdwOption *clickhousedb_fdw_options;
 static const ChFdwOption ch_options[] =
 {
 	{"host", 0, false},
-	{"hostaddr", 0, false},
 	{"port", 0, false},
 	{"dbname", 0, false},
 	{"user", 0, false},
