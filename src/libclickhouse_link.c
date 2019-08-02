@@ -672,27 +672,32 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 						   state->resp->columns_count, attcount)));
 	}
 
-	j = 0;
-	foreach(lc, attrs)
+	if (tupdesc)
 	{
-		int		i = lfirst_int(lc);
-		void   *rowval = row_values[j];
+		Assert(values && nulls);
 
-		if (state->coltypes[j] == chb_Void || rowval == NULL)
-			nulls[i - 1] = true;
-		else
+		j = 0;
+		foreach(lc, attrs)
 		{
-			Oid restype;
-			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+			int		i = lfirst_int(lc);
+			void   *rowval = row_values[j];
 
-			values[i - 1] = make_datum(rowval, state->coltypes[j], pgtype);
-			nulls[i - 1] = false;
+			if (state->coltypes[j] == chb_Void || rowval == NULL)
+				nulls[i - 1] = true;
+			else
+			{
+				Oid restype;
+				Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+
+				values[i - 1] = make_datum(rowval, state->coltypes[j], pgtype);
+				nulls[i - 1] = false;
+			}
+			j++;
 		}
-		j++;
 	}
 
 ok:
-	return (void **) values;
+	return (void **) row_values;
 }
 
 static void
@@ -714,19 +719,19 @@ static char *str_types_map[STR_TYPES_COUNT][2] = {
 	{"Int8", "INT2"},
 	{"UInt8", "INT2"},
 	{"Int16", "INT2"},
-    {"UInt16", "INT4"},
-    {"Int32", "INT4"},
-    {"UInt32", "INT8"},
-    {"Int64", "INT8"},
-    {"UInt64", "INT8"}, //overflow risk
-    {"Float32", "REAL"},
-    {"Float64", "DOUBLE PRECISION"},
-    {"Decimal", "NUMERIC"},
-    {"Boolean", "BOOLEAN"},
-    {"String", "TEXT"},
-    {"Date", "DATE"},
-    {"DateTime", "TIMESTAMP"},
-    {"UUID", "UUID"}
+	{"UInt16", "INT4"},
+	{"Int32", "INT4"},
+	{"UInt32", "INT8"},
+	{"Int64", "INT8"},
+	{"UInt64", "INT8"}, //overflow risk
+	{"Float32", "REAL"},
+	{"Float64", "DOUBLE PRECISION"},
+	{"Decimal", "NUMERIC"},
+	{"Boolean", "BOOLEAN"},
+	{"String", "TEXT"},
+	{"Date", "DATE"},
+	{"DateTime", "TIMESTAMP"},
+	{"UUID", "UUID"}
 };
 
 List *
@@ -744,9 +749,6 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 
 	ch_connection_details	details;
 
-	if (conn.is_binary)
-		elog(ERROR, "clickhouse_fdw: IMPORT FOREIGN SCHEMA implemented only for http protocol");
-
 	details.dbname = "default";
 	ExtractConnectionOptions(server->options, &driver, &details.host,
 		&details.port, &details.dbname, &details.username, &details.password);
@@ -758,6 +760,10 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 	datts = lappend_int(datts, 6);
 	datts = lappend_int(datts, 7);
 
+	/*
+	 * We use only char values from result, so basicly we don't need
+	 * to convert anything for binary
+	 */
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
 				list_make1_int(1), NULL, NULL, NULL)) != NULL)
 	{
@@ -862,7 +868,7 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 				appendStringInfoString(&buf, " NOT NULL");
 		}
 
-        appendStringInfo(&buf, "\n) SERVER %s OPTIONS (table_name '%s');\n",
+		appendStringInfo(&buf, "\n) SERVER %s OPTIONS (table_name '%s');\n",
 			server->servername, table_name);
 
 		result = lappend(result, buf.data);
