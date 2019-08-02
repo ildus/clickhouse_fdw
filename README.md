@@ -1,4 +1,4 @@
-master: [![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=master)](https://travis-ci.org/adjust/clickhouse_fdw) adjust: [![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=adjust)](https://travis-ci.org/adjust/clickhouse_fdw)
+[![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=master)](https://travis-ci.org/adjust/clickhouse_fdw) [![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=adjust)](https://travis-ci.org/adjust/clickhouse_fdw)
 
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
@@ -35,13 +35,13 @@ Installation
 
 ###### Prerequisite
 
-The `clickhouse_fdw` uses an HTTP interface provided by ClickHouse. `libcurl` should
-be installed in the system.
+The `clickhouse_fdw` uses an HTTP interface provided by ClickHouse. `libcurl` and
+`uuid` libraries should be installed in the system.
 
 ###### Installing `clickhouse_fdw`
 
 ```
-git clone https://github.com/ildus/clickhouse_fdw.git
+git clone https://github.com/adjust/clickhouse_fdw.git
 cd clickhouse_fdw
 mkdir build && cd build
 cmake ..
@@ -74,7 +74,7 @@ tax_bills_nyc and tax_bills:
         property_tax String,
         condonumber String,
         condo String,
-        insertion_date DateTime MATERIALIZED now() 
+        insertion_date DateTime MATERIALIZED now()
     )
     ENGINE = MergeTree PARTITION BY tax_class ORDER BY (owner_name)
 
@@ -84,7 +84,7 @@ Download the sample data from the taxbills.nyc website and put the data in the t
 
     CREATE TABLE tax_bills
     (
-        bbl bigint, 
+        bbl bigint,
         owner_name text
     )
     ENGINE = MergeTree
@@ -92,12 +92,28 @@ Download the sample data from the taxbills.nyc website and put the data in the t
     ORDER BY bbl;
 
 Now the data is ready in the ClickHouse, the next step is to set up the PostgreSQL side.
-We need to create a ClickHouse foreign server, user mapping, and foreign tables.
+First we need to create a ClickHouse foreign server:
 
-    CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'test_database', host '127.0.0.1');
-    
+    CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw
+		OPTIONS(dbname 'test_database');
+
+By default the server will use `http` protocol. But we could use binary protocol:
+
+    CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw
+		OPTIONS(dbname 'test_database', driver 'binary');
+
+Available parameters:
+
+	* host
+	* port
+	* driver
+	* username
+	* password
+
+Now create user mapping and foreign tables:
+
     CREATE USER MAPPING FOR CURRENT_USER SERVER clickhouse_svr;
-    postgres=# CREATE FOREIGN TABLE tax_bills_nyc 
+	CREATE FOREIGN TABLE tax_bills_nyc
     (
         bbl int8,
         owner_name text,
@@ -111,11 +127,11 @@ We need to create a ClickHouse foreign server, user mapping, and foreign tables.
         property_tax text,
         condonumber text,
         condo text,
-        insertion_date Time 
-    ) SERVER clickhouse_svr;
+        insertion_date Time
+    ) SERVER clickhouse_svr OPTIONS (table_name 'tax_bills_nyc');
 
-    postgres=# SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
-        bbl     | tbea  |  bav   | insertion_date 
+    SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
+        bbl     | tbea  |  bav   | insertion_date
     ------------+-------+--------+----------------
     4001940057 | 18755 | 145899 | 15:25:42
     1016830130 |  2216 |  17238 | 15:25:42
@@ -123,13 +139,13 @@ We need to create a ClickHouse foreign server, user mapping, and foreign tables.
     1006130061 | 55883 | 434719 | 15:25:42
     3033540009 | 33100 | 257490 | 15:25:42
     (5 rows)
-    
+
     CREATE TABLE tax_bills ( bbl bigint, owner_name text) ENGINE = MergeTree PARTITION BY bbl ORDER BY (bbl)
-    
+
     INSERT INTO tax_bills SELECT bbl, tbea from tax_bills_nyc LIMIT 100;
-    
+
     EXPLAIN VERBOSE SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
-                                         QUERY PLAN                                         
+                                         QUERY PLAN
     --------------------------------------------------------------------------------------------
     Limit  (cost=0.00..0.00 rows=1 width=32)
     Output: bbl, tbea, bav, insertion_date
