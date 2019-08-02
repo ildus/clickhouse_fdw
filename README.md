@@ -104,10 +104,11 @@ By default the server will use `http` protocol. But we could use binary protocol
 
 Available parameters:
 
+	* dbname
 	* host
 	* port
 	* driver
-	* username
+	* user
 	* password
 
 Now create user mapping and foreign tables:
