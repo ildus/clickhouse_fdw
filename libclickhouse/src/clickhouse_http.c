@@ -64,10 +64,6 @@ ch_http_connection_t *ch_http_connection(char *connstring)
 	if (!conn->curl)
 		goto cleanup;
 
-	conn->url = curl_url();
-	if (!conn->url)
-		goto cleanup;
-
 	conn->base_url = strdup(connstring);
 	if (conn->base_url == NULL)
 		goto cleanup;
@@ -79,8 +75,6 @@ ch_http_connection_t *ch_http_connection(char *connstring)
 cleanup:
 	snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
 	curl_error_happened = true;
-	if (conn->url)
-		curl_url_cleanup(conn->url);
 	if (conn->base_url)
 		free(conn->base_url);
 
@@ -109,11 +103,15 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 
 	curl_easy_reset(conn->curl);
 
+	/* construct url */
+	url = malloc(conn->base_url_len + 30 /* query_id + ?query_id= */);
+	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
+
 	/* constant */
 	curl_easy_setopt(conn->curl, CURLOPT_WRITEFUNCTION, write_data);
 	curl_easy_setopt(conn->curl, CURLOPT_ERRORBUFFER, curl_error_buffer);
 	curl_easy_setopt(conn->curl, CURLOPT_PATH_AS_IS, 1);
-	curl_easy_setopt(conn->curl, CURLOPT_CURLU, conn->url);
+	curl_easy_setopt(conn->curl, CURLOPT_URL, url);
 	curl_easy_setopt(conn->curl, CURLOPT_NOSIGNAL, 1);
 
 	/* variable */
@@ -129,13 +127,10 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	else
 		curl_easy_setopt(conn->curl, CURLOPT_NOPROGRESS, 1L);
 
-	url = malloc(conn->base_url_len + 30 /* query_id + ?query_id= */);
-	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
-	curl_url_set(conn->url, CURLUPART_URL, url, 0);
-	free(url);
-
 	curl_error_happened = false;
 	errcode = curl_easy_perform(conn->curl);
+	free(url);
+
 	if (errcode == CURLE_ABORTED_BY_CALLBACK)
 	{
 		resp->http_status = 418; /* I'm teapot */
@@ -160,7 +155,6 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 void ch_http_close(ch_http_connection_t *conn)
 {
 	free(conn->base_url);
-	curl_url_cleanup(conn->url);
 	curl_easy_cleanup(conn->curl);
 }
 
