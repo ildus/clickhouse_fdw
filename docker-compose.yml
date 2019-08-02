@@ -11,3 +11,7 @@ services:
             - "8123:8123"
             - "9000:9000"
         network_mode: "host"
+
+    client:
+        image: yandex/clickhouse-client
+        network_mode: "host"
