@@ -9,6 +9,7 @@
 #include "utils/lsyscache.h"
 #include "utils/typcache.h"
 #include "utils/uuid.h"
+#include "utils/fmgroids.h"
 #include "access/htup_details.h"
 
 #include "clickhousedb_fdw.h"
@@ -545,7 +546,16 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				pfree(tuple_values);
 				pfree(tuple_nulls);
 
-				if (pgtype != RECORDOID)
+				if (pgtype == RECORDOID || pgtype == TEXTOID)
+				{
+					ret = heap_copy_tuple_as_datum(htup, desc);
+					heap_freetuple(htup);
+
+					if (pgtype == TEXTOID)
+						/* a lot of allocations, not so efficient */
+						ret = CStringGetTextDatum(DatumGetCString(OidFunctionCall1(F_RECORD_OUT, ret)));
+				}
+				else
 				{
 					bool			pinned = false;
 					TupleDesc		pgdesc;
@@ -589,13 +599,8 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 					if (pinned)
 						ReleaseTupleDesc(pgdesc);
 				}
-				else
-				{
-					ret = heap_copy_tuple_as_datum(htup, desc);
-					heap_freetuple(htup);
-				}
 
-				/* no additional conversion here */
+				/* no additional conversion needed */
 				return ret;
 			}
 			break;
@@ -604,7 +609,6 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 	}
 
 	Assert(valtype != InvalidOid);
-	Assert(valtype != RECORDOID);
 
 	if (pgtype != InvalidOid && valtype != pgtype)
 	{
@@ -827,6 +831,14 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 				else if (strncmp(remote_type, "Enum16", strlen("Enum16")) == 0)
 				{
 					appendStringInfoString(&buf, "SMALLINT");
+					add_type = false;
+					break;
+				}
+				else if (strncmp(remote_type, "Tuple", strlen("Tuple")) == 0)
+				{
+					appendStringInfoString(&buf, "TEXT");
+					elog(WARNING, "clickhouse_fdw: ClickHouse <Tuple> type was "
+						"translated to <TEXT> type, please create composite type and alter the column if needed");
 					add_type = false;
 					break;
 				}
