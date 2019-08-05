@@ -77,8 +77,8 @@ CREATE FOREIGN TABLE ftypes (
     c3 text,
     c4 text,
     c5 uuid,
-    c6 smallint, -- Enum8
-    c7 smallint  -- Enum16
+    c6 text, -- Enum8
+    c7 text  -- Enum16
 ) SERVER loopback OPTIONS (table_name 'types');
 
 CREATE FOREIGN TABLE farrays (

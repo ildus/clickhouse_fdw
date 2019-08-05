@@ -20,6 +20,7 @@
 #include "commands/explain.h"
 #include "foreign/fdwapi.h"
 #include "funcapi.h"
+#include "fmgr.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -999,6 +1000,21 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 			char   *valstr = (char *) row_values[j];
 
 			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+
+			/* that's the easy way to check array, otherwise use get_element_type on pgtype */
+			if (valstr && valstr[0] == '[')
+			{
+				size_t	pos = 0;
+
+				while (valstr[pos] != '\0')
+				{
+					if (valstr[pos] == '[')
+						valstr[pos] = '{';
+					if (valstr[pos] == ']')
+						valstr[pos] = '}';
+					pos++;
+				}
+			}
 
 			/* Apply the input function even to nulls, to support domains */
 			nulls[i - 1] = (valstr == NULL);

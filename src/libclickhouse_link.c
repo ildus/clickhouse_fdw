@@ -390,8 +390,8 @@ static Oid types_map[21] = {
 	InvalidOid,	/* chb_Array, depends on array type */
 	InvalidOid,	/* chb_Nullable, just skip it */
 	InvalidOid,	/* composite type */
-	INT2OID,	/* enum8 */
-	INT2OID,	/* enum16 */
+	TEXTOID,	/* enum8 */
+	TEXTOID,	/* enum16 */
 	UUIDOID
 };
 
@@ -442,6 +442,8 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 			break;
 		case chb_FixedString:
 		case chb_String:
+		case chb_Enum8:
+		case chb_Enum16:
 			ret = CStringGetTextDatum((const char *) rowval);
 			break;
 		case chb_DateTime:
@@ -495,18 +497,6 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				StaticAssertStmt(val + offsetof(pg_uuid_t, data) == val,
 					"pg_uuid_t should have only array");
 				ret = UUIDPGetDatum(val);
-			}
-			break;
-		case chb_Enum8:
-			{
-				int8 val = *(int8 *) rowval;
-				ret = Int16GetDatum((int16) val);
-			}
-			break;
-		case chb_Enum16:
-			{
-				int16 val = *(int16 *) rowval;
-				ret = Int16GetDatum(val);
 			}
 			break;
 		case chb_Tuple:
@@ -686,7 +676,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 			int		i = lfirst_int(lc);
 			void   *rowval = row_values[j];
 
-			if (state->coltypes[j] == chb_Void || rowval == NULL)
+			if (state->coltypes[j] == chb_Void || state->coltypes[j] == chb_Nullable || rowval == NULL)
 				nulls[i - 1] = true;
 			else
 			{
@@ -842,13 +832,13 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 				}
 				else if (strncmp(remote_type, "Enum8", strlen("Enum8")) == 0)
 				{
-					appendStringInfoString(&buf, "SMALLINT");
+					appendStringInfoString(&buf, "TEXT");
 					add_type = false;
 					break;
 				}
 				else if (strncmp(remote_type, "Enum16", strlen("Enum16")) == 0)
 				{
-					appendStringInfoString(&buf, "SMALLINT");
+					appendStringInfoString(&buf, "TEXT");
 					add_type = false;
 					break;
 				}

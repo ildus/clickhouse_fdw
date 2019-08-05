@@ -34,6 +34,14 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
  
 (1 row)
 
+SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
+    number, number + 1, number + 2, number + 3, number + 4, number + 5,
+    number + 6, number + 7, number + 8.1, number + 9.2 FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
     c6 Enum8(''one'' = 1, ''two'' = 2),
@@ -41,6 +49,21 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c8 LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
+    addDays(toDate(''1990-01-01''), number),
+    addMinutes(addSeconds(addDays(toDateTime(''1990-01-01 10:00:00''), number), number), number),
+    format(''number {0}'', toString(number)),
+    format(''num {0}'', toString(number)),
+    format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number)),
+    ''two'',
+    ''three'',
+    format(''cardinal {0}'', toString(number))
+    FROM numbers(10);');
  clickhousedb_raw_query 
 ------------------------
  
@@ -56,12 +79,30 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
  
 (1 row)
 
+SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
+    [number, number + 1],
+    [format(''num{0}'', toString(number)), format(''num{0}'', toString(number + 1))]
+    FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 -- tuple
 SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
     c1 Int8,
     c2 Tuple(Int, String, Float32)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
+    number,
+    (number, toString(number), number + 1.0)
+    FROM numbers(10);');
  clickhousedb_raw_query 
 ------------------------
  
@@ -95,8 +136,8 @@ FDW options: (table_name 'ints')
  c3     | text                        |           | not null |         |             | extended |              | 
  c4     | character varying(5)        |           | not null |         |             | extended |              | 
  c5     | uuid                        |           | not null |         |             | plain    |              | 
- c6     | smallint                    |           | not null |         |             | plain    |              | 
- c7     | smallint                    |           | not null |         |             | plain    |              | 
+ c6     | text                        |           | not null |         |             | extended |              | 
+ c7     | text                        |           | not null |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
 FDW options: (table_name 'types')
@@ -118,6 +159,34 @@ FDW options: (table_name 'arrays')
  c2     | text     |           | not null |         |             | extended |              | 
 Server: loopback
 FDW options: (table_name 'tuples')
+
+SELECT * FROM clickhouse.ints ORDER BY c1 LIMIT 2;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9  | c10  
+----+----+----+----+----+----+----+----+-----+------
+  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 | 8.1 |  9.2
+  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 | 9.1 | 10.2
+(2 rows)
+
+SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
+     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
+------------+---------------------+----------+-------+--------------------------------------+-----+-------+------------
+ 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | cardinal 0
+ 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | cardinal 1
+(2 rows)
+
+SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
+  c1   |       c2        
+-------+-----------------
+ {0,1} | {'num0','num1'}
+ {1,2} | {'num1','num2'}
+(2 rows)
+
+SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
+ c1 |    c2     
+----+-----------
+  0 | (0,'0',1)
+  1 | (1,'1',2)
+(2 rows)
 
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
 NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
@@ -147,8 +216,8 @@ FDW options: (table_name 'ints')
  c3     | text                        |           | not null |         |             | extended |              | 
  c4     | character varying(5)        |           | not null |         |             | extended |              | 
  c5     | uuid                        |           | not null |         |             | plain    |              | 
- c6     | smallint                    |           | not null |         |             | plain    |              | 
- c7     | smallint                    |           | not null |         |             | plain    |              | 
+ c6     | text                        |           | not null |         |             | extended |              | 
+ c7     | text                        |           | not null |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback_bin
 FDW options: (table_name 'types')
@@ -170,6 +239,34 @@ FDW options: (table_name 'arrays')
  c2     | text     |           | not null |         |             | extended |              | 
 Server: loopback_bin
 FDW options: (table_name 'tuples')
+
+SELECT * FROM clickhouse_bin.ints ORDER BY c1 LIMIT 2;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9  | c10 
+----+----+----+----+----+----+----+----+-----+-----
+  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 | 8.1 |    
+  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 | 9.1 |    
+(2 rows)
+
+SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
+     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
+------------+---------------------+----------+-------+--------------------------------------+-----+-------+------------
+ 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | cardinal 0
+ 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | cardinal 1
+(2 rows)
+
+SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
+  c1   |     c2      
+-------+-------------
+ {0,1} | {num0,num1}
+ {1,2} | {num1,num2}
+(2 rows)
+
+SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
+ c1 |   c2    
+----+---------
+  0 | (0,0,1)
+  1 | (1,1,2)
+(2 rows)
 
 IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 \d+ clickhouse_limit.ints;
@@ -198,8 +295,8 @@ FDW options: (table_name 'ints')
  c3     | text                        |           | not null |         |             | extended |              | 
  c4     | character varying(5)        |           | not null |         |             | extended |              | 
  c5     | uuid                        |           | not null |         |             | plain    |              | 
- c6     | smallint                    |           | not null |         |             | plain    |              | 
- c7     | smallint                    |           | not null |         |             | plain    |              | 
+ c6     | text                        |           | not null |         |             | extended |              | 
+ c7     | text                        |           | not null |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
 FDW options: (table_name 'types')

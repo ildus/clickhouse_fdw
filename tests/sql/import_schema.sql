@@ -21,6 +21,9 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
     c9 Float32, c10 Nullable(Float64)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
+SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
+    number, number + 1, number + 2, number + 3, number + 4, number + 5,
+    number + 6, number + 7, number + 8.1, number + 9.2 FROM numbers(10);');
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
@@ -29,12 +32,26 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c8 LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
+SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
+    addDays(toDate(''1990-01-01''), number),
+    addMinutes(addSeconds(addDays(toDateTime(''1990-01-01 10:00:00''), number), number), number),
+    format(''number {0}'', toString(number)),
+    format(''num {0}'', toString(number)),
+    format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number)),
+    ''two'',
+    ''three'',
+    format(''cardinal {0}'', toString(number))
+    FROM numbers(10);');
 
 -- array types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
     c1 Array(Int), c2 Array(String)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
+SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
+    [number, number + 1],
+    [format(''num{0}'', toString(number)), format(''num{0}'', toString(number + 1))]
+    FROM numbers(10);');
 
 -- tuple
 SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
@@ -42,6 +59,10 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
     c2 Tuple(Int, String, Float32)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
+SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
+    number,
+    (number, toString(number), number + 1.0)
+    FROM numbers(10);');
 
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 
@@ -50,12 +71,22 @@ IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
 
+SELECT * FROM clickhouse.ints ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
+
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
 
 \d+ clickhouse_bin.ints;
 \d+ clickhouse_bin.types;
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
+
+SELECT * FROM clickhouse_bin.ints ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
 
 IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 

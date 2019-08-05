@@ -317,9 +317,15 @@ nested:
 				return (void *) str;
 			}
 		case chb_Enum8:
-			return (void *) &(col->As<ColumnEnum8>()->At(row));
+			{
+				const char *str = col->As<ColumnEnum8>()->NameAt(row).c_str();
+				return (void *) str;
+			}
 		case chb_Enum16:
-			return (void *) &(col->As<ColumnEnum16>()->At(row));
+			{
+				const char *str = col->As<ColumnEnum16>()->NameAt(row).c_str();
+				return (void *) str;
+			}
 		case chb_Array:
 			{
 				auto arr = col->As<ColumnArray>()->GetAsColumn(row);

@@ -248,6 +248,16 @@ static void test_simple_query(void **s)
 	ch_binary_close(conn);
 }
 
+static bool cancel_true(void)
+{
+	return true;
+}
+
+static bool cancel_false(void)
+{
+	return false;
+}
+
 static void test_query_canceling(void **s)
 {
 	bool cancel = false;
@@ -255,11 +265,11 @@ static void test_query_canceling(void **s)
 	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
 	assert_ptr_not_equal(conn, NULL);
 	ch_binary_response_t	*res = ch_binary_simple_query(conn,
-		"select 1, NULL, number from numbers(3);", &cancel);
+		"select 1, NULL, number from numbers(3);", &cancel_false);
 	assert_true(res->success);
 	cancel = true;
 	res = ch_binary_simple_query(conn,
-		"select number, sleep(3) from numbers(1, 100000);", &cancel);
+		"select 1, NULL, number from numbers(3);", &cancel_true);
 	assert_false(res->success);
 	assert_string_equal(res->error, "query was canceled");
 	ch_binary_response_free(res);
@@ -428,6 +438,7 @@ static void test_insertion(void **s)
 	ch_binary_response_free(res);
 	ch_binary_close(conn);
 }
+
 static void test_tuples(void **s)
 {
 	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
@@ -475,6 +486,45 @@ static void test_tuples(void **s)
 	ch_binary_close(conn);
 }
 
+static void test_enums(void **s)
+{
+	ch_binary_connection_t	*conn = ch_binary_connect("localhost", 9000, NULL, NULL, NULL, NULL);
+	ch_binary_response_t	*res;
+	ch_binary_read_state_t	state;
+
+	assert_ptr_not_equal(conn, NULL);
+
+	query(conn, "DROP DATABASE IF EXISTS test");
+	query(conn, "CREATE DATABASE test");
+	query(conn, "CREATE TABLE test.enums("
+					"a Enum8('one' = 1, 'two' = 2), "
+					"b Enum16('one' = 1, 'two' = 2) "
+				") ENGINE = MergeTree ORDER BY (a);");
+	query(conn, "INSERT INTO test.enums SELECT 'one', 'two' FROM numbers(2);");
+
+	res = ch_binary_simple_query(conn, "select * from test.enums order by a", NULL);
+	if (!res->success)
+		printf("%s\n", res->error);
+	assert_true(res->success);
+	ch_binary_read_state_init(&state, res);
+
+	void **values = ch_binary_read_row(&state);
+	assert_string_equal((char *) values[0], "one");
+	assert_string_equal((char *) values[1], "two");
+
+	// 2 row
+	values = ch_binary_read_row(&state);
+	assert_string_equal((char *) values[0], "one");
+	assert_string_equal((char *) values[1], "two");
+
+	values = ch_binary_read_row(&state);
+	assert_ptr_equal(values, NULL);
+
+	ch_binary_read_state_free(&state);
+	ch_binary_response_free(res);
+	ch_binary_close(conn);
+}
+
 /* string, fixedstring, uuid, date, datetime */
 static void test_insertion_complex(void **s)
 {
@@ -487,7 +537,8 @@ static void test_insertion_complex(void **s)
 	query(conn, "DROP DATABASE IF EXISTS test");
 	query(conn, "CREATE DATABASE test");
 	query(conn, "CREATE TABLE IF NOT EXISTS test.complex ("
-		"a String, b FixedString(3), c Date, d DateTime, e UUID) ENGINE = Memory");
+		"a String, b FixedString(3), c Date, d DateTime, e UUID) "
+		"ENGINE = Memory");
 
 	const size_t	nrows = 2;
 	const size_t	ncolumns = 5;
@@ -580,6 +631,7 @@ int main(void) {
         cmocka_unit_test(test_insertion),
         cmocka_unit_test(test_insertion_complex),
         cmocka_unit_test(test_tuples),
+        cmocka_unit_test(test_enums),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
