@@ -1,0 +1,107 @@
+CREATE EXTENSION clickhouse_fdw;
+SET datestyle = 'ISO';
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw
+    OPTIONS(dbname 'regression', driver 'http');
+CREATE SCHEMA clickhouse;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- integer types
+SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
+    c1 Int8, c2 Int16, c3 Int32, c4 Int64,
+    c5 UInt8, c6 UInt16, c7 UInt32, c8 UInt64,
+    c9 Float32, c10 Nullable(Float64)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
+    c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
+    c6 Enum8(''one'' = 1, ''two'' = 2),
+    c7 Enum16(''one'' = 1, ''two'' = 2, ''three'' = 3),
+    c8 LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- array types
+SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
+    c1 Array(Int), c2 Array(String)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
+\d+ clickhouse.ints;
+                                         Foreign table "clickhouse.ints"
+ Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | smallint         |           | not null |         |             | plain   |              | 
+ c2     | smallint         |           | not null |         |             | plain   |              | 
+ c3     | integer          |           | not null |         |             | plain   |              | 
+ c4     | bigint           |           | not null |         |             | plain   |              | 
+ c5     | smallint         |           | not null |         |             | plain   |              | 
+ c6     | integer          |           | not null |         |             | plain   |              | 
+ c7     | bigint           |           | not null |         |             | plain   |              | 
+ c8     | bigint           |           | not null |         |             | plain   |              | 
+ c9     | real             |           | not null |         |             | plain   |              | 
+ c10    | double precision |           |          |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 'ints')
+
+\d+ clickhouse.types;
+                                              Foreign table "clickhouse.types"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | date                        |           | not null |         |             | plain    |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain    |              | 
+ c3     | text                        |           | not null |         |             | extended |              | 
+ c4     | character varying(5)        |           | not null |         |             | extended |              | 
+ c5     | uuid                        |           | not null |         |             | plain    |              | 
+ c6     | smallint                    |           | not null |         |             | plain    |              | 
+ c7     | smallint                    |           | not null |         |             | plain    |              | 
+ c8     | text                        |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'types')
+
+\d+ clickhouse.arrays;
+                                     Foreign table "clickhouse.arrays"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | integer[] |           | not null |         |             | extended |              | 
+ c2     | text[]    |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'arrays')
+
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to server loopback
+drop cascades to foreign table clickhouse.arrays
+drop cascades to foreign table clickhouse.ints
+drop cascades to foreign table clickhouse.types
