@@ -819,7 +819,7 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 			first = false;
 
 			/* name */
-			appendStringInfo(&buf, "\t%s ", dvalues[0]);
+			appendStringInfo(&buf, "\t\"%s\" ", dvalues[0]);
 			while ((pos = strstr(remote_type, "(")) != NULL)
 			{
 				if (strncmp(remote_type, "Decimal", strlen("Decimal")) == 0)
