@@ -780,6 +780,24 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 		if (table_name == NULL)
 			continue;
 
+		if (list_length(stmt->table_list))
+		{
+			ListCell *lc;
+			bool found = false;
+
+			foreach(lc, stmt->table_list)
+			{
+				RangeVar   *rv = (RangeVar *) lfirst(lc);
+				if (strcmp(rv->relname, table_name) == 0)
+					found = true;
+			}
+
+			if (stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT && found)
+				continue;
+			else if (stmt->list_type == FDW_IMPORT_SCHEMA_LIMIT_TO && !found)
+				continue;
+		}
+
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "CREATE FOREIGN TABLE %s.%s (\n",
 			stmt->local_schema, table_name);

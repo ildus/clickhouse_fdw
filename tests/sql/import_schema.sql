@@ -6,7 +6,10 @@ CREATE SERVER loopback_bin FOREIGN DATA WRAPPER clickhouse_fdw
     OPTIONS(dbname 'regression', driver 'binary');
 CREATE SCHEMA clickhouse;
 CREATE SCHEMA clickhouse_bin;
+CREATE SCHEMA clickhouse_limit;
+CREATE SCHEMA clickhouse_except;
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
@@ -47,14 +50,29 @@ IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
 
-IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse_bin;
+IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
 
 \d+ clickhouse_bin.ints;
 \d+ clickhouse_bin.types;
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
 
+IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
+
+\d+ clickhouse_limit.ints;
+\d+ clickhouse_limit.types;
+\d+ clickhouse_limit.arrays;
+\d+ clickhouse_limit.tuples;
+
+IMPORT FOREIGN SCHEMA "<does not matter>" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
+
+\d+ clickhouse_except.ints;
+\d+ clickhouse_except.types;
+\d+ clickhouse_except.arrays;
+\d+ clickhouse_except.tuples;
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
 
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
 DROP EXTENSION clickhouse_fdw CASCADE;
