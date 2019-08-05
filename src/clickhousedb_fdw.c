@@ -812,8 +812,6 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	                        remote_exprs, best_path->path.pathkeys,
 	                        false, &retrieved_attrs, &params_list);
 
-	elog(LOG, "DEPARSED: %s", sql.data);
-
 	/* Remember remote_exprs for possible use by postgresPlanDirectModify */
 	fpinfo->final_remote_exprs = remote_exprs;
 

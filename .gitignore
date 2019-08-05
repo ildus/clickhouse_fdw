@@ -2,3 +2,4 @@ tests/regression.diffs
 tests/regression.out
 tests/results
 tests/results/*.out
+bench/bench
