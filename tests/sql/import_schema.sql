@@ -2,7 +2,10 @@ CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw
     OPTIONS(dbname 'regression', driver 'http');
+CREATE SERVER loopback_bin FOREIGN DATA WRAPPER clickhouse_fdw
+    OPTIONS(dbname 'regression', driver 'binary');
 CREATE SCHEMA clickhouse;
+CREATE SCHEMA clickhouse_bin;
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
@@ -30,11 +33,26 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 
+-- tuple
+SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
+    c1 Int8,
+    c2 Tuple(Int, String, Float32)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 
 \d+ clickhouse.ints;
 \d+ clickhouse.types;
 \d+ clickhouse.arrays;
+\d+ clickhouse.tuples;
+
+IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse_bin;
+
+\d+ clickhouse_bin.ints;
+\d+ clickhouse_bin.types;
+\d+ clickhouse_bin.arrays;
+\d+ clickhouse_bin.tuples;
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 

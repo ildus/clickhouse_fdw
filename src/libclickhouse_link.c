@@ -837,7 +837,7 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 				else if (strncmp(remote_type, "Tuple", strlen("Tuple")) == 0)
 				{
 					appendStringInfoString(&buf, "TEXT");
-					elog(WARNING, "clickhouse_fdw: ClickHouse <Tuple> type was "
+					elog(NOTICE, "clickhouse_fdw: ClickHouse <Tuple> type was "
 						"translated to <TEXT> type, please create composite type and alter the column if needed");
 					add_type = false;
 					break;

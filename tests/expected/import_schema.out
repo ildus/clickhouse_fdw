@@ -2,7 +2,10 @@ CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw
     OPTIONS(dbname 'regression', driver 'http');
+CREATE SERVER loopback_bin FOREIGN DATA WRAPPER clickhouse_fdw
+    OPTIONS(dbname 'regression', driver 'binary');
 CREATE SCHEMA clickhouse;
+CREATE SCHEMA clickhouse_bin;
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
  clickhousedb_raw_query 
@@ -50,7 +53,19 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
  
 (1 row)
 
+-- tuple
+SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
+    c1 Int8,
+    c2 Tuple(Int, String, Float32)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
 \d+ clickhouse.ints;
                                          Foreign table "clickhouse.ints"
  Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
@@ -92,6 +107,67 @@ FDW options: (table_name 'types')
 Server: loopback
 FDW options: (table_name 'arrays')
 
+\d+ clickhouse.tuples;
+                                    Foreign table "clickhouse.tuples"
+ Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint |           | not null |         |             | plain    |              | 
+ c2     | text     |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'tuples')
+
+IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse_bin;
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+\d+ clickhouse_bin.ints;
+                                       Foreign table "clickhouse_bin.ints"
+ Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | smallint         |           | not null |         |             | plain   |              | 
+ c2     | smallint         |           | not null |         |             | plain   |              | 
+ c3     | integer          |           | not null |         |             | plain   |              | 
+ c4     | bigint           |           | not null |         |             | plain   |              | 
+ c5     | smallint         |           | not null |         |             | plain   |              | 
+ c6     | integer          |           | not null |         |             | plain   |              | 
+ c7     | bigint           |           | not null |         |             | plain   |              | 
+ c8     | bigint           |           | not null |         |             | plain   |              | 
+ c9     | real             |           | not null |         |             | plain   |              | 
+ c10    | double precision |           |          |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 'ints')
+
+\d+ clickhouse_bin.types;
+                                            Foreign table "clickhouse_bin.types"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | date                        |           | not null |         |             | plain    |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain    |              | 
+ c3     | text                        |           | not null |         |             | extended |              | 
+ c4     | character varying(5)        |           | not null |         |             | extended |              | 
+ c5     | uuid                        |           | not null |         |             | plain    |              | 
+ c6     | smallint                    |           | not null |         |             | plain    |              | 
+ c7     | smallint                    |           | not null |         |             | plain    |              | 
+ c8     | text                        |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'types')
+
+\d+ clickhouse_bin.arrays;
+                                   Foreign table "clickhouse_bin.arrays"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | integer[] |           | not null |         |             | extended |              | 
+ c2     | text[]    |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'arrays')
+
+\d+ clickhouse_bin.tuples;
+                                  Foreign table "clickhouse_bin.tuples"
+ Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint |           | not null |         |             | plain    |              | 
+ c2     | text     |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'tuples')
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
@@ -100,8 +176,14 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 4 other objects
+NOTICE:  drop cascades to 10 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table clickhouse.arrays
 drop cascades to foreign table clickhouse.ints
+drop cascades to foreign table clickhouse.tuples
 drop cascades to foreign table clickhouse.types
+drop cascades to foreign table clickhouse_bin.arrays
+drop cascades to foreign table clickhouse_bin.ints
+drop cascades to foreign table clickhouse_bin.tuples
+drop cascades to foreign table clickhouse_bin.types
+drop cascades to server loopback_bin
