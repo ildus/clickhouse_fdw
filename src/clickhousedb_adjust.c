@@ -62,11 +62,11 @@ create_custom_columns_cache(void)
 	return hash_create("clickhouse_fdw custom functions", 20, &ctl, HASH_ELEM | HASH_BLOBS);
 }
 
-CustomObjectDef *checkForCustomFunction(Oid funcid)
+CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 {
 	CustomObjectDef	*entry;
 
-	if (is_builtin(funcid))
+	if (chfdw_is_builtin(funcid))
 	{
 		switch (funcid)
 		{
@@ -131,7 +131,7 @@ CustomObjectDef *checkForCustomFunction(Oid funcid)
 	return entry;
 }
 
-CustomObjectDef *checkForCustomType(Oid typeoid)
+CustomObjectDef *chfdw_check_for_custom_type(Oid typeoid)
 {
 	const char *proname;
 
@@ -139,7 +139,7 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 	if (!custom_objects_cache)
 		custom_objects_cache = create_custom_objects_cache();
 
-	if (is_builtin(typeoid))
+	if (chfdw_is_builtin(typeoid))
 		return NULL;
 
 	entry = hash_search(custom_objects_cache, (void *) &typeoid, HASH_FIND, NULL);
@@ -166,7 +166,7 @@ CustomObjectDef *checkForCustomType(Oid typeoid)
 	return entry;
 }
 
-CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
+CustomObjectDef *chfdw_check_for_custom_operator(Oid opoid, Form_pg_operator form)
 {
 	HeapTuple	tuple = NULL;
 	const char *proname;
@@ -175,7 +175,7 @@ CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
 	if (!custom_objects_cache)
 		custom_objects_cache = create_custom_objects_cache();
 
-	if (is_builtin(opoid))
+	if (chfdw_is_builtin(opoid))
 	{
 		switch (opoid) {
 			/* timestamptz + interval */
@@ -229,7 +229,7 @@ CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form)
  * New options might also require tweaking merge_fdw_options().
  */
 void
-ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid)
+chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 {
 	ListCell	*lc;
 	TupleDesc	tupdesc;
@@ -312,7 +312,7 @@ ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid)
 
 /* Get foreign relation options */
 CustomColumnInfo *
-GetCustomColumnInfo(Oid relid, uint16 varattno)
+chfdw_get_custom_column_info(Oid relid, uint16 varattno)
 {
 	CustomColumnInfo	entry_key,
 					   *entry;

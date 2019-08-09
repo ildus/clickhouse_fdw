@@ -66,10 +66,10 @@ typedef struct {
 	char       *dbname;
 } ch_connection_details;
 
-ch_connection http_connect(char *connstring);
-ch_connection binary_connect(ch_connection_details *details);
-text *http_fetch_raw_data(ch_cursor *cursor);
-List *construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server);
+ch_connection chfdw_http_connect(char *connstring);
+ch_connection chfdw_binary_connect(ch_connection_details *details);
+text *chfdw_http_fetch_raw_data(ch_cursor *cursor);
+List *chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server);
 
 typedef enum {
 	CH_DEFAULT,
@@ -171,50 +171,42 @@ typedef struct CHFdwRelationInfo
 } CHFdwRelationInfo;
 
 /* in clickhouse_fdw.c */
-extern ForeignServer *get_foreign_server(Relation rel);
+extern ForeignServer *chfdw_get_foreign_server(Relation rel);
 
-/* in connection.c */
-extern ch_connection GetConnection(UserMapping *user);
-extern unsigned int GetCursorNumber(ch_connection conn);
-extern unsigned int GetPrepStmtNumber(ch_connection conn);
+/* in clickhousedb_connection.c */
+extern ch_connection chfdw_get_connection(UserMapping *user);
 extern void chfdw_exec_query(ch_connection conn, const char *query);
 extern void chfdw_report_error(int elevel, ch_connection conn,
                                bool clear, const char *sql);
 
-/* in option.c */
+/* in clickhousedb_option.c */
 extern void
-ExtractConnectionOptions(List *defelems, char **driver, char **host, int *port,
+chfdw_extract_options(List *defelems, char **driver, char **host, int *port,
                          char **dbname, char **username, char **password);
 
-extern List *ExtractExtensionList(const char *extensionsString,
-                                  bool warnOnMissing);
-
 /* in deparse.c */
-extern void classifyConditions(PlannerInfo *root,
+extern void chfdw_classify_conditions(PlannerInfo *root,
                                RelOptInfo *baserel,
                                List *input_conds,
                                List **remote_conds,
                                List **local_conds);
-extern bool is_foreign_expr(PlannerInfo *root,
+extern bool chfdw_is_foreign_expr(PlannerInfo *root,
                             RelOptInfo *baserel,
                             Expr *expr);
-extern void deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
+extern void chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
                              Index rtindex, Relation rel,
                              List *targetAttrs);
-extern void deparseAnalyzeSizeSql(StringInfo buf, Relation rel);
-extern void deparseAnalyzeSql(StringInfo buf, Relation rel,
-                              List **retrieved_attrs);
-extern Expr *find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel);
-extern List *build_tlist_to_deparse(RelOptInfo *foreignrel);
-extern void deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root,
+extern Expr *chfdw_find_em_expr(EquivalenceClass *ec, RelOptInfo *rel);
+extern List *chfdw_build_tlist_to_deparse(RelOptInfo *foreignrel);
+extern void chfdw_deparse_select_stmt_for_rel(StringInfo buf, PlannerInfo *root,
                                     RelOptInfo *foreignrel, List *tlist,
                                     List *remote_conds, List *pathkeys, bool is_subquery,
                                     List **retrieved_attrs, List **params_list);
-extern const char *get_jointype_name(JoinType jointype);
+extern const char *chfdw_get_jointype_name(JoinType jointype);
 
 /* in shippable.c */
-extern bool is_builtin(Oid objectId);
-extern int is_equal_op(Oid opno);
+extern bool chfdw_is_builtin(Oid objectId);
+extern int chfdw_is_equal_op(Oid opno);
 
 /*
  * Connection cache hash table entry
@@ -267,18 +259,18 @@ typedef struct CustomColumnInfo
 	char	signfield[NAMEDATALEN];
 } CustomColumnInfo;
 
-extern CustomObjectDef *checkForCustomFunction(Oid funcid);
-extern CustomObjectDef *checkForCustomType(Oid typeoid);
+extern CustomObjectDef *chfdw_check_for_custom_function(Oid funcid);
+extern CustomObjectDef *chfdw_check_for_custom_type(Oid typeoid);
 extern void modifyCustomVar(CustomObjectDef *def, Node *node);
-extern void ApplyCustomTableOptions(CHFdwRelationInfo *fpinfo, Oid relid);
-extern CustomColumnInfo *GetCustomColumnInfo(Oid relid, uint16 varattno);
-extern CustomObjectDef *checkForCustomOperator(Oid opoid, Form_pg_operator form);
+extern void chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid);
+extern CustomColumnInfo *chfdw_get_custom_column_info(Oid relid, uint16 varattno);
+extern CustomObjectDef *chfdw_check_for_custom_operator(Oid opoid, Form_pg_operator form);
 
 extern Datum ch_timestamp_out(PG_FUNCTION_ARGS);
 extern Datum ch_date_out(PG_FUNCTION_ARGS);
 extern Datum ch_time_out(PG_FUNCTION_ARGS);
 
-extern bool is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
+extern bool chfdw_is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);
 
 /* compat */

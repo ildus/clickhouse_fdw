@@ -273,9 +273,9 @@ clickhousedb_raw_query(PG_FUNCTION_ARGS)
 	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
 		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
 
-	ch_connection	conn = http_connect(connstring);
+	ch_connection	conn = chfdw_http_connect(connstring);
 	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
-	text		   *res = http_fetch_raw_data(cursor);
+	text		   *res = chfdw_http_fetch_raw_data(cursor);
 
 	MemoryContextDelete(cursor->memcxt);
 	conn.methods->disconnect(conn.conn);
@@ -326,7 +326,7 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	fpinfo->fdw_tuple_cost = DEFAULT_FDW_TUPLE_COST;
 	fpinfo->shippable_extensions = NIL;
 
-	ApplyCustomTableOptions(fpinfo, foreigntableid);
+	chfdw_apply_custom_table_options(fpinfo, foreigntableid);
 
 	fpinfo->user = NULL;
 
@@ -334,7 +334,7 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 	 * Identify which baserestrictinfo clauses can be sent to the remote
 	 * server and which can't.
 	 */
-	classifyConditions(root, baserel, baserel->baserestrictinfo,
+	chfdw_classify_conditions(root, baserel, baserel->baserestrictinfo,
 	                   &fpinfo->remote_conds, &fpinfo->local_conds);
 
 	/*
@@ -545,12 +545,12 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 			 * end up resorting the entire data set.  So, unless we can push
 			 * down all of the query pathkeys, forget it.
 			 *
-			 * is_foreign_expr would detect volatile expressions as well, but
+			 * chfdw_is_foreign_expr would detect volatile expressions as well, but
 			 * checking ec_has_volatile here saves some cycles.
 			 */
 			if (pathkey_ec->ec_has_volatile ||
-				!(em_expr = find_em_expr_for_rel(pathkey_ec, rel)) ||
-				!is_foreign_expr(root, rel, em_expr))
+				!(em_expr = chfdw_find_em_expr(pathkey_ec, rel)) ||
+				!chfdw_is_foreign_expr(root, rel, em_expr))
 			{
 				query_pathkeys_ok = false;
 				break;
@@ -604,8 +604,8 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 			continue;
 
 		/* If no pushable expression for this rel, skip it. */
-		em_expr = find_em_expr_for_rel(cur_ec, rel);
-		if (em_expr == NULL || !is_foreign_expr(root, rel, em_expr))
+		em_expr = chfdw_find_em_expr(cur_ec, rel);
+		if (em_expr == NULL || !chfdw_is_foreign_expr(root, rel, em_expr))
 			continue;
 
 		/* Looks like we can generate a pathkey, so let's do it. */
@@ -691,7 +691,7 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 		 *
 		 * Separate the scan_clauses into those that can be executed remotely
 		 * and those that can't.  baserestrictinfo clauses that were
-		 * previously determined to be safe or unsafe by classifyConditions
+		 * previously determined to be safe or unsafe by chfdw_classify_conditions
 		 * are found in fpinfo->remote_conds and fpinfo->local_conds. Anything
 		 * else in the scan_clauses list will be a join clause, which we have
 		 * to check for remote-safety.
@@ -717,7 +717,7 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 				remote_exprs = lappend(remote_exprs, rinfo->clause);
 			else if (list_member_ptr(fpinfo->local_conds, rinfo))
 				local_exprs = lappend(local_exprs, rinfo->clause);
-			else if (is_foreign_expr(root, foreignrel, rinfo->clause))
+			else if (chfdw_is_foreign_expr(root, foreignrel, rinfo->clause))
 				remote_exprs = lappend(remote_exprs, rinfo->clause);
 			else
 				local_exprs = lappend(local_exprs, rinfo->clause);
@@ -762,7 +762,7 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 		 */
 
 		/* Build the list of columns to be fetched from the foreign server. */
-		fdw_scan_tlist = build_tlist_to_deparse(foreignrel);
+		fdw_scan_tlist = chfdw_build_tlist_to_deparse(foreignrel);
 
 		/*
 		 * Ensure that the outer plan produces a tuple whose descriptor
@@ -808,7 +808,7 @@ clickhouseGetForeignPlan(PlannerInfo *root,
 	 * expressions to be sent as parameters.
 	 */
 	initStringInfo(&sql);
-	deparseSelectStmtForRel(&sql, root, foreignrel, fdw_scan_tlist,
+	chfdw_deparse_select_stmt_for_rel(&sql, root, foreignrel, fdw_scan_tlist,
 	                        remote_exprs, best_path->path.pathkeys,
 	                        false, &retrieved_attrs, &params_list);
 
@@ -893,7 +893,7 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	 * Get connection to the foreign server.  Connection manager will
 	 * establish new connection if necessary.
 	 */
-	fsstate->conn = GetConnection(user);
+	fsstate->conn = chfdw_get_connection(user);
 
 	/* Get private info created by planner functions. */
 	fsstate->query = strVal(list_nth(fsplan->fdw_private,
@@ -1157,7 +1157,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	switch (operation)
 	{
 	case CMD_INSERT:
-		deparseInsertSql(&sql, rte, resultRelation, rel, targetAttrs);
+		chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
 		break;
 	case CMD_UPDATE:
 		elog(ERROR, "ClickHouse does not support updates");
@@ -1242,7 +1242,7 @@ clickhouseExecForeignInsert(EState *estate,
 }
 
 ForeignServer *
-get_foreign_server(Relation rel)
+chfdw_get_foreign_server(Relation rel)
 {
 	ForeignServer       *server;
 	ForeignTable        *table;
@@ -1284,7 +1284,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 
 	/*
 	 * If the foreign table is a partition, we need to create a new RTE
-	 * describing the foreign table for use by deparseInsertSql and
+	 * describing the foreign table for use by chfdw_deparse_insert_sql and
 	 * create_foreign_modify() below, after first copying the parent's RTE and
 	 * modifying some fields to describe the foreign partition to work on.
 	 * However, if this is invoked by UPDATE, the existing RTE may already
@@ -1300,7 +1300,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	}
 
 	initStringInfo(&sql);
-	deparseInsertSql(&sql, rte, resultRelation, rel, targetAttrs);
+	chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
 
 	/* Construct an execution state. */
 	fmstate = create_foreign_modify(mtstate->ps.state,
@@ -1456,7 +1456,7 @@ create_foreign_modify(EState *estate,
 	table = GetForeignTable(RelationGetRelid(rel));
 	user = GetUserMapping(userid, table->serverid);
 
-	fmstate->conn = GetConnection(user);
+	fmstate->conn = chfdw_get_connection(user);
 
 	/* Set up remote query information. */
 	fmstate->query = query;
@@ -1726,7 +1726,7 @@ is_simple_join_clause(Expr *expr)
 	if (IsA(expr, OpExpr))
 	{
 		OpExpr	*opexpr = (OpExpr *) expr;
-		if (is_equal_op(opexpr->opno) == 1
+		if (chfdw_is_equal_op(opexpr->opno) == 1
 				&& list_length(opexpr->args) == 2
 				&& IsA(list_nth(opexpr->args, 0), Var)
 				&& IsA(list_nth(opexpr->args, 1), Var))
@@ -1829,7 +1829,7 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	foreach(lc, extra->restrictlist)
 	{
 		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
-		bool		is_remote_clause = is_foreign_expr(root, joinrel,
+		bool		is_remote_clause = chfdw_is_foreign_expr(root, joinrel,
 													   rinfo->clause);
 
 		if (IS_OUTER_JOIN(jointype) &&
@@ -2005,7 +2005,7 @@ foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
 	fpinfo->relation_name = makeStringInfo();
 	appendStringInfo(fpinfo->relation_name, "(%s) %s JOIN (%s)",
 					 fpinfo_o->relation_name->data,
-					 get_jointype_name(fpinfo->jointype),
+					 chfdw_get_jointype_name(fpinfo->jointype),
 					 fpinfo_i->relation_name->data);
 
 	/*
@@ -2299,7 +2299,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			 * If any GROUP BY expression is not shippable, then we cannot
 			 * push down aggregation to the foreign server.
 			 */
-			if (!is_foreign_expr(root, grouped_rel, expr))
+			if (!chfdw_is_foreign_expr(root, grouped_rel, expr))
 				return false;
 
 			/*
@@ -2319,7 +2319,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			/*
 			 * Non-grouping expression we need to compute.  Is it shippable?
 			 */
-			if (is_foreign_expr(root, grouped_rel, expr))
+			if (chfdw_is_foreign_expr(root, grouped_rel, expr))
 			{
 				/* Yes, so add to tlist as-is; OK to suppress duplicates */
 				tlist = add_to_flat_tlist(tlist, list_make1(expr));
@@ -2334,7 +2334,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 				 * If any aggregate expression is not shippable, then we
 				 * cannot push down aggregation to the foreign server.
 				 */
-				if (!is_foreign_expr(root, grouped_rel, (Expr *) aggvars))
+				if (!chfdw_is_foreign_expr(root, grouped_rel, (Expr *) aggvars))
 					return false;
 
 				/*
@@ -2386,7 +2386,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 									  grouped_rel->relids,
 									  NULL,
 									  NULL);
-			if (is_foreign_expr(root, grouped_rel, expr))
+			if (chfdw_is_foreign_expr(root, grouped_rel, expr))
 				fpinfo->remote_conds = lappend(fpinfo->remote_conds, rinfo);
 			else
 				fpinfo->local_conds = lappend(fpinfo->local_conds, rinfo);
@@ -2423,7 +2423,7 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			 */
 			if (IsA(expr, Aggref))
 			{
-				if (!is_foreign_expr(root, grouped_rel, expr))
+				if (!chfdw_is_foreign_expr(root, grouped_rel, expr))
 					return false;
 
 				tlist = add_to_flat_tlist(tlist, list_make1(expr));
@@ -2586,7 +2586,7 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
  * the indicated relation.
  */
 Expr *
-find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel)
+chfdw_find_em_expr(EquivalenceClass *ec, RelOptInfo *rel)
 {
 	ListCell   *lc_em;
 
@@ -2616,7 +2616,7 @@ clickhouseImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	ForeignServer       *server;
 
 	server = GetForeignServer(serverOid);
-	return construct_create_tables(stmt, server);
+	return chfdw_construct_create_tables(stmt, server);
 }
 
 

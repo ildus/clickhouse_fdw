@@ -66,7 +66,7 @@ static bool is_canceled(void)
 }
 
 ch_connection
-http_connect(char *connstring)
+chfdw_http_connect(char *connstring)
 {
 	ch_connection res;
 	ch_http_connection_t *conn = ch_http_connection(connstring);
@@ -280,7 +280,7 @@ http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool
 }
 
 text *
-http_fetch_raw_data(ch_cursor *cursor)
+chfdw_http_fetch_raw_data(ch_cursor *cursor)
 {
 	ch_http_read_state *state = cursor->read_state;
 	if (state->data == NULL)
@@ -292,7 +292,7 @@ http_fetch_raw_data(ch_cursor *cursor)
 /*** BINARY PROTOCOL ***/
 
 ch_connection
-binary_connect(ch_connection_details *details)
+chfdw_binary_connect(ch_connection_details *details)
 {
 	char *ch_error = NULL;
 	ch_connection res;
@@ -729,11 +729,11 @@ static char *str_types_map[STR_TYPES_COUNT][2] = {
 };
 
 List *
-construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
+chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 {
 	Oid				userid = GetUserId();
 	UserMapping	   *user = GetUserMapping(userid, server->serverid);
-	ch_connection	conn = GetConnection(user);
+	ch_connection	conn = chfdw_get_connection(user);
 	ch_cursor	   *cursor;
 	char		   *query,
 				   *driver;
@@ -744,7 +744,7 @@ construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 	ch_connection_details	details;
 
 	details.dbname = "default";
-	ExtractConnectionOptions(server->options, &driver, &details.host,
+	chfdw_extract_options(server->options, &driver, &details.host,
 		&details.port, &details.dbname, &details.username, &details.password);
 
 	query = psprintf("select name from system.tables where database='%s'", details.dbname);

@@ -45,9 +45,9 @@ clickhouse_connect(ForeignServer *server, UserMapping *user)
 	/* default settings */
 	ch_connection_details	details = {"127.0.0.1", 8123, NULL, NULL, "default"};
 
-	ExtractConnectionOptions(server->options, &driver, &details.host,
+	chfdw_extract_options(server->options, &driver, &details.host,
 		&details.port, &details.dbname, &details.username, &details.password);
-	ExtractConnectionOptions(user->options, &driver, &details.host,
+	chfdw_extract_options(user->options, &driver, &details.host,
 		&details.port, &details.dbname, &details.username, &details.password);
 
 	if (strcmp(driver, "http") == 0)
@@ -64,7 +64,7 @@ clickhouse_connect(ForeignServer *server, UserMapping *user)
 		else
 			connstring = psprintf("http://%s:%d/", details.host, details.port);
 
-		conn = http_connect(connstring);
+		conn = chfdw_http_connect(connstring);
 		pfree(connstring);
 		return conn;
 	}
@@ -73,14 +73,14 @@ clickhouse_connect(ForeignServer *server, UserMapping *user)
 		if (details.port == 8123)
 			details.port = 9000;
 
-		return binary_connect(&details);
+		return chfdw_binary_connect(&details);
 	}
 	else
 		elog(ERROR, "invalid ClickHouse connection driver");
 }
 
 ch_connection
-GetConnection(UserMapping *user)
+chfdw_get_connection(UserMapping *user)
 {
 	bool		found;
 	ConnCacheEntry *entry;
