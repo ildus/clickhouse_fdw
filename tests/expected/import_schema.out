@@ -1,0 +1,351 @@
+CREATE EXTENSION clickhouse_fdw;
+SET datestyle = 'ISO';
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw
+    OPTIONS(dbname 'regression', driver 'http');
+CREATE SERVER loopback_bin FOREIGN DATA WRAPPER clickhouse_fdw
+    OPTIONS(dbname 'regression', driver 'binary');
+CREATE SCHEMA clickhouse;
+CREATE SCHEMA clickhouse_bin;
+CREATE SCHEMA clickhouse_limit;
+CREATE SCHEMA clickhouse_except;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
+SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- integer types
+SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
+    c1 Int8, c2 Int16, c3 Int32, c4 Int64,
+    c5 UInt8, c6 UInt16, c7 UInt32, c8 UInt64,
+    c9 Float32, c10 Nullable(Float64)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
+    number, number + 1, number + 2, number + 3, number + 4, number + 5,
+    number + 6, number + 7, number + 8.1, number + 9.2 FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
+    c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
+    c6 Enum8(''one'' = 1, ''two'' = 2),
+    c7 Enum16(''one'' = 1, ''two'' = 2, ''three'' = 3),
+    c8 LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
+    addDays(toDate(''1990-01-01''), number),
+    addMinutes(addSeconds(addDays(toDateTime(''1990-01-01 10:00:00''), number), number), number),
+    format(''number {0}'', toString(number)),
+    format(''num {0}'', toString(number)),
+    format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number)),
+    ''two'',
+    ''three'',
+    format(''cardinal {0}'', toString(number))
+    FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- array types
+SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
+    c1 Array(Int), c2 Array(String)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
+    [number, number + 1],
+    [format(''num{0}'', toString(number)), format(''num{0}'', toString(number + 1))]
+    FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- tuple
+SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
+    c1 Int8,
+    c2 Tuple(Int, String, Float32)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
+    number,
+    (number, toString(number), number + 1.0)
+    FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+\d+ clickhouse.ints;
+                                         Foreign table "clickhouse.ints"
+ Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | smallint         |           | not null |         |             | plain   |              | 
+ c2     | smallint         |           | not null |         |             | plain   |              | 
+ c3     | integer          |           | not null |         |             | plain   |              | 
+ c4     | bigint           |           | not null |         |             | plain   |              | 
+ c5     | smallint         |           | not null |         |             | plain   |              | 
+ c6     | integer          |           | not null |         |             | plain   |              | 
+ c7     | bigint           |           | not null |         |             | plain   |              | 
+ c8     | bigint           |           | not null |         |             | plain   |              | 
+ c9     | real             |           | not null |         |             | plain   |              | 
+ c10    | double precision |           |          |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 'ints')
+
+\d+ clickhouse.types;
+                                              Foreign table "clickhouse.types"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | date                        |           | not null |         |             | plain    |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain    |              | 
+ c3     | text                        |           | not null |         |             | extended |              | 
+ c4     | character varying(5)        |           | not null |         |             | extended |              | 
+ c5     | uuid                        |           | not null |         |             | plain    |              | 
+ c6     | text                        |           | not null |         |             | extended |              | 
+ c7     | text                        |           | not null |         |             | extended |              | 
+ c8     | text                        |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'types')
+
+\d+ clickhouse.arrays;
+                                     Foreign table "clickhouse.arrays"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | integer[] |           | not null |         |             | extended |              | 
+ c2     | text[]    |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'arrays')
+
+\d+ clickhouse.tuples;
+                                    Foreign table "clickhouse.tuples"
+ Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint |           | not null |         |             | plain    |              | 
+ c2     | text     |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'tuples')
+
+SELECT * FROM clickhouse.ints ORDER BY c1 LIMIT 2;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9  | c10  
+----+----+----+----+----+----+----+----+-----+------
+  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 | 8.1 |  9.2
+  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 | 9.1 | 10.2
+(2 rows)
+
+SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
+     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
+------------+---------------------+----------+-------+--------------------------------------+-----+-------+------------
+ 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | cardinal 0
+ 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | cardinal 1
+(2 rows)
+
+SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
+  c1   |       c2        
+-------+-----------------
+ {0,1} | {'num0','num1'}
+ {1,2} | {'num1','num2'}
+(2 rows)
+
+SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
+ c1 |    c2     
+----+-----------
+  0 | (0,'0',1)
+  1 | (1,'1',2)
+(2 rows)
+
+IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+\d+ clickhouse_bin.ints;
+                                       Foreign table "clickhouse_bin.ints"
+ Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | smallint         |           | not null |         |             | plain   |              | 
+ c2     | smallint         |           | not null |         |             | plain   |              | 
+ c3     | integer          |           | not null |         |             | plain   |              | 
+ c4     | bigint           |           | not null |         |             | plain   |              | 
+ c5     | smallint         |           | not null |         |             | plain   |              | 
+ c6     | integer          |           | not null |         |             | plain   |              | 
+ c7     | bigint           |           | not null |         |             | plain   |              | 
+ c8     | bigint           |           | not null |         |             | plain   |              | 
+ c9     | real             |           | not null |         |             | plain   |              | 
+ c10    | double precision |           |          |         |             | plain   |              | 
+Server: loopback_bin
+FDW options: (table_name 'ints')
+
+\d+ clickhouse_bin.types;
+                                            Foreign table "clickhouse_bin.types"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | date                        |           | not null |         |             | plain    |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain    |              | 
+ c3     | text                        |           | not null |         |             | extended |              | 
+ c4     | character varying(5)        |           | not null |         |             | extended |              | 
+ c5     | uuid                        |           | not null |         |             | plain    |              | 
+ c6     | text                        |           | not null |         |             | extended |              | 
+ c7     | text                        |           | not null |         |             | extended |              | 
+ c8     | text                        |           | not null |         |             | extended |              | 
+Server: loopback_bin
+FDW options: (table_name 'types')
+
+\d+ clickhouse_bin.arrays;
+                                   Foreign table "clickhouse_bin.arrays"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | integer[] |           | not null |         |             | extended |              | 
+ c2     | text[]    |           | not null |         |             | extended |              | 
+Server: loopback_bin
+FDW options: (table_name 'arrays')
+
+\d+ clickhouse_bin.tuples;
+                                  Foreign table "clickhouse_bin.tuples"
+ Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint |           | not null |         |             | plain    |              | 
+ c2     | text     |           | not null |         |             | extended |              | 
+Server: loopback_bin
+FDW options: (table_name 'tuples')
+
+SELECT * FROM clickhouse_bin.ints ORDER BY c1 LIMIT 2;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9  | c10 
+----+----+----+----+----+----+----+----+-----+-----
+  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 | 8.1 |    
+  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 | 9.1 |    
+(2 rows)
+
+SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
+     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
+------------+---------------------+----------+-------+--------------------------------------+-----+-------+------------
+ 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | cardinal 0
+ 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | cardinal 1
+(2 rows)
+
+SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
+  c1   |     c2      
+-------+-------------
+ {0,1} | {num0,num1}
+ {1,2} | {num1,num2}
+(2 rows)
+
+SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
+ c1 |   c2    
+----+---------
+  0 | (0,0,1)
+  1 | (1,1,2)
+(2 rows)
+
+IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
+\d+ clickhouse_limit.ints;
+                                      Foreign table "clickhouse_limit.ints"
+ Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | smallint         |           | not null |         |             | plain   |              | 
+ c2     | smallint         |           | not null |         |             | plain   |              | 
+ c3     | integer          |           | not null |         |             | plain   |              | 
+ c4     | bigint           |           | not null |         |             | plain   |              | 
+ c5     | smallint         |           | not null |         |             | plain   |              | 
+ c6     | integer          |           | not null |         |             | plain   |              | 
+ c7     | bigint           |           | not null |         |             | plain   |              | 
+ c8     | bigint           |           | not null |         |             | plain   |              | 
+ c9     | real             |           | not null |         |             | plain   |              | 
+ c10    | double precision |           |          |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 'ints')
+
+\d+ clickhouse_limit.types;
+                                           Foreign table "clickhouse_limit.types"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | date                        |           | not null |         |             | plain    |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain    |              | 
+ c3     | text                        |           | not null |         |             | extended |              | 
+ c4     | character varying(5)        |           | not null |         |             | extended |              | 
+ c5     | uuid                        |           | not null |         |             | plain    |              | 
+ c6     | text                        |           | not null |         |             | extended |              | 
+ c7     | text                        |           | not null |         |             | extended |              | 
+ c8     | text                        |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'types')
+
+\d+ clickhouse_limit.arrays;
+\d+ clickhouse_limit.tuples;
+IMPORT FOREIGN SCHEMA "<does not matter>" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+\d+ clickhouse_except.ints;
+\d+ clickhouse_except.types;
+\d+ clickhouse_except.arrays;
+                                 Foreign table "clickhouse_except.arrays"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | integer[] |           | not null |         |             | extended |              | 
+ c2     | text[]    |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'arrays')
+
+\d+ clickhouse_except.tuples;
+                                 Foreign table "clickhouse_except.tuples"
+ Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint |           | not null |         |             | plain    |              | 
+ c2     | text     |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 'tuples')
+
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 14 other objects
+DETAIL:  drop cascades to server loopback
+drop cascades to foreign table clickhouse.arrays
+drop cascades to foreign table clickhouse.ints
+drop cascades to foreign table clickhouse.tuples
+drop cascades to foreign table clickhouse.types
+drop cascades to foreign table clickhouse_limit.ints
+drop cascades to foreign table clickhouse_limit.types
+drop cascades to foreign table clickhouse_except.arrays
+drop cascades to foreign table clickhouse_except.tuples
+drop cascades to server loopback_bin
+drop cascades to foreign table clickhouse_bin.arrays
+drop cascades to foreign table clickhouse_bin.ints
+drop cascades to foreign table clickhouse_bin.tuples
+drop cascades to foreign table clickhouse_bin.types

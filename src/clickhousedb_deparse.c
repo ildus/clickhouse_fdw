@@ -172,7 +172,7 @@ static void get_relation_column_alias_ids(Var *node, RelOptInfo *foreignrel,
  *	- local_conds contains expressions that can't be evaluated remotely
  */
 void
-classifyConditions(PlannerInfo *root,
+chfdw_classify_conditions(PlannerInfo *root,
 				   RelOptInfo *baserel,
 				   List *input_conds,
 				   List **remote_conds,
@@ -187,7 +187,7 @@ classifyConditions(PlannerInfo *root,
 	{
 		RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
 
-		if (is_foreign_expr(root, baserel, ri->clause))
+		if (chfdw_is_foreign_expr(root, baserel, ri->clause))
 			*remote_conds = lappend(*remote_conds, ri);
 		else
 			*local_conds = lappend(*local_conds, ri);
@@ -198,7 +198,7 @@ classifyConditions(PlannerInfo *root,
  * Returns true if given expr is safe to evaluate on the foreign server.
  */
 bool
-is_foreign_expr(PlannerInfo *root,
+chfdw_is_foreign_expr(PlannerInfo *root,
 				RelOptInfo *baserel,
 				Expr *expr)
 {
@@ -232,7 +232,7 @@ is_foreign_expr(PlannerInfo *root,
 
 /* 1: '=', 2: '<>', 0 - false */
 int
-is_equal_op(Oid opno)
+chfdw_is_equal_op(Oid opno)
 {
 	Form_pg_operator	operform;
 	HeapTuple			opertup;
@@ -359,7 +359,7 @@ foreign_expr_walker(Node *node,
 		 * can't be sent to remote because it might have incompatible
 		 * semantics on remote side.
 		 */
-		if (!is_shippable(fe->funcid, ProcedureRelationId, fpinfo, &cdef))
+		if (!chfdw_is_shippable(fe->funcid, ProcedureRelationId, fpinfo, &cdef))
 			return false;
 
 		/* only simple Var as first argument for accumulate */
@@ -384,7 +384,7 @@ foreign_expr_walker(Node *node,
 		 * (If the operator is shippable, we assume its underlying
 		 * function is too.)
 		 */
-		if (!is_shippable(oe->opno, OperatorRelationId, fpinfo, NULL))
+		if (!chfdw_is_shippable(oe->opno, OperatorRelationId, fpinfo, NULL))
 			return false;
 
 		/*
@@ -399,7 +399,7 @@ foreign_expr_walker(Node *node,
 	{
 		ScalarArrayOpExpr *oe = (ScalarArrayOpExpr *) node;
 
-		if (!is_equal_op(oe->opno))
+		if (!chfdw_is_equal_op(oe->opno))
 			return false;
 
 		/*
@@ -501,7 +501,7 @@ foreign_expr_walker(Node *node,
 			return false;
 
 		/* As usual, it must be shippable. */
-		if (!is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo, NULL))
+		if (!chfdw_is_shippable(agg->aggfnoid, ProcedureRelationId, fpinfo, NULL))
 			return false;
 
 		/* Features that ClickHouse doesn't support */
@@ -594,7 +594,7 @@ foreign_expr_walker(Node *node,
 	 * If result type of given expression is not shippable, it can't be sent
 	 * to remote because it might have incompatible semantics on remote side.
 	 */
-	if (check_type && !is_shippable(exprType(node), TypeRelationId, fpinfo, NULL))
+	if (check_type && !chfdw_is_shippable(exprType(node), TypeRelationId, fpinfo, NULL))
 	{
 		return false;
 	}
@@ -763,7 +763,7 @@ ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
 		CustomObjectDef	*cdef;
 		char	   *typname;
 
-		cdef = checkForCustomType(type_oid);
+		cdef = chfdw_check_for_custom_type(type_oid);
 		if (cdef && cdef->custom_name[0] != '\0')
 			buf = pstrdup(cdef->custom_name);
 		else
@@ -800,7 +800,7 @@ deparse_type_name(Oid type_oid, int32 typemod)
 {
 	bits16		flags = FORMAT_TYPE_TYPEMOD_GIVEN;
 
-	if (!is_builtin(type_oid))
+	if (!chfdw_is_builtin(type_oid))
 		flags |= FORMAT_TYPE_FORCE_QUALIFY;
 
 	return ch_format_type_extended(type_oid, typemod, flags);
@@ -815,7 +815,7 @@ deparse_type_name(Oid type_oid, int32 typemod)
  * foreign server.
  */
 List *
-build_tlist_to_deparse(RelOptInfo *foreignrel)
+chfdw_build_tlist_to_deparse(RelOptInfo *foreignrel)
 {
 	List	   *tlist = NIL;
 	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *) foreignrel->fdw_private;
@@ -872,7 +872,7 @@ build_tlist_to_deparse(RelOptInfo *foreignrel)
  * List of columns selected is returned in retrieved_attrs.
  */
 void
-deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
+chfdw_deparse_select_stmt_for_rel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
 						List *tlist, List *remote_conds, List *pathkeys,
 						bool is_subquery, List **retrieved_attrs,
 						List **params_list)
@@ -946,7 +946,7 @@ deparseSelectStmtForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *rel,
  *
  * tlist is the list of desired columns.  is_subquery is the flag to
  * indicate whether to deparse the specified relation as a subquery.
- * Read prologue of deparseSelectStmtForRel() for details.
+ * Read prologue of chfdw_deparse_select_stmt_for_rel() for details.
  */
 static void
 deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
@@ -1081,7 +1081,7 @@ deparseTargetList(StringInfo buf,
 
 			first = false;
 
-			cdef = checkForCustomType(attr->atttypid);
+			cdef = chfdw_check_for_custom_type(attr->atttypid);
 			deparseColumnRef(buf, cdef, rtindex, i, rte, qualify_col);
 
 			*retrieved_attrs = lappend_int(*retrieved_attrs, i);
@@ -1146,7 +1146,7 @@ appendConditions(List *exprs, deparse_expr_cxt *context)
 
 /* Output join name for given join type */
 const char *
-get_jointype_name(JoinType jointype)
+chfdw_get_jointype_name(JoinType jointype)
 {
 	switch (jointype)
 	{
@@ -1359,7 +1359,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		 * ((outer relation) <join type> (inner relation) ON (joinclauses))
 		 */
 		appendStringInfo(buf, " %s ALL %s JOIN %s ON ", join_sql_o.data,
-		                 get_jointype_name(fpinfo->jointype), join_sql_i.data);
+		                 chfdw_get_jointype_name(fpinfo->jointype), join_sql_i.data);
 
 		/* Append join clause; (TRUE) if no join clause */
 		if (fpinfo->joinclauses)
@@ -1439,7 +1439,7 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 
 		/* Deparse the subquery representing the relation. */
 		appendStringInfoChar(buf, '(');
-		deparseSelectStmtForRel(buf, root, foreignrel, NIL,
+		chfdw_deparse_select_stmt_for_rel(buf, root, foreignrel, NIL,
 		                        fpinfo->remote_conds, NIL, true,
 		                        &retrieved_attrs, params_list);
 		appendStringInfoChar(buf, ')');
@@ -1480,7 +1480,7 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
  * deparse remote INSERT statement
  */
 void
-deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
+chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
                  Index rtindex, Relation rel,
                  List *targetAttrs)
 {
@@ -1510,92 +1510,6 @@ deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
 	}
 }
 
-
-/*
- * Construct SELECT statement to acquire size in blocks of given relation.
- *
- * Note: we use local definition of block size, not remote definition.
- * This is perhaps debatable.
- *
- * Note: pg_relation_size() exists in 8.1 and later.
- */
-void
-deparseAnalyzeSizeSql(StringInfo buf, Relation rel)
-{
-	StringInfoData relname;
-
-	/* We'll need the remote relation name as a literal. */
-	initStringInfo(&relname);
-	deparseRelation(&relname, rel);
-}
-
-/*
- * Construct SELECT statement to acquire sample rows of given relation.
- *
- * SELECT command is appended to buf, and list of columns retrieved
- * is returned to *retrieved_attrs.
- */
-void
-deparseAnalyzeSql(StringInfo buf, Relation rel, List **retrieved_attrs)
-{
-	Oid			relid = RelationGetRelid(rel);
-	TupleDesc	tupdesc = RelationGetDescr(rel);
-	int			i;
-	char	   *colname;
-	List	   *options;
-	ListCell   *lc;
-	bool		first = true;
-
-	*retrieved_attrs = NIL;
-
-	appendStringInfoString(buf, "SELECT ");
-	for (i = 0; i < tupdesc->natts; i++)
-	{
-		/* Ignore dropped columns. */
-		if (TupleDescAttr(tupdesc, i)->attisdropped)
-		{
-			continue;
-		}
-
-		if (!first)
-		{
-			appendStringInfoString(buf, ", ");
-		}
-		first = false;
-
-		/* Use attribute name or column_name option. */
-		colname = NameStr(TupleDescAttr(tupdesc, i)->attname);
-		options = GetForeignColumnOptions(relid, i + 1);
-
-		foreach (lc, options)
-		{
-			DefElem    *def = (DefElem *) lfirst(lc);
-
-			if (strcmp(def->defname, "column_name") == 0)
-			{
-				colname = defGetString(def);
-				break;
-			}
-		}
-
-		appendStringInfoString(buf, quote_identifier(colname));
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs, i + 1);
-	}
-
-	/* Don't generate bad syntax for zero-column relation. */
-	if (first)
-	{
-		appendStringInfoString(buf, "NULL");
-	}
-
-	/*
-	 * Construct FROM clause
-	 */
-	appendStringInfoString(buf, " FROM ");
-	deparseRelation(buf, rel);
-}
-
 /*
  * Construct name to use for given column, and emit it into buf.
  * If it has a column_name FDW option, use that instead of attribute name.
@@ -1617,7 +1531,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 		elog(ERROR, "ClickHouse does not support system attributes");
 
 	/* Get FDW specific options for this column */
-	cinfo = GetCustomColumnInfo(rte->relid, varattno);
+	cinfo = chfdw_get_custom_column_info(rte->relid, varattno);
 	if (cinfo)
 		colname = cinfo->colname;
 
@@ -1728,10 +1642,10 @@ deparseRelation(StringInfo buf, Relation rel)
 	char       *username;
 	char       *password;
 	char       *dbname;
-	ForeignServer *server = get_foreign_server(rel);
+	ForeignServer *server = chfdw_get_foreign_server(rel);
 	ListCell    *lc;
 
-	ExtractConnectionOptions(server->options, &driver, &host, &port, &dbname,
+	chfdw_extract_options(server->options, &driver, &host, &port, &dbname,
 	                         &username, &password);
 
 	/* obtain additional catalog information. */
@@ -1901,7 +1815,7 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 
 	cdef = context->func;
 	if (!cdef)
-		cdef = checkForCustomType(node->vartype);
+		cdef = chfdw_check_for_custom_type(node->vartype);
 
 	if (bms_is_member(node->varno, relids) && node->varlevelsup == 0)
 		deparseColumnRef(context->buf, cdef,
@@ -2133,7 +2047,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	}
 	else
 	{
-		CustomObjectDef *cdef = checkForCustomFunction(typoutput);
+		CustomObjectDef *cdef = chfdw_check_for_custom_function(typoutput);
 
 		extval = OidOutputFunctionCall(typoutput, node->constvalue);
 		if (cdef && cdef->cf_type == CF_AJBOOL_OUT)
@@ -2363,7 +2277,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			elog(ERROR, "unidentified first parameter in accumulate");
 
 		/* Get FDW specific options for this column */
-		cinfo = GetCustomColumnInfo(rte->relid, var->varattno);
+		cinfo = chfdw_get_custom_column_info(rte->relid, var->varattno);
 		if (!cinfo)
 			elog(ERROR, "unidentified first parameter in accumulate");
 
@@ -2641,7 +2555,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	       (oprkind == 'l' && list_length(node->args) == 1) ||
 	       (oprkind == 'b' && list_length(node->args) == 2));
 
-	cdef = checkForCustomOperator(node->opno, form);
+	cdef = chfdw_check_for_custom_operator(node->opno, form);
 	if (cdef)
 	{
 		switch (cdef->cf_type)
@@ -2649,7 +2563,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 			case CF_AJTIME_OPERATOR:
 			{
 				/* intervals with ajtime */
-				CustomObjectDef	*fdef = checkForCustomFunction(form->oprcode);
+				CustomObjectDef	*fdef = chfdw_check_for_custom_function(form->oprcode);
 				if (fdef && fdef->cf_type == CF_AJTIME_PL_INTERVAL)
 				{
 					deparseIntervalOp(linitial(node->args),
@@ -2837,7 +2751,7 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 	Expr	   *arg2;
 
 	/* Retrieve information about the operator from system catalog. */
-	int			optype = is_equal_op(node->opno);
+	int			optype = chfdw_is_equal_op(node->opno);
 
 	/* Sanity check. */
 	Assert(list_length(node->args) == 2);
@@ -3338,7 +3252,7 @@ appendOrderByClause(List *pathkeys, deparse_expr_cxt *context)
 		PathKey    *pathkey = lfirst(lcell);
 		Expr	   *em_expr;
 
-		em_expr = find_em_expr_for_rel(pathkey->pk_eclass, baserel);
+		em_expr = chfdw_find_em_expr(pathkey->pk_eclass, baserel);
 		Assert(em_expr != NULL);
 
 		appendStringInfoString(buf, delim);
@@ -3367,7 +3281,7 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	CustomObjectDef	*cdef;
 	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 
-	cdef = checkForCustomFunction(funcid);
+	cdef = chfdw_check_for_custom_function(funcid);
 	if (cdef && cdef->custom_name[0] != '\0')
 	{
 		if (cdef->custom_name[0] != '\1')
@@ -3383,7 +3297,7 @@ appendFunctionName(Oid funcid, deparse_expr_cxt *context)
 	proname = NameStr(procform->proname);
 
 	/* we have some additional conditions on aggregation functions */
-	if (is_builtin(funcid) && procform->prokind == PROKIND_AGGREGATE
+	if (chfdw_is_builtin(funcid) && procform->prokind == PROKIND_AGGREGATE
 			&& fpinfo->ch_table_engine == CH_COLLAPSING_MERGE_TREE)
 	{
 		cdef = palloc(sizeof(CustomObjectDef));

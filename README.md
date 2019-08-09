@@ -56,10 +56,7 @@ Here we create a sample database name test_database and two sample tables
 tax_bills_nyc and tax_bills:
 
     CREATE DATABASE test_database;
-
     USE test_database;
-
-
     CREATE TABLE tax_bills_nyc
     (
         bbl Int64,
@@ -78,24 +75,25 @@ tax_bills_nyc and tax_bills:
     )
     ENGINE = MergeTree PARTITION BY tax_class ORDER BY (owner_name)
 
-Download the sample data from the taxbills.nyc website and put the data in the table:
-
-    curl -X GET 'http://taxbills.nyc/tax_bills_june15_bbls.csv' | clickhouse-client --input_format_allow_errors_num=10 --query="INSERT INTO test_database.tax_bills_nyc FORMAT CSV"
-
     CREATE TABLE tax_bills
     (
-        bbl bigint,
-        owner_name text
+        bbl Int64,
+        owner_name String
     )
     ENGINE = MergeTree
     PARTITION BY bbl
     ORDER BY bbl;
 
+Download the sample data from the taxbills.nyc website and put the data in the table:
+
+    curl -X GET 'http://taxbills.nyc/tax_bills_june15_bbls.csv' | \
+		clickhouse-client --input_format_allow_errors_num=10 \
+		--query="INSERT INTO test_database.tax_bills_nyc FORMAT CSV"
+
 Now the data is ready in the ClickHouse, the next step is to set up the PostgreSQL side.
 First we need to create a ClickHouse foreign server:
 
-    CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw
-		OPTIONS(dbname 'test_database');
+    CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'test_database');
 
 By default the server will use `http` protocol. But we could use binary protocol:
 
@@ -104,43 +102,24 @@ By default the server will use `http` protocol. But we could use binary protocol
 
 Available parameters:
 
+	* dbname
 	* host
 	* port
 	* driver
-	* username
-	* password
 
 Now create user mapping and foreign tables:
 
     CREATE USER MAPPING FOR CURRENT_USER SERVER clickhouse_svr;
-	CREATE FOREIGN TABLE tax_bills_nyc
-    (
-        bbl int8,
-        owner_name text,
-        address text,
-        tax_class text,
-        tax_rate text,
-        emv Float,
-        tbea Float,
-        bav Float,
-        tba text,
-        property_tax text,
-        condonumber text,
-        condo text,
-        insertion_date Time
-    ) SERVER clickhouse_svr OPTIONS (table_name 'tax_bills_nyc');
+	IMPORT FOREIGN SCHEMA "kk" FROM SERVER clickhouse_svr INTO public;
 
-    SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
-        bbl     | tbea  |  bav   | insertion_date
-    ------------+-------+--------+----------------
-    4001940057 | 18755 | 145899 | 15:25:42
-    1016830130 |  2216 |  17238 | 15:25:42
-    4012850059 | 69562 | 541125 | 15:25:42
-    1006130061 | 55883 | 434719 | 15:25:42
-    3033540009 | 33100 | 257490 | 15:25:42
-    (5 rows)
-
-    CREATE TABLE tax_bills ( bbl bigint, owner_name text) ENGINE = MergeTree PARTITION BY bbl ORDER BY (bbl)
+	SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
+        bbl     | tbea  |  bav   |   insertion_date
+	------------+-------+--------+---------------------
+     1001200009 | 72190 | 648900 | 2019-08-03 11:04:38
+     4000620001 |  8961 |  80550 | 2019-08-03 11:04:38
+     4157860094 | 13317 | 119700 | 2019-08-03 11:04:38
+     4123850237 |    50 |    450 | 2019-08-03 11:04:38
+     4103150163 |  2053 |  18450 | 2019-08-03 11:04:38
 
     INSERT INTO tax_bills SELECT bbl, tbea from tax_bills_nyc LIMIT 100;
 
@@ -153,13 +132,6 @@ Now create user mapping and foreign tables:
              Output: bbl, tbea, bav, insertion_date
              Remote SQL: SELECT bbl, tbea, bav, insertion_date FROM test_database.tax_bills_nyc
     (5 rows)
-
-Also extension provides convinient `generate_fdw.py`
-script that helps to generate FDW definitions in PostgreSQL.
-
-	<repo_path>/generate_fdw.py \* --server_name=remote --host=192.168.10.10 --database=default  > defs.sql # for all tables in `default` database
-	<repo_path>/generate_fdw.py <table_name> --server_name=remote --host=192.168.10.10 --database=default  > defs.sql # for specific table
-	psql <your database> < defs.sql
 
 Aggregate Pushdown.
 -------------------

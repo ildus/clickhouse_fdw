@@ -149,37 +149,37 @@ lookup_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
  * track of that would be a huge exercise.
  */
 bool
-is_builtin(Oid objectId)
+chfdw_is_builtin(Oid objectId)
 {
 	return (objectId < FirstBootstrapObjectId);
 }
 
 /*
- * is_shippable
+ * chfdw_is_shippable
  *	   Is this object (function/operator/type) shippable to foreign server?
  */
 bool
-is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
+chfdw_is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef)
 {
 	ShippableCacheKey key;
 	ShippableCacheEntry *entry;
 
 	/* Built-in objects are presumed shippable. */
-	if (is_builtin(objectId))
+	if (chfdw_is_builtin(objectId))
 		return true;
 
 	if (classId == ProcedureRelationId)
 	{
-		CustomObjectDef *cdef = checkForCustomFunction(objectId);
+		CustomObjectDef *cdef = chfdw_check_for_custom_function(objectId);
 		if (outcdef != NULL)
 			*outcdef = cdef;
 
 		return (cdef && cdef->cf_type != CF_UNSHIPPABLE);
 	}
-	else if (classId == TypeRelationId && checkForCustomType(objectId) != NULL)
+	else if (classId == TypeRelationId && chfdw_check_for_custom_type(objectId) != NULL)
 		return true;
-	else if (classId == OperatorRelationId && checkForCustomOperator(objectId, NULL) != NULL)
+	else if (classId == OperatorRelationId && chfdw_check_for_custom_operator(objectId, NULL) != NULL)
 		return true;
 
 	/* Otherwise, give up if user hasn't specified any shippable extensions. */

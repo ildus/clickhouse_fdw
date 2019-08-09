@@ -48,7 +48,6 @@ static ChFdwOption *clickhousedb_fdw_options;
 static const ChFdwOption ch_options[] =
 {
 	{"host", 0, false},
-	{"hostaddr", 0, false},
 	{"port", 0, false},
 	{"dbname", 0, false},
 	{"user", 0, false},
@@ -243,7 +242,7 @@ is_ch_option(const char *keyword)
  * allocated large-enough arrays.  Returns number of options found.
  */
 void
-ExtractConnectionOptions(List *defelems, char **driver,  char **host, int *port,
+chfdw_extract_options(List *defelems, char **driver,  char **host, int *port,
                          char **dbname, char **username, char **password)
 {
 	ListCell   *lc;
@@ -272,43 +271,4 @@ ExtractConnectionOptions(List *defelems, char **driver,  char **host, int *port,
 				*dbname = defGetString(def);
 		}
 	}
-}
-
-/*
- * Parse a comma-separated string and return a List of the OIDs of the
- * extensions named in the string.  If any names in the list cannot be
- * found, report a warning if warnOnMissing is true, else just silently
- * ignore them.
- */
-List *
-ExtractExtensionList(const char *extensionsString, bool warnOnMissing)
-{
-	List	   *extensionOids = NIL;
-	List	   *extlist;
-	ListCell   *lc;
-
-	/* SplitIdentifierString scribbles on its input, so pstrdup first */
-	if (!SplitIdentifierString(pstrdup(extensionsString), ',', &extlist))
-		/* syntax error in name list */
-		ereport(ERROR,
-		        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-		         errmsg("parameter \"%s\" must be a list of extension names",
-		                "extensions")));
-
-	foreach (lc, extlist)
-	{
-		const char *extension_name = (const char *) lfirst(lc);
-		Oid			extension_oid = get_extension_oid(extension_name, true);
-
-		if (OidIsValid(extension_oid))
-			extensionOids = lappend_oid(extensionOids, extension_oid);
-		else if (warnOnMissing)
-			ereport(WARNING,
-			        (errcode(ERRCODE_UNDEFINED_OBJECT),
-			         errmsg("extension \"%s\" is not installed",
-			                extension_name)));
-	}
-
-	list_free(extlist);
-	return extensionOids;
 }

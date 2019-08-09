@@ -9,6 +9,7 @@
 #include "utils/lsyscache.h"
 #include "utils/typcache.h"
 #include "utils/uuid.h"
+#include "utils/fmgroids.h"
 #include "access/htup_details.h"
 
 #include "clickhousedb_fdw.h"
@@ -65,7 +66,7 @@ static bool is_canceled(void)
 }
 
 ch_connection
-http_connect(char *connstring)
+chfdw_http_connect(char *connstring)
 {
 	ch_connection res;
 	ch_http_connection_t *conn = ch_http_connection(connstring);
@@ -289,7 +290,7 @@ http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc, Datum *v, bool
 }
 
 text *
-http_fetch_raw_data(ch_cursor *cursor)
+chfdw_http_fetch_raw_data(ch_cursor *cursor)
 {
 	ch_http_read_state *state = cursor->read_state;
 	if (state->data == NULL)
@@ -301,7 +302,7 @@ http_fetch_raw_data(ch_cursor *cursor)
 /*** BINARY PROTOCOL ***/
 
 ch_connection
-binary_connect(ch_connection_details *details)
+chfdw_binary_connect(ch_connection_details *details)
 {
 	char *ch_error = NULL;
 	ch_connection res;
@@ -399,8 +400,8 @@ static Oid types_map[27] = {
 	InvalidOid,	/* chb_Array, depends on array type */
 	InvalidOid,	/* chb_Nullable, just skip it */
 	InvalidOid,	/* composite type */
-	INT2OID,	/* enum8 */
-	INT2OID,	/* enum16 */
+	TEXTOID,	/* enum8 */
+	TEXTOID,	/* enum16 */
 	UUIDOID,
 	InvalidOid,
 	InvalidOid,
@@ -457,6 +458,8 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 			break;
 		case chb_FixedString:
 		case chb_String:
+		case chb_Enum8:
+		case chb_Enum16:
 			ret = CStringGetTextDatum((const char *) rowval);
 			break;
 		case chb_DateTime:
@@ -512,18 +515,6 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				ret = UUIDPGetDatum(val);
 			}
 			break;
-		case chb_Enum8:
-			{
-				int8 val = *(int8 *) rowval;
-				ret = Int16GetDatum((int16) val);
-			}
-			break;
-		case chb_Enum16:
-			{
-				int16 val = *(int16 *) rowval;
-				ret = Int16GetDatum(val);
-			}
-			break;
 		case chb_Tuple:
 			{
 				Datum		result;
@@ -532,7 +523,7 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				bool	   *tuple_nulls;
 				TupleDesc	desc;
 				size_t		i;
-				CustomObjectDef	*cdef = checkForCustomType(pgtype);
+				CustomObjectDef	*cdef = chfdw_check_for_custom_type(pgtype);
 
 				ch_binary_tuple_t *tuple = rowval;
 
@@ -572,14 +563,23 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				pfree(tuple_values);
 				pfree(tuple_nulls);
 
-				if (cdef && cdef->rowfunc != InvalidOid)
+				if (cdef || pgtype == RECORDOID || pgtype == TEXTOID)
 				{
 					ret = heap_copy_tuple_as_datum(htup, desc);
 					heap_freetuple(htup);
 
-					return OidFunctionCall1(cdef->rowfunc, ret);
+					if (cdef && cdef->rowfunc != InvalidOid)
+					{
+						/* there is convertor from row to pgtype */
+						ret = OidFunctionCall1(cdef->rowfunc, ret);
+					}
+					else if (pgtype == TEXTOID)
+					{
+						/* a lot of allocations, not so efficient */
+						ret = CStringGetTextDatum(DatumGetCString(OidFunctionCall1(F_RECORD_OUT, ret)));
+					}
 				}
-				else if (pgtype != RECORDOID)
+				else
 				{
 					bool			pinned = false;
 					TupleDesc		pgdesc;
@@ -623,13 +623,8 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 					if (pinned)
 						ReleaseTupleDesc(pgdesc);
 				}
-				else
-				{
-					ret = heap_copy_tuple_as_datum(htup, desc);
-					heap_freetuple(htup);
-				}
 
-				/* no additional conversion here */
+				/* no additional conversion needed */
 				return ret;
 			}
 			break;
@@ -638,7 +633,6 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 	}
 
 	Assert(valtype != InvalidOid);
-	Assert(valtype != RECORDOID);
 
 	if (pgtype != InvalidOid && valtype != pgtype)
 	{
@@ -706,27 +700,32 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 						   state->resp->columns_count, attcount)));
 	}
 
-	j = 0;
-	foreach(lc, attrs)
+	if (tupdesc)
 	{
-		int		i = lfirst_int(lc);
-		void   *rowval = row_values[j];
+		Assert(values && nulls);
 
-		if (state->coltypes[j] == chb_Void || rowval == NULL)
-			nulls[i - 1] = true;
-		else
+		j = 0;
+		foreach(lc, attrs)
 		{
-			Oid restype;
-			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+			int		i = lfirst_int(lc);
+			void   *rowval = row_values[j];
 
-			values[i - 1] = make_datum(rowval, state->coltypes[j], pgtype);
-			nulls[i - 1] = false;
+			if (state->coltypes[j] == chb_Void || state->coltypes[j] == chb_Nullable || rowval == NULL)
+				nulls[i - 1] = true;
+			else
+			{
+				Oid restype;
+				Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+
+				values[i - 1] = make_datum(rowval, state->coltypes[j], pgtype);
+				nulls[i - 1] = false;
+			}
+			j++;
 		}
-		j++;
 	}
 
 ok:
-	return (void **) values;
+	return (void **) row_values;
 }
 
 static void
@@ -743,8 +742,193 @@ binary_simple_insert(void *conn, const char *query)
 	elog(ERROR, "clickhouse_fdw: insertion is not implemented for binary protocol yet");
 }
 
+#define STR_TYPES_COUNT 16
+static char *str_types_map[STR_TYPES_COUNT][2] = {
+	{"Int8", "INT2"},
+	{"UInt8", "INT2"},
+	{"Int16", "INT2"},
+	{"UInt16", "INT4"},
+	{"Int32", "INT4"},
+	{"UInt32", "INT8"},
+	{"Int64", "INT8"},
+	{"UInt64", "INT8"}, //overflow risk
+	{"Float32", "REAL"},
+	{"Float64", "DOUBLE PRECISION"},
+	{"Decimal", "NUMERIC"},
+	{"Boolean", "BOOLEAN"},
+	{"String", "TEXT"},
+	{"Date", "DATE"},
+	{"DateTime", "TIMESTAMP"},
+	{"UUID", "UUID"}
+};
+
 List *
-construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
+chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 {
-	elog(ERROR, "clickhouse_fdw: IMPORT FOREIGN SCHEMA is not implemented yet");
+	Oid				userid = GetUserId();
+	UserMapping	   *user = GetUserMapping(userid, server->serverid);
+	ch_connection	conn = chfdw_get_connection(user);
+	ch_cursor	   *cursor;
+	char		   *query,
+				   *driver;
+	List		   *result = NIL,
+				   *datts = NIL;
+	char		  **row_values;
+
+	ch_connection_details	details;
+
+	details.dbname = "default";
+	chfdw_extract_options(server->options, &driver, &details.host,
+		&details.port, &details.dbname, &details.username, &details.password);
+
+	query = psprintf("select name from system.tables where database='%s'", details.dbname);
+	cursor = conn.methods->simple_query(conn.conn, query);
+
+	datts = list_make5_int(1,2,3,4,5);
+	datts = lappend_int(datts, 6);
+	datts = lappend_int(datts, 7);
+
+	/*
+	 * We use only char values from result, so basicly we don't need
+	 * to convert anything for binary
+	 */
+	while ((row_values = (char **) conn.methods->fetch_row(cursor,
+				list_make1_int(1), NULL, NULL, NULL)) != NULL)
+	{
+		StringInfoData	buf;
+		ch_cursor  *table_def;
+		char	   *table_name = row_values[0];
+		char	  **dvalues;
+		bool		first = true;
+
+		if (table_name == NULL)
+			continue;
+
+		if (list_length(stmt->table_list))
+		{
+			ListCell *lc;
+			bool found = false;
+
+			foreach(lc, stmt->table_list)
+			{
+				RangeVar   *rv = (RangeVar *) lfirst(lc);
+				if (strcmp(rv->relname, table_name) == 0)
+					found = true;
+			}
+
+			if (stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT && found)
+				continue;
+			else if (stmt->list_type == FDW_IMPORT_SCHEMA_LIMIT_TO && !found)
+				continue;
+		}
+
+		initStringInfo(&buf);
+		appendStringInfo(&buf, "CREATE FOREIGN TABLE %s.%s (\n",
+			stmt->local_schema, table_name);
+		query = psprintf("describe table %s.%s", details.dbname, table_name);
+		table_def = conn.methods->simple_query(conn.conn, query);
+
+		while ((dvalues = (char **) conn.methods->fetch_row(table_def,
+			datts, NULL, NULL, NULL)) != NULL)
+		{
+			bool	is_nullable = false,
+					is_array = false,
+					add_type = true;
+
+			char   *remote_type = dvalues[1],
+				   *pos;
+
+			if (!first)
+				appendStringInfoString(&buf, ",\n");
+			first = false;
+
+			/* name */
+			appendStringInfo(&buf, "\t\"%s\" ", dvalues[0]);
+			while ((pos = strstr(remote_type, "(")) != NULL)
+			{
+				if (strncmp(remote_type, "Decimal", strlen("Decimal")) == 0)
+				{
+					appendStringInfoString(&buf, "NUMERIC");
+					appendStringInfoString(&buf, pos);
+					if (strstr(pos, ",") == NULL)
+						elog(ERROR, "clickhouse_fdw: could not import Decimal field, "
+							"should be two parameters on definition");
+
+					add_type = false;
+					break;
+				}
+				else if (strncmp(remote_type, "FixedString", strlen("FixedString")) == 0)
+				{
+					appendStringInfoString(&buf, "VARCHAR");
+					appendStringInfoString(&buf, pos);
+					add_type = false;
+					break;
+				}
+				else if (strncmp(remote_type, "Enum8", strlen("Enum8")) == 0)
+				{
+					appendStringInfoString(&buf, "TEXT");
+					add_type = false;
+					break;
+				}
+				else if (strncmp(remote_type, "Enum16", strlen("Enum16")) == 0)
+				{
+					appendStringInfoString(&buf, "TEXT");
+					add_type = false;
+					break;
+				}
+				else if (strncmp(remote_type, "Tuple", strlen("Tuple")) == 0)
+				{
+					appendStringInfoString(&buf, "TEXT");
+					elog(NOTICE, "clickhouse_fdw: ClickHouse <Tuple> type was "
+						"translated to <TEXT> type, please create composite type and alter the column if needed");
+					add_type = false;
+					break;
+				}
+				else if (strncmp(remote_type, "Array", strlen("Array")) == 0)
+					is_array = true;
+				else if (strncmp(remote_type, "Nullable", strlen("Nullable")) == 0)
+					is_nullable = true;
+
+				remote_type = pos + 1;
+			}
+
+			if (add_type)
+			{
+				bool found = false;
+				if ((pos = strstr(remote_type, ")")) != NULL)
+				{
+					/* we need to remove that last brackets */
+					*pos = '\0';
+				}
+
+				for (size_t i = 0; i < STR_TYPES_COUNT; i++)
+				{
+					if (strcmp(str_types_map[i][0], remote_type) == 0)
+					{
+						found = true;
+						appendStringInfoString(&buf, str_types_map[i][1]);
+						break;
+					}
+				}
+
+				if (!found)
+					elog(ERROR, "clickhouse_fdw: could not map type: %s", remote_type);
+			}
+
+			if (is_array)
+				appendStringInfoString(&buf, "[]");
+
+			if (!is_nullable)
+				appendStringInfoString(&buf, " NOT NULL");
+		}
+
+		appendStringInfo(&buf, "\n) SERVER %s OPTIONS (table_name '%s');\n",
+			server->servername, table_name);
+
+		result = lappend(result, buf.data);
+		MemoryContextDelete(table_def->memcxt);
+	}
+
+	MemoryContextDelete(cursor->memcxt);
+	return result;
 }
