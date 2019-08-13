@@ -19,3 +19,57 @@ LANGUAGE C STRICT;
 CREATE FOREIGN DATA WRAPPER clickhouse_fdw
 	HANDLER clickhousedb_fdw_handler
 	VALIDATOR clickhousedb_fdw_validator;
+
+CREATE OR REPLACE FUNCTION argmax_transfn(state anyarray, arg anyelement,
+	val anyelement)
+RETURNS anyarray
+AS $$
+BEGIN
+	IF state IS NULL THEN RETURN ARRAY[arg,val]; END IF;
+	IF val > state[2] THEN RETURN ARRAY[arg,val]; END IF;
+
+	RETURN state;
+END
+$$ LANGUAGE 'plpgsql' IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION argmax_finalfn(state anyarray)
+RETURNS anyelement
+AS $$
+BEGIN
+	RETURN state[1];
+END
+$$ LANGUAGE 'plpgsql' IMMUTABLE STRICT;
+
+CREATE AGGREGATE argMax(anyelement, anyelement)
+(
+    sfunc = argmax_transfn,
+    stype = anyarray,
+	finalfunc = argmax_finalfn
+);
+
+CREATE OR REPLACE FUNCTION argmin_transfn(state anyarray, arg anyelement,
+	val anyelement)
+RETURNS anyarray
+AS $$
+BEGIN
+	IF state IS NULL THEN RETURN ARRAY[arg,val]; END IF;
+	IF val < state[2] THEN RETURN ARRAY[arg,val]; END IF;
+
+	RETURN state;
+END
+$$ LANGUAGE 'plpgsql' IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION argmin_finalfn(state anyarray)
+RETURNS anyelement
+AS $$
+BEGIN
+	RETURN state[1];
+END
+$$ LANGUAGE 'plpgsql' IMMUTABLE STRICT;
+
+CREATE AGGREGATE argMin(anyelement, anyelement)
+(
+    sfunc = argmin_transfn,
+    stype = anyarray,
+	finalfunc = argmin_finalfn
+);
