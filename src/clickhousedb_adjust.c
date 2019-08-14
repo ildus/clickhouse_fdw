@@ -121,6 +121,11 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 					strcpy(entry->custom_name, "indexOf");
 				}
 			}
+			else if (strcmp(extname, "clickhouse_fdw") == 0)
+			{
+				entry->cf_type = CF_CH_FUNCTION;
+				strcpy(entry->custom_name, NameStr(procform->proname));
+			}
 			ReleaseSysCache(proctup);
 			pfree(extname);
 		}

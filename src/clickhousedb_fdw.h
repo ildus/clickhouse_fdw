@@ -237,6 +237,7 @@ typedef enum {
 	CF_HSTORE_TYPE,		/* example of custom type */
 	CF_HSTORE_OPERATOR,	/* example of custom operator */
 	CF_HSTORE_EXISTS,	/* example of custom function */
+	CF_CH_FUNCTION,		/* adapted clickhouse function */
 	CF_TIMESTAMPTZ_PL_INTERVAL	/* timestamptz + interval */
 } custom_object_type;
 

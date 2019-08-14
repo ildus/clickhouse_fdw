@@ -22,6 +22,8 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 St
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String)
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.trep (id Int, t String, ver UInt8)
+	ENGINE = MergeTree PARTITION BY id % 10000 ORDER BY (id);');
 SELECT clickhousedb_raw_query('
 	CREATE TABLE regression.tcopy
 		(c1 Int32, c2 Int64, c3 Date, c4 DateTime, c5 DateTime, c6 String)
@@ -72,6 +74,12 @@ CREATE FOREIGN TABLE ft6 (
 	c2 int NOT NULL,
 	c3 text
 ) SERVER loopback2 OPTIONS (table_name 't4');
+
+CREATE FOREIGN TABLE ftrep (
+	id int NOT NULL,
+	t text,
+	ver smallint
+) SERVER loopback OPTIONS (table_name 'trep');
 
 CREATE FOREIGN TABLE ftcopy (
 	c1 int,
@@ -227,6 +235,17 @@ SELECT COUNT(DISTINCT c1) FROM ft2;
 
 /* DISTINCT with IF */
 EXPLAIN (VERBOSE, COSTS OFF) SELECT COUNT(DISTINCT c1) FILTER (WHERE c1 < 20) FROM ft2;
+
+INSERT INTO ftrep VALUES (1, 'f', 1);
+INSERT INTO ftrep VALUES (2, 'f', 1);
+INSERT INTO ftrep VALUES (3, 'f', 1);
+INSERT INTO ftrep VALUES (1, 's', 2);
+INSERT INTO ftrep VALUES (3, 's', 2);
+
+EXPLAIN (VERBOSE) SELECT argMax(id, ver) FROM ftrep;
+SELECT argMax(id, ver) FROM ftrep;
+EXPLAIN (VERBOSE) SELECT argMin(id, ver) FROM ftrep;
+SELECT argMin(id, ver) FROM ftrep;
 
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
