@@ -10,8 +10,6 @@ set (src
 	clickhousedb_shipable.c
 	clickhousedb_adjust.c
 	libclickhouse_link.c
-	sql/init.sql
-	sql/functions.sql
 )
 
 add_library(clickhouse_fdw MODULE ${src})
@@ -21,8 +19,6 @@ target_link_libraries(clickhouse_fdw PRIVATE clickhouse ${PGSQL_LDFLAGS})
 
 separate_arguments(PGSQL_CPPFLAGS UNIX_COMMAND "${PGSQL_CPPFLAGS}")
 target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS} -fstack-protector -fstack-check)
-
-add_dependencies(clickhouse_fdw clickhouse)
 
 if (APPLE)
 	target_link_libraries(clickhouse_fdw PRIVATE "-bundle_loader ${PGSQL_BINDIR}/postgres")
@@ -43,35 +39,25 @@ include_directories (
 )
 
 # concat sql files to one
-function(cat IN_FILE OUT_FILE)
-  file(READ ${IN_FILE} CONTENTS)
-  file(APPEND ${OUT_FILE} "${CONTENTS}")
-endfunction()
-
-set(sql_files
-	"${CMAKE_CURRENT_SOURCE_DIR}/sql/init.sql"
-	"${CMAKE_CURRENT_SOURCE_DIR}/sql/functions.sql"
-)
-
-# Prepare a temporary file to "cat" to:
-file(WRITE clickhouse_fdw.sql.in "")
-foreach(sql_file ${sql_files})
-  cat(${sql_file} clickhouse_fdw.sql.in)
-endforeach()
-
-# copy temporary to destination
 execute_process(
 	COMMAND bash "-c" "cat ${CMAKE_SOURCE_DIR}/src/clickhouse_fdw.control | grep default_version | awk '{gsub(\"\\047\", \"\", $3); print $3}'"
 	OUTPUT_VARIABLE EXT_VERSION
 	OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-configure_file(clickhouse_fdw.sql.in clickhouse_fdw--${EXT_VERSION}.sql COPYONLY)
+set(sql_out "${CMAKE_BINARY_DIR}/clickhouse_fdw--${EXT_VERSION}.sql")
+add_custom_command(
+	OUTPUT ${sql_out}
+	COMMAND cat ${CMAKE_CURRENT_SOURCE_DIR}/sql/init.sql ${CMAKE_CURRENT_SOURCE_DIR}/sql/functions.sql> ${sql_out}
+	DEPENDS sql/init.sql sql/functions.sql
+)
+add_custom_target(clickhouse_fdw_sql ALL DEPENDS ${sql_out})
+add_dependencies(clickhouse_fdw clickhouse clickhouse_fdw_sql)
 
 #------------------------------------------------------------------------------
 # sql
 #------------------------------------------------------------------------------
 set (install_files
-	"${CMAKE_BINARY_DIR}/src/clickhouse_fdw--${EXT_VERSION}.sql"
+	"${sql_out}"
 	"${CMAKE_SOURCE_DIR}/src/clickhouse_fdw.control"
 )
 
@@ -84,6 +70,6 @@ install (
 )
 
 install (
-	FILES ${install_files}
+	FILES ${sql_out}
 	DESTINATION "${PGSQL_SHAREDIR}/extension"
 )
