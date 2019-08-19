@@ -106,16 +106,18 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 		{
 			HeapTuple	proctup;
 			Form_pg_proc procform;
+			char		*proname;
 
 			proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
 			if (!HeapTupleIsValid(proctup))
 				elog(ERROR, "cache lookup failed for function %u", funcid);
 
 			procform = (Form_pg_proc) GETSTRUCT(proctup);
+			proname = NameStr(procform->proname);
 
 			if (strcmp(extname, "hstore") == 0)
 			{
-				if (strcmp(NameStr(procform->proname), "exist") == 0)
+				if (strcmp(proname, "exist") == 0)
 				{
 					entry->cf_type = CF_HSTORE_EXISTS;
 					strcpy(entry->custom_name, "indexOf");
@@ -124,7 +126,12 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			else if (strcmp(extname, "clickhouse_fdw") == 0)
 			{
 				entry->cf_type = CF_CH_FUNCTION;
-				strcpy(entry->custom_name, NameStr(procform->proname));
+				if (strcmp(proname, "argmax") == 0)
+					strcpy(entry->custom_name, "argMax");
+				else if (strcmp(proname, "argmin") == 0)
+					strcpy(entry->custom_name, "argMin");
+				else
+					strcpy(entry->custom_name, proname);
 			}
 			ReleaseSysCache(proctup);
 			pfree(extname);

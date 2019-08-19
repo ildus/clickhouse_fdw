@@ -10,6 +10,8 @@ set (src
 	clickhousedb_shipable.c
 	clickhousedb_adjust.c
 	libclickhouse_link.c
+	sql/init.sql
+	sql/functions.sql
 )
 
 add_library(clickhouse_fdw MODULE ${src})
@@ -40,12 +42,36 @@ include_directories (
 		${PGSQL_INCLUDEDIR_SERVER}
 )
 
+# concat sql files to one
+function(cat IN_FILE OUT_FILE)
+  file(READ ${IN_FILE} CONTENTS)
+  file(APPEND ${OUT_FILE} "${CONTENTS}")
+endfunction()
+
+set(sql_files
+	"${CMAKE_CURRENT_SOURCE_DIR}/sql/init.sql"
+	"${CMAKE_CURRENT_SOURCE_DIR}/sql/functions.sql"
+)
+
+# Prepare a temporary file to "cat" to:
+file(WRITE clickhouse_fdw.sql.in "")
+foreach(sql_file ${sql_files})
+  cat(${sql_file} clickhouse_fdw.sql.in)
+endforeach()
+
+# copy temporary to destination
+execute_process(
+	COMMAND bash "-c" "cat ${CMAKE_SOURCE_DIR}/src/clickhouse_fdw.control | grep default_version | awk '{gsub(\"\\047\", \"\", $3); print $3}'"
+	OUTPUT_VARIABLE EXT_VERSION
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+configure_file(clickhouse_fdw.sql.in clickhouse_fdw--${EXT_VERSION}.sql COPYONLY)
 
 #------------------------------------------------------------------------------
 # sql
 #------------------------------------------------------------------------------
 set (install_files
-	"${CMAKE_SOURCE_DIR}/src/clickhouse_fdw--1.0.sql"
+	"${CMAKE_BINARY_DIR}/src/clickhouse_fdw--${EXT_VERSION}.sql"
 	"${CMAKE_SOURCE_DIR}/src/clickhouse_fdw.control"
 )
 
