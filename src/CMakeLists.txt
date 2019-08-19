@@ -60,6 +60,7 @@ add_dependencies(clickhouse_fdw clickhouse clickhouse_fdw_sql)
 #------------------------------------------------------------------------------
 set (install_files
 	"${sql_out}"
+	"${sql_migration_11}"
 	"${CMAKE_SOURCE_DIR}/src/clickhouse_fdw.control"
 )
 
@@ -72,6 +73,6 @@ install (
 )
 
 install (
-	FILES ${sql_out} ${sql_migration_11}
+	FILES ${install_files}
 	DESTINATION "${PGSQL_SHAREDIR}/extension"
 )
