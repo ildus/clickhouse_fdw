@@ -109,12 +109,14 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 		{
 			HeapTuple	proctup;
 			Form_pg_proc procform;
+			char		*proname;
 
 			proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
 			if (!HeapTupleIsValid(proctup))
 				elog(ERROR, "cache lookup failed for function %u", funcid);
 
 			procform = (Form_pg_proc) GETSTRUCT(proctup);
+			proname = NameStr(procform->proname);
 
 			if (strcmp(extname, "istore") == 0)
 			{
@@ -171,6 +173,16 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			{
 				if (strcmp(NameStr(procform->proname), "ajbool_out") == 0)
 					entry->cf_type = CF_AJBOOL_OUT;
+			}
+			else if (strcmp(extname, "clickhouse_fdw") == 0)
+			{
+				entry->cf_type = CF_CH_FUNCTION;
+				if (strcmp(proname, "argmax") == 0)
+					strcpy(entry->custom_name, "argMax");
+				else if (strcmp(proname, "argmin") == 0)
+					strcpy(entry->custom_name, "argMin");
+				else
+					strcpy(entry->custom_name, proname);
 			}
 			ReleaseSysCache(proctup);
 			pfree(extname);
