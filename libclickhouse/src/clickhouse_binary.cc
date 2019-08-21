@@ -279,11 +279,16 @@ void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response
 }
 
 static void *get_value(ch_binary_read_state_t *state, ColumnRef col,
-	ch_binary_coltype type, size_t row)
+	size_t row, ch_binary_coltype *valtype)
 {
+	ch_binary_coltype	type;
 	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
 
 nested:
+	type = (ch_binary_coltype) col->Type()->GetCode();
+	if (valtype)
+		*valtype = type;
+
 	switch (type)
 	{
 		case chb_UInt8:
@@ -338,7 +343,7 @@ nested:
 				res->len = arr->Size();
 
 				for (size_t i = 0; i < res->len; i++)
-					values.get()[i] = get_value(state, arr, res->coltype, i);
+					values.get()[i] = get_value(state, arr, i, NULL);
 
 				res->values = values.get();
 
@@ -362,7 +367,7 @@ nested:
 				{
 					auto col = (*tuple)[i];
 					coltypes.get()[i] = (ch_binary_coltype)((*tuple)[i]->Type()->GetCode());
-					values.get()[i] = get_value(state, (*tuple)[i], coltypes.get()[i], row);
+					values.get()[i] = get_value(state, (*tuple)[i], row, &(coltypes.get()[i]));
 				}
 
 				res->len = tuple->TupleSize();
@@ -404,12 +409,9 @@ nested:
 		case chb_Nullable:
 			{
 				auto nullable = col->As<ColumnNullable>();
-				if (nullable->IsNull(row))
-					break;
-				else
+				if (!nullable->IsNull(row))
 				{
 					col = nullable->Nested();
-					type = (ch_binary_coltype) col->Type()->GetCode();
 					goto nested;
 				}
 			}
@@ -448,8 +450,7 @@ again:
 		{
 			auto col = block[i];
 
-			state->coltypes[i] = (ch_binary_coltype) col->Type()->GetCode();
-			res[i] = get_value(state, col, state->coltypes[i], state->row);
+			res[i] = get_value(state, col, state->row, &state->coltypes[i]);
 			if (res[i] == NULL)
 				state->coltypes[i] = chb_Void;
 		}

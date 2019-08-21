@@ -729,7 +729,10 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 			int		i = lfirst_int(lc);
 			void   *rowval = row_values[j];
 
-			if (state->coltypes[j] == chb_Void || state->coltypes[j] == chb_Nullable || rowval == NULL)
+			/* we should always get some value type or NULL */
+			Assert(state->coltypes[j] != chb_Nullable);
+
+			if (state->coltypes[j] == chb_Void || rowval == NULL)
 				nulls[i - 1] = true;
 			else
 			{

@@ -24,6 +24,9 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
 SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
     number, number + 1, number + 2, number + 3, number + 4, number + 5,
     number + 6, number + 7, number + 8.1, number + 9.2 FROM numbers(10);');
+SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
+    number, number + 1, number + 2, number + 3, number + 4, number + 5,
+    number + 6, number + 7, number + 8.1, NULL FROM numbers(10, 2);');
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
@@ -71,7 +74,7 @@ IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
 
-SELECT * FROM clickhouse.ints ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
@@ -83,7 +86,7 @@ IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhou
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
 
-SELECT * FROM clickhouse_bin.ints ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;

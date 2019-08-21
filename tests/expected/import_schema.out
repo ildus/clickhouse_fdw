@@ -42,6 +42,14 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
  
 (1 row)
 
+SELECT clickhousedb_raw_query('INSERT INTO regression.ints SELECT
+    number, number + 1, number + 2, number + 3, number + 4, number + 5,
+    number + 6, number + 7, number + 8.1, NULL FROM numbers(10, 2);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
     c6 Enum8(''one'' = 1, ''two'' = 2),
@@ -160,12 +168,14 @@ FDW options: (table_name 'arrays')
 Server: loopback
 FDW options: (table_name 'tuples')
 
-SELECT * FROM clickhouse.ints ORDER BY c1 LIMIT 2;
- c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9  | c10  
-----+----+----+----+----+----+----+----+-----+------
-  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 | 8.1 |  9.2
-  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 | 9.1 | 10.2
-(2 rows)
+SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
+----+----+----+----+----+----+----+----+------+------
+ 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19.1 |     
+ 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18.1 |     
+  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17.1 | 18.2
+  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16.1 | 17.2
+(4 rows)
 
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
      c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
@@ -240,12 +250,14 @@ FDW options: (table_name 'arrays')
 Server: loopback_bin
 FDW options: (table_name 'tuples')
 
-SELECT * FROM clickhouse_bin.ints ORDER BY c1 LIMIT 2;
- c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9  | c10 
-----+----+----+----+----+----+----+----+-----+-----
-  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 | 8.1 |    
-  1 |  2 |  3 |  4 |  5 |  6 |  7 |  8 | 9.1 |    
-(2 rows)
+SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
+ c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
+----+----+----+----+----+----+----+----+------+------
+ 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19.1 |     
+ 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18.1 |     
+  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17.1 | 18.2
+  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 | 16.1 | 17.2
+(4 rows)
 
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
      c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
