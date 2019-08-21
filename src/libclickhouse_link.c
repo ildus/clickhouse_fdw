@@ -4,9 +4,11 @@
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_type.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
 #include "utils/lsyscache.h"
+#include "utils/syscache.h"
 #include "utils/typcache.h"
 #include "utils/uuid.h"
 #include "utils/fmgroids.h"
@@ -639,21 +641,38 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 		Oid			castfunc;
 		CoercionPathType ctype;
 
-		/* try to convert */
-		ctype = find_coercion_pathway(pgtype, valtype,
-									  COERCION_EXPLICIT,
-									  &castfunc);
-		switch (ctype)
+		if (valtype == TEXTOID)
 		{
-			case COERCION_PATH_FUNC:
-				ret = OidFunctionCall1(castfunc, ret);
-				break;
-			case COERCION_PATH_RELABELTYPE:
-				/* all good */
-				break;
-			default:
-				elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
-						format_type_be(valtype), format_type_be(pgtype));
+			Type		baseType;
+			Oid			baseTypeId;
+			int32		typmod = -1;
+
+			baseTypeId = getBaseTypeAndTypmod(pgtype, &typmod);
+			if (baseTypeId != INTERVALOID)
+				typmod = -1;
+
+			baseType = typeidType(baseTypeId);
+			ret = stringTypeDatum(baseType, TextDatumGetCString(ret), typmod);
+			ReleaseSysCache(baseType);
+		}
+		else
+		{
+			/* try to convert */
+			ctype = find_coercion_pathway(pgtype, valtype,
+										  COERCION_EXPLICIT,
+										  &castfunc);
+			switch (ctype)
+			{
+				case COERCION_PATH_FUNC:
+					ret = OidFunctionCall1(castfunc, ret);
+					break;
+				case COERCION_PATH_RELABELTYPE:
+					/* all good */
+					break;
+				default:
+					elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
+							format_type_be(valtype), format_type_be(pgtype));
+			}
 		}
 	}
 
