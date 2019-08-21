@@ -642,28 +642,14 @@ clickhouseGetForeignPaths(PlannerInfo *root,
                           RelOptInfo *baserel,
                           Oid foreigntableid)
 {
-	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *) baserel->fdw_private;
-	ForeignPath *path;
+	ForeignPath			*path;
+	CHFdwRelationInfo	*fpinfo = (CHFdwRelationInfo *) baserel->fdw_private;
 
-	/*
-	 * Create simplest ForeignScan path node and add it to baserel.  This path
-	 * corresponds to SeqScan path of regular tables (though depending on what
-	 * baserestrict conditions we were able to send to remote, there might
-	 * actually be an indexscan happening there).  We already did all the work
-	 * to estimate cost and size of this path.
-	 */
-	path = create_foreignscan_path(root, baserel,
-	                               NULL,	/* default pathtarget */
-	                               fpinfo->rows,
-	                               fpinfo->startup_cost,
-	                               fpinfo->total_cost,
-	                               NIL, /* no pathkeys */
-	                               NULL,	/* no outer rel either */
-	                               NULL,	/* no extra plan */
-	                               NIL);	/* no fdw_private list */
+	path= create_foreignscan_path(root, baserel, NULL,
+		fpinfo->rows, fpinfo->startup_cost, fpinfo->total_cost,
+		NULL, NULL, NULL, NIL);
+
 	add_path(baserel, (Path *) path);
-
-	/* Add paths with pathkeys */
 	add_paths_with_pathkeys_for_rel(root, baserel, NULL);
 }
 
@@ -2515,15 +2501,11 @@ clickhouseGetForeignUpperPaths(PlannerInfo *root, UpperRelationKind stage,
 	 */
 	if (!input_rel->fdw_private ||
 	        !((CHFdwRelationInfo *) input_rel->fdw_private)->pushdown_safe)
-	{
 		return;
-	}
 
 	/* Ignore stages we don't support; and skip any duplicate calls. */
 	if (stage != UPPERREL_GROUP_AGG || output_rel->fdw_private)
-	{
 		return;
-	}
 
 	fpinfo = (CHFdwRelationInfo *) palloc0(sizeof(CHFdwRelationInfo));
 	fpinfo->pushdown_safe = false;
