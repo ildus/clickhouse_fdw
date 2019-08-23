@@ -1636,17 +1636,11 @@ deparseRelation(StringInfo buf, Relation rel)
 {
 	ForeignTable *table;
 	const char *relname = NULL;
-	char       *driver;
-	char       *host;
-	int        port;
-	char       *username;
-	char       *password;
-	char       *dbname;
+	char       *dbname = "default";
 	ForeignServer *server = chfdw_get_foreign_server(rel);
 	ListCell    *lc;
 
-	chfdw_extract_options(server->options, &driver, &host, &port, &dbname,
-	                         &username, &password);
+	chfdw_extract_options(server->options, NULL, NULL, NULL, &dbname, NULL, NULL);
 
 	/* obtain additional catalog information. */
 	table = GetForeignTable(RelationGetRelid(rel));

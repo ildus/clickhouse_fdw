@@ -168,6 +168,11 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 					entry->cf_type = CF_AJTIME_DAY_DIFF;
 					strcpy(entry->custom_name, "toInt32");
 				}
+				else if (strcmp(NameStr(procform->proname), "ajdate") == 0)
+				{
+					entry->cf_type = CF_AJTIME_AJDATE;
+					strcpy(entry->custom_name, "toDate");
+				}
 			}
 			else if (strcmp(extname, "ajbool") == 0)
 			{

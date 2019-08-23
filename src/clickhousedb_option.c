@@ -23,6 +23,8 @@
 #include "utils/builtins.h"
 #include "utils/varlena.h"
 
+static char *DEFAULT_DBNAME = "default";
+
 
 /*
  * Describes the valid options for objects that this wrapper uses.
@@ -254,21 +256,25 @@ chfdw_extract_options(List *defelems, char **driver,  char **host, int *port,
 	{
 		DefElem *def = (DefElem *) lfirst(lc);
 
-		if (strcmp(def->defname, "driver") == 0)
+		if (driver && strcmp(def->defname, "driver") == 0)
 			*driver = defGetString(def);
 
 		if (is_ch_option(def->defname))
 		{
-			if (strcmp(def->defname, "host") == 0)
+			if (host && strcmp(def->defname, "host") == 0)
 				*host = defGetString(def);
-			else if (strcmp(def->defname, "port") == 0)
+			else if (port && strcmp(def->defname, "port") == 0)
 				*port = atoi(defGetString(def));
-			else if (strcmp(def->defname, "user") == 0)
+			else if (username && strcmp(def->defname, "user") == 0)
 				*username = defGetString(def);
-			else if (strcmp(def->defname, "password") == 0)
+			else if (password && strcmp(def->defname, "password") == 0)
 				*password = defGetString(def);
-			else if (strcmp(def->defname, "dbname") == 0)
+			else if (dbname && strcmp(def->defname, "dbname") == 0)
+            {
 				*dbname = defGetString(def);
+                if (*dbname[0] == '\0')
+                    *dbname = DEFAULT_DBNAME;
+            }
 		}
 	}
 }
