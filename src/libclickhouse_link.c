@@ -655,6 +655,11 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 			ret = stringTypeDatum(baseType, TextDatumGetCString(ret), typmod);
 			ReleaseSysCache(baseType);
 		}
+		else if (pgtype == BOOLOID && valtype == INT2OID)
+		{
+			int16 val = DatumGetInt16(ret);
+			ret = BoolGetDatum(val);
+		}
 		else
 		{
 			/* try to convert */

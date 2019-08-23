@@ -1,14 +1,10 @@
 CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver 'http');
 CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 
-CREATE ROLE user1 SUPERUSER;
-SET ROLE user1;
-CREATE USER MAPPING FOR public SERVER testserver1 OPTIONS (user 'value', password 'value');
-CREATE USER MAPPING FOR user1 SERVER loopback;
-CREATE USER MAPPING FOR user1 SERVER loopback2;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback2;
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
@@ -122,10 +118,6 @@ INSERT INTO ftcopy VALUES
 EXPLAIN (VERBOSE) SELECT * FROM ftcopy ORDER BY c1;
 SELECT * FROM ftcopy ORDER BY c1;
 
-ALTER USER MAPPING FOR public SERVER testserver1
-	OPTIONS (DROP user, DROP password);
-\det+
-
 \set VERBOSITY terse
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 
@@ -133,12 +125,12 @@ ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 
-ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
+ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
-ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
+ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
 
@@ -228,8 +220,7 @@ SELECT COUNT(DISTINCT c1) FROM ft2;
 /* DISTINCT with IF */
 EXPLAIN (VERBOSE, COSTS OFF) SELECT COUNT(DISTINCT c1) FILTER (WHERE c1 < 20) FROM ft2;
 
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback2;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-RESET ROLE;
-DROP OWNED BY user1;
-DROP ROLE user1;

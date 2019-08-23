@@ -2,6 +2,7 @@ CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw
     OPTIONS(dbname 'regression', driver 'binary');
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
  clickhousedb_raw_query 
 ------------------------
@@ -81,7 +82,8 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
     c1 Int8,
-    c2 Tuple(Int, String, Float32)
+    c2 Tuple(Int, String, Float32),
+    c3 UInt8
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
  clickhousedb_raw_query 
@@ -91,16 +93,14 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
 
 SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
     number,
-    (number, toString(number), number + 1.0)
+    (number, toString(number), number + 1.0),
+    number % 2
     FROM numbers(10);');
  clickhousedb_raw_query 
 ------------------------
  
 (1 row)
 
-CREATE ROLE user1 SUPERUSER;
-CREATE USER MAPPING FOR user1 SERVER loopback;
-SET ROLE user1;
 CREATE FOREIGN TABLE fints (
 	c1 int2,
 	c2 int2,
@@ -133,7 +133,8 @@ CREATE FOREIGN TABLE farrays2 (
 CREATE TABLE tupformat(a int, b text, c float4);
 CREATE FOREIGN TABLE ftuples (
     c1 int,
-    c2 tupformat
+    c2 tupformat,
+    c3 bool
 ) SERVER loopback OPTIONS (table_name 'tuples');
 -- integers
 SELECT * FROM fints ORDER BY c1;
@@ -231,23 +232,21 @@ SELECT * FROM farrays2 ORDER BY c1;
 ERROR:  clickhouse_fdw: could not cast value from integer[] to bigint[]
 -- tuples
 SELECT * FROM ftuples ORDER BY c1;
- c1 |    c2    
-----+----------
-  0 | (0,0,1)
-  1 | (1,1,2)
-  2 | (2,2,3)
-  3 | (3,3,4)
-  4 | (4,4,5)
-  5 | (5,5,6)
-  6 | (6,6,7)
-  7 | (7,7,8)
-  8 | (8,8,9)
-  9 | (9,9,10)
+ c1 |    c2    | c3 
+----+----------+----
+  0 | (0,0,1)  | f
+  1 | (1,1,2)  | t
+  2 | (2,2,3)  | f
+  3 | (3,3,4)  | t
+  4 | (4,4,5)  | f
+  5 | (5,5,6)  | t
+  6 | (6,6,7)  | f
+  7 | (7,7,8)  | t
+  8 | (8,8,9)  | f
+  9 | (9,9,10) | t
 (10 rows)
 
-RESET ROLE;
-DROP OWNED BY user1;
-DROP ROLE user1;
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
 ------------------------
@@ -255,4 +254,10 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to server loopback
+NOTICE:  drop cascades to 6 other objects
+DETAIL:  drop cascades to server loopback
+drop cascades to foreign table fints
+drop cascades to foreign table ftypes
+drop cascades to foreign table farrays
+drop cascades to foreign table farrays2
+drop cascades to foreign table ftuples

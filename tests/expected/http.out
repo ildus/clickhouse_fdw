@@ -1,13 +1,9 @@
 CREATE EXTENSION clickhouse_fdw;
 SET datestyle = 'ISO';
-CREATE SERVER testserver1 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver 'http');
 CREATE SERVER loopback2 FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
-CREATE ROLE user1 SUPERUSER;
-SET ROLE user1;
-CREATE USER MAPPING FOR public SERVER testserver1 OPTIONS (user 'value', password 'value');
-CREATE USER MAPPING FOR user1 SERVER loopback;
-CREATE USER MAPPING FOR user1 SERVER loopback2;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback2;
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
  clickhousedb_raw_query 
 ------------------------
@@ -151,21 +147,6 @@ SELECT * FROM ftcopy ORDER BY c1;
   4 |  5 | 1991-04-04 | 1990-04-04 12:04:04 | 12:02:04 | val4
 (4 rows)
 
-ALTER USER MAPPING FOR public SERVER testserver1
-	OPTIONS (DROP user, DROP password);
-\det+
-                      List of foreign tables
- Schema | Table  |  Server   |     FDW options      | Description 
---------+--------+-----------+----------------------+-------------
- public | ft1    | loopback  | (table_name 't1')    | 
- public | ft2    | loopback  | (table_name 't2')    | 
- public | ft3    | loopback  | (table_name 't3')    | 
- public | ft4    | loopback  | (table_name 't4')    | 
- public | ft5    | loopback  | (table_name 't4')    | 
- public | ft6    | loopback2 | (table_name 't4')    | 
- public | ftcopy | loopback  | (table_name 'tcopy') | 
-(7 rows)
-
 \set VERBOSITY terse
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
   c3   |     c4     
@@ -177,12 +158,12 @@ ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 ERROR:  clickhouse_fdw:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
-ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (ADD user 'no such user');
+ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
 ERROR:  clickhouse_fdw:Code: 192, e.displayText() = DB::Exception: Unknown user no such user
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
-ALTER USER MAPPING FOR user1 SERVER loopback OPTIONS (DROP user);
+ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
   c3   |     c4     
 -------+------------
@@ -770,6 +751,8 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT COUNT(DISTINCT c1) FILTER (WHERE c1 < 20) FR
          Remote SQL: SELECT c1 FROM regression.t2
 (5 rows)
 
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback2;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
 ------------------------
@@ -777,11 +760,8 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 13 other objects
-DETAIL:  drop cascades to server testserver1
-drop cascades to user mapping for public on server testserver1
-drop cascades to server loopback
-drop cascades to user mapping for user1 on server loopback
+NOTICE:  drop cascades to 9 other objects
+DETAIL:  drop cascades to server loopback
 drop cascades to foreign table ft1
 drop cascades to foreign table ft2
 drop cascades to foreign table ft3
@@ -789,8 +769,4 @@ drop cascades to foreign table ft4
 drop cascades to foreign table ft5
 drop cascades to foreign table ftcopy
 drop cascades to server loopback2
-drop cascades to user mapping for user1 on server loopback2
 drop cascades to foreign table ft6
-RESET ROLE;
-DROP OWNED BY user1;
-DROP ROLE user1;
