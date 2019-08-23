@@ -803,7 +803,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	chfdw_extract_options(server->options, &driver, &details.host,
 		&details.port, &details.dbname, &details.username, &details.password);
 
-	query = psprintf("select name from system.tables where database='%s'", details.dbname);
+	query = psprintf("select name, engine, engine_full from system.tables where database='%s'", details.dbname);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
 	datts = list_make5_int(1,2,3,4,5);
@@ -815,11 +815,13 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	 * to convert anything for binary
 	 */
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
-				list_make1_int(1), NULL, NULL, NULL)) != NULL)
+				list_make3_int(1,2,3), NULL, NULL, NULL)) != NULL)
 	{
 		StringInfoData	buf;
 		ch_cursor  *table_def;
 		char	   *table_name = row_values[0];
+		char	   *engine = row_values[1];
+		char	   *engine_full = row_values[2];
 		char	  **dvalues;
 		bool		first = true;
 
@@ -944,9 +946,20 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				appendStringInfoString(&buf, " NOT NULL");
 		}
 
-		appendStringInfo(&buf, "\n) SERVER %s OPTIONS (table_name '%s');\n",
+		appendStringInfo(&buf, "\n) SERVER %s OPTIONS (table_name '%s'",
 			server->servername, table_name);
 
+		if (engine && engine_full && strcmp(engine, "CollapsingMergeTree") == 0)
+		{
+			char *sub = strstr(engine_full, ")");
+			if (sub)
+			{
+				sub[1] = '\0';
+				appendStringInfo(&buf, ", engine '%s'", engine_full);
+			}
+		}
+
+		appendStringInfoString(&buf, ");\n");
 		result = lappend(result, buf.data);
 		MemoryContextDelete(table_def->memcxt);
 	}
