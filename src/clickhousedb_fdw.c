@@ -1018,6 +1018,14 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 					pos++;
 				}
 			}
+            else if (valstr && valstr[0] == '0' && valstr[1] == '0')
+            {
+                /* clickhouse supports such values which are invalid in postgres,
+                 * so we just set set as NULL
+                 */
+                if (strcmp(valstr, "0000-00-00 00:00:00") == 0)
+                    valstr = NULL;
+            }
 
 			/* Apply the input function even to nulls, to support domains */
 			nulls[i - 1] = (valstr == NULL);
