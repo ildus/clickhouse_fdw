@@ -366,8 +366,9 @@ nested:
 				for (size_t i = 0; i < tuple->TupleSize(); i++)
 				{
 					auto col = (*tuple)[i];
-					coltypes.get()[i] = (ch_binary_coltype)((*tuple)[i]->Type()->GetCode());
 					values.get()[i] = get_value(state, (*tuple)[i], row, &(coltypes.get()[i]));
+                    if (values.get()[i] == NULL)
+                        coltypes.get()[i] = chb_Void;
 				}
 
 				res->len = tuple->TupleSize();
@@ -384,6 +385,9 @@ nested:
 			{
 				auto val = std::make_shared<uint64_t>(
 						static_cast<uint64_t> (col->As<ColumnDate>()->At(row)));
+				if (*val == 0)
+					return NULL;
+
 				gc->push_back(val);
 				return (void *) val.get();
 			}
@@ -391,6 +395,9 @@ nested:
 			{
 				auto val = std::make_shared<uint64_t>(
 						static_cast<uint64_t> (col->As<ColumnDateTime>()->At(row)));
+				if (*val == 0)
+					return NULL;
+
 				gc->push_back(val);
 				return (void *) val.get();
 			}
