@@ -221,7 +221,8 @@ static bool clickhouseRecheckForeignScan(ForeignScanState *node,
  * Helper functions
  */
 static void estimate_path_cost_size(double *p_rows, int *p_width,
-                                    Cost *p_startup_cost, Cost *p_total_cost);
+                                    Cost *p_startup_cost, Cost *p_total_cost,
+									double coef);
 static CHFdwModifyState *create_foreign_modify(EState *estate,
         RangeTblEntry *rte,
         ResultRelInfo *resultRelInfo,
@@ -1433,12 +1434,12 @@ clickhouseExplainForeignScan(ForeignScanState *node, ExplainState *es)
  */
 static void
 estimate_path_cost_size(double *p_rows, int *p_width,
-                        Cost *p_startup_cost, Cost *p_total_cost)
+                        Cost *p_startup_cost, Cost *p_total_cost, double coef)
 {
 	*p_rows = 1;
 	*p_width = 1;
 	*p_startup_cost = 1.0;
-	*p_total_cost = -1.0;
+	*p_total_cost = -1 + coef;
 }
 
 /*
@@ -2064,7 +2065,7 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 		List	   *useful_pathkeys = lfirst(lc);
 		Path	   *sorted_epq_path;
 
-		estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost);
+		estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost, 0.5);
 
 		/*
 		 * The EPQ path must be at least as well sorted as the path itself, in
@@ -2239,7 +2240,7 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 														extra->sjinfo);
 
 	/* Estimate costs for bare join relation */
-	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost);
+	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost, 0);
 	/* Now update this information in the joinrel */
 	joinrel->rows = rows;
 	joinrel->reltarget->width = width;
@@ -2577,7 +2578,7 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 		return;
 
 	/* Estimate the cost of push down */
-	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost);
+	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost, 0.1);
 
 	/* Now update this information in the fpinfo */
 	fpinfo->rows = rows;

@@ -398,7 +398,7 @@ static Oid types_map[27] = {
 	TEXTOID,
 	TEXTOID,
 	TIMESTAMPOID,
-	TIMESTAMPOID,
+	DATEOID,
 	InvalidOid,	/* chb_Array, depends on array type */
 	InvalidOid,	/* chb_Nullable, just skip it */
 	InvalidOid,	/* composite type */
@@ -464,8 +464,14 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 		case chb_Enum16:
 			ret = CStringGetTextDatum((const char *) rowval);
 			break;
-		case chb_DateTime:
 		case chb_Date:
+			{
+				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
+				ret = TimestampGetDatum(t);
+				ret = DirectFunctionCall1(timestamp_date, ret);
+			}
+			break;
+		case chb_DateTime:
 			{
 				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
 				ret = TimestampGetDatum(t);
