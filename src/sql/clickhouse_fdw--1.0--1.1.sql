@@ -24,10 +24,16 @@ CREATE AGGREGATE argMin(anyelement, bigint)
 
 CREATE FUNCTION ch_argmin(anyelement, anyelement, timestamp) RETURNS anyelement
 AS $$ BEGIN
-	RAISE EXCEPTION 'argMin should be pushed down';
+	RAISE EXCEPTION 'this aggregation should be pushed down';
 END $$ LANGUAGE 'plpgsql' IMMUTABLE;
 
 CREATE AGGREGATE argMin(anyelement, timestamp)
+(
+    sfunc = ch_argmin,
+    stype = anyelement
+);
+
+CREATE AGGREGATE argMax(anyelement, timestamp)
 (
     sfunc = ch_argmin,
     stype = anyelement
