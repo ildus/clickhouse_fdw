@@ -2367,7 +2367,14 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		appendStringInfoString(buf, ") / 86400)");
 		return;
 	}
-
+	else if (cdef && cdef->cf_type == CF_TIMEZONE)
+	{
+		deparseExpr((Expr *) list_nth(node->args, 1), context);
+		appendStringInfoString(buf, ", ");
+		deparseExpr((Expr *) linitial(node->args), context);
+		appendStringInfoChar(buf, ')');
+		return;
+	}
 
 	old_cdef = context->func;
 
