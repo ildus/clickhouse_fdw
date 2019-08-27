@@ -16,6 +16,7 @@ ch_binary_connection_t *ch_binary_connect(char *host, int port,
 	ch_binary_connection_t	*conn = NULL;
 	ClientOptions	*options = new ClientOptions();
 
+	options->SetPingBeforeQuery(true);
 	if (host)
 		options->SetHost(std::string(host));
 	if (port)
