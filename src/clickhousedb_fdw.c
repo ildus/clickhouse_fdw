@@ -1316,7 +1316,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	rte = list_nth(estate->es_range_table, resultRelation - 1);
 	if (rte->relid != RelationGetRelid(rel))
 	{
-		rte = copyObject(rte);
+		rte = (RangeTblEntry *) copyObjectImpl(rte);
 		rte->relid = RelationGetRelid(rel);
 		rte->relkind = RELKIND_FOREIGN_TABLE;
 	}
