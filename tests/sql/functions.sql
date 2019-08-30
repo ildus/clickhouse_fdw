@@ -20,6 +20,8 @@ SELECT clickhousedb_raw_query($$
 $$);
 
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
+CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
+
 EXPLAIN (VERBOSE) SELECT argMin(a, b) FROM t1;
 SELECT argMin(a, b) FROM t1;
 EXPLAIN (VERBOSE) SELECT argMax(a, b) FROM t1;
@@ -31,6 +33,9 @@ SELECT argMax(a, c) FROM t1;
 
 EXPLAIN (VERBOSE) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+
+EXPLAIN (VERBOSE) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');

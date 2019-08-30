@@ -41,6 +41,7 @@ $$);
 (1 row)
 
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
+CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
 EXPLAIN (VERBOSE) SELECT argMin(a, b) FROM t1;
                       QUERY PLAN                      
 ------------------------------------------------------
@@ -120,6 +121,25 @@ SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER B
  2019-01-02 00:00:00-08
 (2 rows)
 
+EXPLAIN (VERBOSE) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=-0.89..-0.89 rows=1 width=8)
+   Output: (date_trunc('day'::text, timezone('UTC'::text, c)))
+   Sort Key: (date_trunc('day'::text, timezone('UTC'::text, t2.c)))
+   ->  Foreign Scan  (cost=1.00..-0.90 rows=1 width=8)
+         Output: (date_trunc('day'::text, timezone('UTC'::text, c)))
+         Relations: Aggregate on (t2)
+         Remote SQL: SELECT toStartOfDay(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toStartOfDay(toTimeZone(c, 'UTC')))
+(7 rows)
+
+SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+         d1          
+---------------------
+ 2019-01-01 00:00:00
+ 2019-01-02 00:00:00
+(2 rows)
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
@@ -128,6 +148,7 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 2 other objects
+NOTICE:  drop cascades to 3 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table t1
+drop cascades to foreign table t2
