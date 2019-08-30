@@ -337,13 +337,6 @@ CustomObjectDef *chfdw_check_for_custom_operator(Oid opoid, Form_pg_operator for
 					if (form && strcmp(NameStr(form->oprname), "->") == 0)
 						entry->cf_type = CF_ISTORE_FETCHVAL;
 				}
-				else if (strcmp(extname, "ajbool") == 0)
-					entry->cf_type = CF_AJBOOL_OPERATOR;
-				else if (strcmp(extname, "country") == 0)
-					entry->cf_type = CF_COUNTRY_OPERATOR;
-				else if (strcmp(extname, "os_name") == 0)
-					entry->cf_type = CF_OSNAME_OPERATOR;
-
 				pfree(extname);
 			}
 		}

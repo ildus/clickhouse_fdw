@@ -2627,12 +2627,6 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 				goto cleanup;
 			}
 			break;
-			case CF_AJBOOL_OPERATOR:
-			case CF_COUNTRY_OPERATOR:
-			case CF_OSNAME_OPERATOR:
-			break;
-			default:
-				elog(ERROR, "unsupported operator type");
 		}
 	}
 
@@ -2657,10 +2651,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	}
 
 	/* Deparse operator name. */
-	if (cdef)
-		appendStringInfoString(buf, NameStr(form->oprname));
-	else
-		deparseOperatorName(buf, form);
+	deparseOperatorName(buf, form);
 
 	/* Deparse right operand. */
 	if (oprkind == 'l' || oprkind == 'b')
@@ -2684,42 +2675,18 @@ deparseOperatorName(StringInfo buf, Form_pg_operator opform)
 {
 	char	   *opname;
 
-	/* opname is not a SQL identifier, so we should not quote it. */
 	opname = NameStr(opform->oprname);
 
-	/* Print schema name only if it's not pg_catalog */
-	if (opform->oprnamespace != PG_CATALOG_NAMESPACE)
-	{
-		const char *opnspname;
-
-		opnspname = get_namespace_name(opform->oprnamespace);
-		/* Print fully qualified operator name. */
-		appendStringInfo(buf, "OPERATOR(%s.%s)",
-		                 quote_identifier(opnspname), opname);
-	}
+	if (strcmp(opname, "~~") == 0)
+		appendStringInfoString(buf, "LIKE");
+	else if (strcmp(opname, "~~*") == 0)
+		appendStringInfoString(buf, "LIKE");
+	else if (strcmp(opname, "!~~") == 0)
+		appendStringInfoString(buf, "NOT LIKE");
+	else if (strcmp(opname, "!~~*") == 0)
+		appendStringInfoString(buf, "NOT LIKE");
 	else
-	{
-		if (strcmp(opname, "~~") == 0)
-		{
-			appendStringInfoString(buf, "LIKE");
-		}
-		else if (strcmp(opname, "~~*") == 0)
-		{
-			appendStringInfoString(buf, "LIKE");
-		}
-		else if (strcmp(opname, "!~~") == 0)
-		{
-			appendStringInfoString(buf, "NOT LIKE");
-		}
-		else if (strcmp(opname, "!~~*") == 0)
-		{
-			appendStringInfoString(buf, "NOT LIKE");
-		}
-		else
-		{
-			appendStringInfoString(buf, opname);
-		}
-	}
+		appendStringInfoString(buf, opname);
 }
 
 /*
