@@ -186,6 +186,14 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 				if (strcmp(NameStr(procform->proname), "ajbool_out") == 0)
 					entry->cf_type = CF_AJBOOL_OUT;
 			}
+			else if (strcmp(extname, "intarray") == 0)
+			{
+				if (strcmp(NameStr(procform->proname), "idx") == 0)
+				{
+					entry->cf_type = CF_INTARRAY_IDX;
+					strcpy(entry->custom_name, "indexOf");
+				}
+			}
 			else if (strcmp(extname, "clickhouse_fdw") == 0)
 			{
 				entry->cf_type = CF_CH_FUNCTION;
@@ -336,6 +344,11 @@ CustomObjectDef *chfdw_check_for_custom_operator(Oid opoid, Form_pg_operator for
 				{
 					if (form && strcmp(NameStr(form->oprname), "->") == 0)
 						entry->cf_type = CF_ISTORE_FETCHVAL;
+				}
+				else if (strcmp(extname, "hstore") == 0)
+				{
+					if (form && strcmp(NameStr(form->oprname), "->") == 0)
+						entry->cf_type = CF_HSTORE_FETCHVAL;
 				}
 				pfree(extname);
 			}

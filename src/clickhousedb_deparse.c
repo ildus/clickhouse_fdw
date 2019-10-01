@@ -10,6 +10,7 @@
  *
  *-------------------------------------------------------------------------
  */
+
 #include "postgres.h"
 
 #include "access/heapam.h"
@@ -20,6 +21,8 @@
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/nodes.h"
+#include "nodes/primnodes.h"
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "utils/arrayaccess.h"
@@ -72,6 +75,7 @@ typedef struct deparse_expr_cxt
 	CustomObjectDef	*func;		/* custom function deparse */
 	void		*func_arg;		/* custom function context args */
 	CHFdwRelationInfo *fpinfo;	/* fdw relation info */
+	bool		interval_op;
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -581,6 +585,14 @@ foreign_expr_walker(Node *node,
 			return false;
 	}
 	break;
+	case T_CoerceViaIO:
+	{
+		CoerceViaIO	*me = (CoerceViaIO *) node;
+		if (!foreign_expr_walker((Node *) me->arg, glob_cxt, &inner_cxt))
+			return false;
+	}
+	case T_CaseTestExpr:
+	break;
 	default:
 
 		/*
@@ -895,6 +907,7 @@ chfdw_deparse_select_stmt_for_rel(StringInfo buf, PlannerInfo *root, RelOptInfo 
 	context.scanrel = IS_UPPER_REL(rel) ? fpinfo->outerrel : rel;
 	context.params_list = params_list;
 	context.func = NULL;
+	context.interval_op = NULL;
 
 	/* Construct SELECT clause */
 	deparseSelectSql(tlist, is_subquery, retrieved_attrs, &context);
@@ -1372,6 +1385,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			context.root = root;
 			context.params_list = params_list;
 			context.func = NULL;
+			context.interval_op = false;
 
 			appendStringInfoChar(buf, '(');
 			appendConditions(fpinfo->joinclauses, &context);
@@ -1768,6 +1782,14 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_MinMaxExpr:
 		deparseMinMaxExpr((MinMaxExpr *) node, context);
 		break;
+	case T_CaseTestExpr:
+		break;
+	case T_CoerceViaIO:
+	{
+		CoerceViaIO *vio = (CoerceViaIO *) node;
+		deparseExpr(vio->arg, context);
+		break;
+	}
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
 		     (int) nodeTag(node));
@@ -2288,7 +2310,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			char *colval = psprintf("%s_values", colname);
 
 			/* first block
-			 *	if(a_keys[1] < max_key, arrayMap(x -> a_keys[1] + x - 1,
+			 *	if(a_keys[1] <= max_key, arrayMap(x -> a_keys[1] + x - 1,
 			 *		arrayEnumerate(arrayResize(emptyArrayInt32(), (max_key) - a_keys[1] + 1))), []),
 			 */
 			appendStringInfoString(buf, "if(");
@@ -2311,7 +2333,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			appendStringInfoString(buf, "[1] + 1))), []),");
 
 			/* second block:
-			 *	if(a_keys[1] < max_key, arrayCumSum(arrayMap(x -> sign * (a_values[indexOf(a_keys, a_keys[1] + x - 1)]),
+			 *	if(a_keys[1] <= max_key, arrayCumSum(arrayMap(x -> sign * (a_values[indexOf(a_keys, a_keys[1] + x - 1)]),
 			 *		arrayEnumerate(arrayResize(emptyArrayInt32(), (max_key) -a_keys[1] + 1)))), [])
 			 */
 			appendStringInfoString(buf, "if(");
@@ -2435,7 +2457,24 @@ deparseIntervalOp(Node *first, Node *second, deparse_expr_cxt *context, bool plu
 	char		ibuf[MAXINT8LEN + 1];
 
 	if (!IsA(second, Const))
-		elog(ERROR, "only operations with const interval are exported to clickhouse");
+	{
+		bool old_op = context->interval_op;
+		/* first argument */
+		deparseExpr((Expr *) first, context);
+
+		if (plus)
+			appendStringInfoString(buf, " + ");
+		else
+			appendStringInfoString(buf, " - ");
+
+		appendStringInfoString(buf, "INTERVAL ");
+
+		/* second */
+		context->interval_op = true;
+		deparseExpr((Expr *) second, context);
+		context->interval_op = old_op;
+		return;
+	}
 
 	constval = (Const *) second;
 	span = DatumGetIntervalP(constval->constvalue);
@@ -2648,6 +2687,33 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 		arg = list_head(node->args);
 		deparseExpr(lfirst(arg), context);
 		appendStringInfoChar(buf, ' ');
+	}
+
+	if (context->interval_op && strcmp(NameStr(form->oprname), "||") == 0)
+	{
+		Const *right = lfirst(list_tail(node->args));
+		if (IsA(right, Const) && right->consttype == TEXTOID)
+		{
+			char *s = TextDatumGetCString(right->constvalue);
+			if (strstr(s, "days") != NULL)
+				appendStringInfoString(buf, " day");
+			else if (strstr(s, "day") != NULL)
+				appendStringInfoString(buf, " day");
+			else if (strstr(s, "years") != NULL)
+				appendStringInfoString(buf, " year");
+			else if (strstr(s, "year") != NULL)
+				appendStringInfoString(buf, " year");
+			else if (strstr(s, "months") != NULL)
+				appendStringInfoString(buf, " month");
+			else if (strstr(s, "month") != NULL)
+				appendStringInfoString(buf, " month");
+			else
+				elog(ERROR, "unsupported type of interval");
+			pfree(s);
+
+			appendStringInfoChar(buf, ')');
+			goto cleanup;
+		}
 	}
 
 	/* Deparse operator name. */
@@ -3033,7 +3099,7 @@ deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 	if (node->arg)
 	{
 		appendStringInfoChar(buf, ' ');
-		deparseExpr(lfirst(lc), context);
+		deparseExpr(node->arg, context);
 	}
 
 	foreach(lc, node->args)

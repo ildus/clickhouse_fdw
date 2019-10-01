@@ -3,3 +3,5 @@ tests/regression.out
 tests/results
 tests/results/*.out
 bench/bench
+compile_commands.json
+.clangd

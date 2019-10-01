@@ -255,6 +255,8 @@ typedef enum {
 	CF_AJTIME_DAY_DIFF,
 	CF_AJTIME_AJDATE,
 	CF_AJBOOL_OUT,
+	CF_HSTORE_FETCHVAL,		/* -> operation on hstore */
+	CF_INTARRAY_IDX,
 	CF_CH_FUNCTION		/* adapted clickhouse function */
 } custom_object_type;
 

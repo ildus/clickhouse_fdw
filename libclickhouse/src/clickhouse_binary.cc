@@ -2,9 +2,9 @@
 #include <clickhouse/types/types.h>
 #include "clickhouse_internal.h"
 #include "clickhouse_binary.hh"
-#include <assert.h>
 #include <iostream>
 #include <endian.h>
+#include <cassert>
 
 using namespace clickhouse;
 
