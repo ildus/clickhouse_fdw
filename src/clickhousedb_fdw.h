@@ -254,6 +254,7 @@ typedef enum {
 	CF_AJTIME_TYPE,		/* ajtime type */
 	CF_AJTIME_DAY_DIFF,
 	CF_AJTIME_AJDATE,
+	CF_AJTIME_OUT,
 	CF_AJBOOL_OUT,
 	CF_HSTORE_FETCHVAL,		/* -> operation on hstore */
 	CF_INTARRAY_IDX,

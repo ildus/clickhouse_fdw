@@ -1782,8 +1782,6 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_MinMaxExpr:
 		deparseMinMaxExpr((MinMaxExpr *) node, context);
 		break;
-	case T_CaseTestExpr:
-		break;
 	case T_CoerceViaIO:
 	{
 		CoerceViaIO *vio = (CoerceViaIO *) node;
@@ -2019,6 +2017,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	Oid			typoutput;
 	bool		typIsVarlena;
 	char	   *extval;
+	bool		closebr = false;
 
 	if (node->constisnull)
 	{
@@ -2071,18 +2070,23 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 			/* ajbool:
 				'f' => 0
 				't' => 1
-				'u' => 2
+				'u' => -1
 			*/
-			if (strcmp(extval, "f") == 0)
+			if (extval[0] == 'f')
 				appendStringInfoChar(buf, '0');
-			else if (strcmp(extval, "t") == 0)
+			else if (extval[0] == 't')
 				appendStringInfoChar(buf, '1');
-			else if (strcmp(extval, "u") == 0)
-				appendStringInfoChar(buf, '2');
+			else if (extval[0] == 'u')
+				appendStringInfoString(buf, "-1");
 			else
 				elog(ERROR, "unexpected output of ajbool");
 
 			goto cleanup;
+		}
+		else if (cdef && cdef->cf_type == CF_AJTIME_OUT)
+		{
+			closebr = true;
+			appendStringInfoString(buf, "toDateTime(");
 		}
 	}
 
@@ -2125,6 +2129,9 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		deparseStringLiteral(buf, extval, true);
 		break;
 	}
+
+	if (closebr)
+		appendStringInfoChar(buf, ')');
 
 cleanup:
 	pfree(extval);
@@ -2625,6 +2632,40 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 				goto cleanup;
 			}
 			break;
+			case CF_HSTORE_FETCHVAL:
+			{
+				Node *arg = linitial(node->args);
+
+				if (IsA(arg, Const))
+				{
+					Const	   *constval = (Const *) arg;
+					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
+					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
+
+					/* case when indexOf(keys, arg) == 0 then NULL else vals[indexOf(keys,arg)] end */
+					/* ([val1, val2][indexOf([key1, key2], arg] */
+					appendStringInfoString(buf, "(CASE WHEN indexOf(");
+					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
+					appendStringInfoString(buf, ", (");
+					deparseExpr((Expr *) list_nth(node->args, 1), context);
+					appendStringInfoString(buf, ")::TEXT");
+
+					appendStringInfoString(buf, ") == 0 THEN NULL ELSE ");
+					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
+					appendStringInfoString(buf, "[indexOf(");
+					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
+					appendStringInfoString(buf, ", (");
+					deparseExpr((Expr *) list_nth(node->args, 1), context);
+					appendStringInfoString(buf, ")::TEXT");
+
+					appendStringInfoString(buf, ")] END)");
+				}
+				else
+					elog(ERROR, "clickhouse_fdw supports hstore fetchval only for consts");
+
+				goto cleanup;
+			}
+			break;
 			case CF_ISTORE_FETCHVAL:
 			{
 				Node *arg = linitial(node->args);
@@ -2650,18 +2691,17 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
 					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
 
-					/* ([val1, val2][indexOf([key1, key2], arg] */
+					/* ([val1, val2][indexOf([key1, key2], arg)]) */
 					appendStringInfoChar(buf, '(');
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
 					appendStringInfoString(buf, "[indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
 					appendStringInfoString(buf, ", ");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")]");
-					appendStringInfoChar(buf, ')');
+					appendStringInfoString(buf, ")])");
 				}
 				else
-					elog(ERROR, "clickhouse_fdw supports fetchval only for columns and consts only");
+					elog(ERROR, "clickhouse_fdw supports fetchval only for columns and consts");
 
 				goto cleanup;
 			}
@@ -2684,34 +2724,46 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 	/* Deparse left operand. */
 	if (oprkind == 'r' || oprkind == 'b')
 	{
+		bool	test_case_expr = false;
 		arg = list_head(node->args);
+
+		/*
+		 * Check for TestCaseExpr, in statements like CASE expr WHEN <val>.
+		 * Basically they would look like, OpExpr->(TestCaseExpr, Const).
+		 * We should just skip first arg and deparse second.
+		 */
+		if (IsA(lfirst(arg), CaseTestExpr))
+		{
+			arg = list_tail(node->args);
+			deparseExpr(lfirst(arg), context);
+			appendStringInfoChar(buf, ')');
+			goto cleanup;
+		}
+
 		deparseExpr(lfirst(arg), context);
 		appendStringInfoChar(buf, ' ');
 	}
 
+	/*
+	 * Here we add support of special case like (<expr> || ' days')::interval.
+	 * We convert it to (<expr>) day. INTERVAL keyword added earlier
+	 */
 	if (context->interval_op && strcmp(NameStr(form->oprname), "||") == 0)
 	{
 		Const *right = lfirst(list_tail(node->args));
 		if (IsA(right, Const) && right->consttype == TEXTOID)
 		{
 			char *s = TextDatumGetCString(right->constvalue);
-			if (strstr(s, "days") != NULL)
-				appendStringInfoString(buf, " day");
-			else if (strstr(s, "day") != NULL)
-				appendStringInfoString(buf, " day");
-			else if (strstr(s, "years") != NULL)
-				appendStringInfoString(buf, " year");
+			if (strstr(s, "day") != NULL)
+				appendStringInfoString(buf, ") day");
 			else if (strstr(s, "year") != NULL)
-				appendStringInfoString(buf, " year");
-			else if (strstr(s, "months") != NULL)
-				appendStringInfoString(buf, " month");
+				appendStringInfoString(buf, ") year");
 			else if (strstr(s, "month") != NULL)
-				appendStringInfoString(buf, " month");
+				appendStringInfoString(buf, ") month");
 			else
 				elog(ERROR, "unsupported type of interval");
 			pfree(s);
 
-			appendStringInfoChar(buf, ')');
 			goto cleanup;
 		}
 	}

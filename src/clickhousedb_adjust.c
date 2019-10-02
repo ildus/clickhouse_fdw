@@ -94,6 +94,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 		char	   *proname;
 
 		entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_ENTER, NULL);
+		entry->cf_oid = funcid;
 		entry->cf_type = CF_USUAL;
 		entry->custom_name[0] = '\0';
 		entry->context = NULL;
@@ -179,6 +180,10 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 				{
 					entry->cf_type = CF_AJTIME_AJDATE;
 					strcpy(entry->custom_name, "toDate");
+				}
+				else if (strcmp(NameStr(procform->proname), "ajtime_out") == 0)
+				{
+					entry->cf_type = CF_AJTIME_OUT;
 				}
 			}
 			else if (strcmp(extname, "ajbool") == 0)
