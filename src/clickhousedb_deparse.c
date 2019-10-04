@@ -2642,23 +2642,18 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
 					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
 
-					/* case when indexOf(keys, arg) == 0 then NULL else vals[indexOf(keys,arg)] end */
-					/* ([val1, val2][indexOf([key1, key2], arg] */
+					/* (case when indexOf(keys, (arg)::TEXT) == 0 then NULL else vals[indexOf(keys,(arg)::TEXT)] end) */
 					appendStringInfoString(buf, "(CASE WHEN indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
-					appendStringInfoString(buf, ", (");
+					appendStringInfoString(buf, ", toString(");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")::TEXT");
-
-					appendStringInfoString(buf, ") == 0 THEN NULL ELSE ");
+					appendStringInfoString(buf, ")) == 0 THEN NULL ELSE ");
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
 					appendStringInfoString(buf, "[indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
-					appendStringInfoString(buf, ", (");
+					appendStringInfoString(buf, ", toString(");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")::TEXT");
-
-					appendStringInfoString(buf, ")] END)");
+					appendStringInfoString(buf, "))] END)");
 				}
 				else
 					elog(ERROR, "clickhouse_fdw supports hstore fetchval only for consts");
