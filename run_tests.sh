@@ -33,7 +33,6 @@ make install
 
 git clone https://github.com/adjust/istore.git
 pushd istore
-git checkout clickhouse_arrays_input
 make && make install
 popd
 
