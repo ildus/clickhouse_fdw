@@ -2255,6 +2255,42 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		appendStringInfoChar(buf, ')');
 		return;
 	}
+	else if (cdef && cdef->cf_type == CF_DATE_PART)
+	{
+		Const *arg = (Const *) linitial(node->args);
+		char *parttype = TextDatumGetCString(arg->constvalue);
+
+		if (strcmp(parttype, "day") == 0)
+			appendStringInfoString(buf, "toDayOfMonth");
+		else if (strcmp(parttype, "doy") == 0)
+			appendStringInfoString(buf, "toDayOfYear");
+		else if (strcmp(parttype, "dow") == 0)
+			appendStringInfoString(buf, "toDayOfWeek");
+		else if (strcmp(parttype, "year") == 0)
+			appendStringInfoString(buf, "toYear");
+		else if (strcmp(parttype, "month") == 0)
+			appendStringInfoString(buf, "toMonth");
+		else if (strcmp(parttype, "hour") == 0)
+			appendStringInfoString(buf, "toHour");
+		else if (strcmp(parttype, "minute") == 0)
+			appendStringInfoString(buf, "toMinute");
+		else if (strcmp(parttype, "second") == 0)
+			appendStringInfoString(buf, "toSecond");
+		else if (strcmp(parttype, "quarter") == 0)
+			appendStringInfoString(buf, "toQuarter");
+		else if (strcmp(parttype, "isoyear") == 0)
+			appendStringInfoString(buf, "toISOYear");
+		else if (strcmp(parttype, "week") == 0)
+			appendStringInfoString(buf, "toISOWeek");
+		else
+			elog(ERROR, "date_part cannot be exported for: %s", parttype);
+
+		pfree(parttype);
+		appendStringInfoChar(buf, '(');
+		deparseExpr(list_nth(node->args, 1), context);
+		appendStringInfoChar(buf, ')');
+		return;
+	}
 	else if (cdef && cdef->cf_type == CF_ISTORE_SEED)
 	{
 		if (!context->func)

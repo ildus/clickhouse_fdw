@@ -77,6 +77,8 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_TIMESTAMPTZ_TRUNC:
 			case F_TIMESTAMP_ZONE:
 			case F_TIMESTAMPTZ_ZONE:
+			case F_TIMESTAMP_PART:
+			case F_TIMESTAMPTZ_PART:
 				break;
 			default:
 				return NULL;
@@ -104,7 +106,14 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			entry->cf_type = CF_DATE_TRUNC;
 			entry->custom_name[0] = '\1';
 			break;
-		} else if (funcid == F_TIMESTAMP_ZONE || funcid == F_TIMESTAMPTZ_ZONE)
+		}
+		else if (funcid == F_TIMESTAMPTZ_PART || funcid == F_TIMESTAMP_PART)
+		{
+			entry->cf_type = CF_DATE_PART;
+			entry->custom_name[0] = '\1';
+			break;
+		}
+		else if (funcid == F_TIMESTAMP_ZONE || funcid == F_TIMESTAMPTZ_ZONE)
 		{
 			entry->cf_type = CF_TIMEZONE;
 			strcpy(entry->custom_name, "toTimeZone");
