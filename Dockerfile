@@ -9,7 +9,7 @@ RUN if [ "${CHECK_CODE}" = "clang" ] ; then \
 
 RUN if [ "${CHECK_CODE}" = "false" ] ; then \
 	echo 'http://dl-3.alpinelinux.org/alpine/edge/main' > /etc/apk/repositories; \
-	apk --no-cache add curl python3 gcc g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git;\
+	apk --no-cache add curl python3 gcc g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git gdb sudo musl-dbg;\
 	fi
 
 ENV LANG=C.UTF-8 PGDATA=/pg/data CHECK_CODE=${CHECK_CODE}
@@ -26,5 +26,7 @@ ADD . /pg/src
 RUN rm -rf /pg/src/build
 WORKDIR /pg/src
 RUN chmod -R go+rwX /pg/src
+RUN sed -e 's/# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: ALL/g' -i /etc/sudoers
+RUN sed -e 's/^wheel:\(.*\)/wheel:\1,postgres/g' -i /etc/group
 USER postgres
 ENTRYPOINT PGDATA=${PGDATA} CHECK_CODE=${CHECK_CODE} bash run_tests.sh

@@ -56,4 +56,6 @@ PGPORT=55435 make installcheck || status=$?
 popd
 if test -f tests/regression.diffs; then cat tests/regression.diffs; fi
 
+# check startup
+if [ $status -ne 0 ]; then cat /tmp/postgres.log; fi
 exit $status

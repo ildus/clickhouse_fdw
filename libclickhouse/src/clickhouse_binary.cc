@@ -361,7 +361,7 @@ nested:
 				std::shared_ptr<ch_binary_tuple_t> res(new ch_binary_tuple_t());
 				std::shared_ptr<ch_binary_coltype> coltypes(new ch_binary_coltype[tuple->TupleSize()],
 						std::default_delete<ch_binary_coltype[]>());
-				std::shared_ptr<void *> values(new void*[tuple->Size()],
+				std::shared_ptr<void *> values(new void*[tuple->TupleSize()],
 						std::default_delete<void*[]>());
 
 				for (size_t i = 0; i < tuple->TupleSize(); i++)
