@@ -2678,18 +2678,14 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
 					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
 
-					/* (case when indexOf(keys, (arg)::TEXT) == 0 then NULL else vals[indexOf(keys,(arg)::TEXT)] end) */
-					appendStringInfoString(buf, "(CASE WHEN indexOf(");
-					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
-					appendStringInfoString(buf, ", toString(");
-					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")) == 0 THEN NULL ELSE ");
+					/* vals[nullif(indexOf(keys,toString(arg)), 0)] */
+					appendStringInfoChar(buf, '(');
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
-					appendStringInfoString(buf, "[indexOf(");
+					appendStringInfoString(buf, "[nullif(indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
 					appendStringInfoString(buf, ", toString(");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, "))] END)");
+					appendStringInfoString(buf, ")), 0)])");
 				}
 				else
 					elog(ERROR, "clickhouse_fdw supports hstore fetchval only for consts");
@@ -2708,7 +2704,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					temp = context->func;
 					context->func = cdef;
 
-					/* values[indexOf(ids, ... */
+					/* values[nullif(indexOf(ids, ... */
 					deparseExpr((Expr *) arg, context);
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
 					/* ... 0)] */
@@ -2722,7 +2718,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
 					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
 
-					/* ([val1, val2][indexOf([key1, key2], arg)]) */
+					/* ([val1, val2][nullif(indexOf([key1, key2], arg), 0]) */
 					appendStringInfoChar(buf, '(');
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
 					appendStringInfoString(buf, "[indexOf(");
