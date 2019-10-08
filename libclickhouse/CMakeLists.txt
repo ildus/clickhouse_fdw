@@ -11,7 +11,7 @@ set(src
 	src/clickhouse_binary.cc
 )
 
-add_library(clickhouse SHARED ${src})
+add_library(clickhouse STATIC ${src})
 set_property(TARGET clickhouse PROPERTY POSITION_INDEPENDENT_CODE 1)
 target_compile_features(clickhouse PRIVATE c_std_11)
 option(BUILD_TESTS "build tests" OFF)
@@ -34,7 +34,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL libcurl REQUIRED)
 pkg_check_modules(UUID_LIB uuid REQUIRED)
 
-target_link_libraries(clickhouse ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static)
+target_link_libraries(clickhouse ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static stdc++)
 
 target_include_directories(clickhouse
     PUBLIC

@@ -15,7 +15,7 @@ static void test_simple_query(void **s) {
 
 	ch_http_init(1, 1);
 	ch_http_connection_t	*conn = ch_http_connection("http://localhost:8123");
-	ch_http_response_t		*res = ch_http_simple_query(conn, "SELECT 1,2,3,NULL", 1);
+	ch_http_response_t		*res = ch_http_simple_query(conn, "SELECT 1,2,3,NULL");
 
 	assert_ptr_not_equal(conn, NULL);
 	assert_ptr_not_equal(res, NULL);
@@ -62,35 +62,35 @@ static void test_complex_query(void **s) {
 	char buf[1024];
 
 	// drop
-	ch_http_response_t *res = ch_http_simple_query(conn, drop, 1);
+	ch_http_response_t *res = ch_http_simple_query(conn, drop);
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 200);
 
 	// create table
-	res = ch_http_simple_query(conn, q, 1);
+	res = ch_http_simple_query(conn, q);
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 200);
 
 	// insert
 	snprintf(buf, sizeof(buf), q1, 1, 2);
-	res = ch_http_simple_query(conn, buf, 1);
+	res = ch_http_simple_query(conn, buf);
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 200);
 
 	// insert
 	snprintf(buf, sizeof(buf), q1, 3, 4);
-	res = ch_http_simple_query(conn, buf, 1);
+	res = ch_http_simple_query(conn, buf);
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 200);
 
 	// insert
 	snprintf(buf, sizeof(buf), q1, 5, 6);
-	res = ch_http_simple_query(conn, buf, 1);
+	res = ch_http_simple_query(conn, buf);
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 200);
 
 	// select
-	res = ch_http_simple_query(conn, "select * from t1", 1);
+	res = ch_http_simple_query(conn, "select * from t1");
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 200);
 
@@ -116,7 +116,7 @@ static void test_complex_query(void **s) {
 	assert_int_equal(rc, CH_EOF);
 
 	// test 400 bad request
-	res = ch_http_simple_query(conn, "select from t2", 1);
+	res = ch_http_simple_query(conn, "select from t2");
 	assert_ptr_not_equal(res, NULL);
 	assert_int_equal(res->http_status, 400);
 

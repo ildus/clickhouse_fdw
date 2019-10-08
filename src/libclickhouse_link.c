@@ -18,7 +18,6 @@
 #include "clickhouse_http.h"
 #include "clickhouse_binary.hh"
 
-static uint32	global_query_id = 0;
 static bool		initialized = false;
 
 static void http_disconnect(void *conn);
@@ -129,8 +128,7 @@ kill_query(void *conn, const char *query_id)
 	char *query = psprintf("kill query where query_id='%s'", query_id);
 
 	ch_http_set_progress_func(NULL);
-	global_query_id++;
-	resp = ch_http_simple_query(conn, query, global_query_id);
+	resp = ch_http_simple_query(conn, query);
 	if (resp != NULL)
 		ch_http_response_free(resp);
 	pfree(query);
@@ -143,13 +141,12 @@ http_simple_query(void *conn, const char *query)
 	MemoryContext	tempcxt,
 					oldcxt;
 	ch_cursor	*cursor;
+	ch_http_response_t *resp;
 
 	ch_http_set_progress_func(http_progress_callback);
 
 again:
-	global_query_id++;
-	ch_http_response_t *resp = ch_http_simple_query(conn, query, global_query_id);
-
+	resp = ch_http_simple_query(conn, query);
 	if (resp == NULL)
 		elog(ERROR, "out of memory");
 
@@ -213,8 +210,7 @@ http_simple_insert(void *conn, const char *query)
 {
 	ch_cursor	*cursor;
 
-	global_query_id++;
-	ch_http_response_t *resp = ch_http_simple_query(conn, query, global_query_id);
+	ch_http_response_t *resp = ch_http_simple_query(conn, query);
 	if (resp == NULL)
 	{
 		char *error = ch_http_last_error();

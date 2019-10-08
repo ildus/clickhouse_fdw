@@ -68,7 +68,7 @@ set (install_files
 # install
 #------------------------------------------------------------------------------
 install (
-	TARGETS clickhouse_fdw clickhouse
+	TARGETS clickhouse_fdw
 	DESTINATION ${PGSQL_PKGLIBDIR}
 )
 

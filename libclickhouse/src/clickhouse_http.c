@@ -5,6 +5,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include <uuid/uuid.h>
 #include <clickhouse_http.h>
 #include <clickhouse_internal.h>
 
@@ -82,13 +83,14 @@ cleanup:
 	return NULL;
 }
 
-static void set_query_id(ch_http_response_t *resp, uint32_t query_id)
+static void set_query_id(ch_http_response_t *resp)
 {
-	snprintf(resp->query_id, 4 + 1 + 4, "%s-%x", ch_query_id_prefix, query_id);
+	uuid_t	id;
+	uuid_generate(id);
+	uuid_unparse(id, resp->query_id);
 }
 
-ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query,
-	uint32_t query_id)
+ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char *query)
 {
 	char		*url;
 	CURLcode	errcode;
@@ -98,18 +100,17 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	if (resp == NULL)
 		return NULL;
 
-	set_query_id(resp, query_id);
+	set_query_id(resp);
 
 	assert(conn && conn->curl);
 
-	curl_easy_reset(conn->curl);
-
 	/* construct url */
-	url = malloc(conn->base_url_len + 30 /* query_id + ?query_id= */);
+	url = malloc(conn->base_url_len + 37 + 12 /* query_id + ?query_id= */);
 	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
 
 	/* constant */
 	errbuffer[0] = '\0';
+	curl_easy_reset(conn->curl);
 	curl_easy_setopt(conn->curl, CURLOPT_WRITEFUNCTION, write_data);
 	curl_easy_setopt(conn->curl, CURLOPT_ERRORBUFFER, errbuffer);
 	curl_easy_setopt(conn->curl, CURLOPT_PATH_AS_IS, 1);
