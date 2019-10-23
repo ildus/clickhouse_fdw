@@ -877,10 +877,12 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			appendStringInfo(&buf, "\t\"%s\" ", dvalues[0]);
 			while ((pos = strstr(remote_type, "(")) != NULL)
 			{
+				char *brpart = strndup(pos, strstr(remote_type, ")") - pos + 1);
+
 				if (strncmp(remote_type, "Decimal", strlen("Decimal")) == 0)
 				{
 					appendStringInfoString(&buf, "NUMERIC");
-					appendStringInfoString(&buf, pos);
+					appendStringInfoString(&buf, brpart);
 					if (strstr(pos, ",") == NULL)
 						elog(ERROR, "clickhouse_fdw: could not import Decimal field, "
 							"should be two parameters on definition");
@@ -891,7 +893,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				else if (strncmp(remote_type, "FixedString", strlen("FixedString")) == 0)
 				{
 					appendStringInfoString(&buf, "VARCHAR");
-					appendStringInfoString(&buf, pos);
+					appendStringInfoString(&buf, brpart);
 					add_type = false;
 					break;
 				}

@@ -20,7 +20,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 St
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
 SELECT clickhousedb_raw_query('
 	CREATE TABLE regression.tcopy
-		(c1 Int32, c2 Int64, c3 Date, c4 DateTime, c5 DateTime, c6 String)
+		(c1 Int32, c2 Int64, c3 Date, c4 Nullable(DateTime), c5 DateTime, c6 String)
 	ENGINE = MergeTree
 	PARTITION BY c3
 	ORDER BY (c1, c2, c3);
@@ -113,7 +113,8 @@ COPY ftcopy FROM stdin;
 
 INSERT INTO ftcopy VALUES
 	(3, 4, '1990-03-03', '1990-03-03 12:02:02', '12:02:02', 'val3'),
-	(4, 5, '1991-04-04', '1990-04-04 12:04:04', '12:02:04', 'val4');
+	(4, 5, '1991-04-04', '1990-04-04 12:04:04', '12:02:04', 'val4'),
+	(5, 6, '1991-04-04', NULL, '12:02:05', 'val5');
 
 EXPLAIN (VERBOSE) SELECT * FROM ftcopy ORDER BY c1;
 SELECT * FROM ftcopy ORDER BY c1;

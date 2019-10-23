@@ -54,6 +54,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
     c6 Enum8(''one'' = 1, ''two'' = 2),
     c7 Enum16(''one'' = 1, ''two'' = 2, ''three'' = 3),
+    c9 Nullable(FixedString(50)),
     c8 LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
@@ -70,6 +71,7 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
     format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number)),
     ''two'',
     ''three'',
+    toString(number),
     format(''cardinal {0}'', toString(number))
     FROM numbers(10);');
  clickhousedb_raw_query 
@@ -146,6 +148,7 @@ FDW options: (table_name 'ints')
  c5     | uuid                        |           | not null |         |             | plain    |              | 
  c6     | text                        |           | not null |         |             | extended |              | 
  c7     | text                        |           | not null |         |             | extended |              | 
+ c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
 FDW options: (table_name 'types')
@@ -228,6 +231,7 @@ FDW options: (table_name 'ints')
  c5     | uuid                        |           | not null |         |             | plain    |              | 
  c6     | text                        |           | not null |         |             | extended |              | 
  c7     | text                        |           | not null |         |             | extended |              | 
+ c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback_bin
 FDW options: (table_name 'types')
@@ -260,10 +264,10 @@ SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
 (4 rows)
 
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
-     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
-------------+---------------------+----------+-------+--------------------------------------+-----+-------+------------
- 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | cardinal 0
- 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | cardinal 1
+     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   | c9 |     c8     
+------------+---------------------+----------+-------+--------------------------------------+-----+-------+----+------------
+ 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | 0  | cardinal 0
+ 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | 1  | cardinal 1
 (2 rows)
 
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
@@ -309,6 +313,7 @@ FDW options: (table_name 'ints')
  c5     | uuid                        |           | not null |         |             | plain    |              | 
  c6     | text                        |           | not null |         |             | extended |              | 
  c7     | text                        |           | not null |         |             | extended |              | 
+ c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
 FDW options: (table_name 'types')

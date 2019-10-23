@@ -1558,7 +1558,8 @@ extend_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
 
 			if (isnull)
 			{
-				appendStringInfoString(&fmstate->sql, "NULL");
+				appendStringInfoString(&fmstate->sql, "\\N");
+				pindex++;
 				continue;
 			}
 

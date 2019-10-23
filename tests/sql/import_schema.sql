@@ -32,6 +32,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.types (
     c1 Date, c2 DateTime, c3 String, c4 FixedString(5), c5 UUID,
     c6 Enum8(''one'' = 1, ''two'' = 2),
     c7 Enum16(''one'' = 1, ''two'' = 2, ''three'' = 3),
+    c9 Nullable(FixedString(50)),
     c8 LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
@@ -43,6 +44,7 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
     format(''f4bf890f-f9dc-4332-ad5c-0c18e73f28e{0}'', toString(number)),
     ''two'',
     ''three'',
+    toString(number),
     format(''cardinal {0}'', toString(number))
     FROM numbers(10);');
 
