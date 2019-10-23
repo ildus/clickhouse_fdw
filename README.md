@@ -91,8 +91,9 @@ Download the sample data from the taxbills.nyc website and put the data in the t
 		--query="INSERT INTO test_database.tax_bills_nyc FORMAT CSV"
 
 Now the data is ready in the ClickHouse, the next step is to set up the PostgreSQL side.
-First we need to create a ClickHouse foreign server:
+First we need to create a FDW extension and a ClickHouse foreign server:
 
+    CREATE EXTENSION clickhouse_fdw;
     CREATE SERVER clickhouse_svr FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'test_database');
 
 By default the server will use `http` protocol. But we could use binary protocol:
@@ -109,7 +110,8 @@ Available parameters:
 
 Now create user mapping and foreign tables:
 
-    CREATE USER MAPPING FOR CURRENT_USER SERVER clickhouse_svr;
+    CREATE USER MAPPING FOR CURRENT_USER SERVER clickhouse_svr
+		OPTIONS (user 'default', password 'password');
 	IMPORT FOREIGN SCHEMA "kk" FROM SERVER clickhouse_svr INTO public;
 
 	SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
@@ -151,7 +153,6 @@ Planner decides which aggregate to pushdown or not. Here is an example for both 
                 Output: bbl, owner_name, address, tax_class, tax_rate, emv, tbea, bav, tba, property_tax, condonumber, condo, insertion_date
                    Remote SQL: SELECT bbl FROM test_database.tax_bills_nyc
     (7 rows)
-    
 
         EXPLAIN VERBOSE SELECT count(bbl) FROM tax_bills_nyc;
                                 QUERY PLAN                            
