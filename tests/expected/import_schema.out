@@ -181,10 +181,10 @@ SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
 (4 rows)
 
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
-     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   |     c8     
-------------+---------------------+----------+-------+--------------------------------------+-----+-------+------------
- 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | cardinal 0
- 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | cardinal 1
+     c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   | c9 |     c8     
+------------+---------------------+----------+-------+--------------------------------------+-----+-------+----+------------
+ 1990-01-01 | 1990-01-01 10:00:00 | number 0 | num 0 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e0 | two | three | 0  | cardinal 0
+ 1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | 1  | cardinal 1
 (2 rows)
 
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;

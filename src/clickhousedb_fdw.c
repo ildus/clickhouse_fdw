@@ -1027,6 +1027,13 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
                 if (strcmp(valstr, "0000-00-00 00:00:00") == 0)
                     valstr = NULL;
             }
+			else if (valstr && pgtype == VARCHAROID
+					&& TupleDescAttr(tupdesc, i - 1)->atttypmod != 0)
+			{
+				char *pos;
+				if ((pos = strstr(valstr, "\\0")) != NULL)
+					pos[0] = '\0';
+			}
 
 			/* Apply the input function even to nulls, to support domains */
 			nulls[i - 1] = (valstr == NULL);

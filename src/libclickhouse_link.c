@@ -877,7 +877,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			appendStringInfo(&buf, "\t\"%s\" ", dvalues[0]);
 			while ((pos = strstr(remote_type, "(")) != NULL)
 			{
-				char *brpart = strndup(pos, strstr(remote_type, ")") - pos + 1);
+				char *brpart = pnstrdup(pos, strstr(remote_type, ")") - pos + 1);
 
 				if (strncmp(remote_type, "Decimal", strlen("Decimal")) == 0)
 				{
