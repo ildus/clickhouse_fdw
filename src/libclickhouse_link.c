@@ -379,87 +379,15 @@ binary_simple_query(void *conn, const char *query)
 	return cursor;
 }
 
-static Oid types_map[27] = {
-	InvalidOid, /* chb_Void */
-	INT2OID,
-	INT2OID,
-	INT4OID,
-	INT8OID,
-	INT2OID,	/* chb_UInt8 */
-	INT4OID,
-	INT8OID,
-	INT8OID,	/* overflow risk */
-	FLOAT4OID,
-	FLOAT8OID,
-	TEXTOID,
-	TEXTOID,
-	TIMESTAMPOID,
-	DATEOID,
-	InvalidOid,	/* chb_Array, depends on array type */
-	InvalidOid,	/* chb_Nullable, just skip it */
-	InvalidOid,	/* composite type */
-	TEXTOID,	/* enum8 */
-	TEXTOID,	/* enum16 */
-	UUIDOID,
-	InvalidOid,
-	InvalidOid,
-	InvalidOid,
-	InvalidOid,
-	InvalidOid,
-	InvalidOid	/* just in case we update library and forget to add new types */
-};
-
 static Datum
-make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
+convert_datum(Datum val, Oid intype, Oid outtype)
 {
-	Datum	ret;
+	/*
 	Oid		valtype = types_map[coltype];
 
 	Assert(rowval != NULL);
 	switch (coltype)
 	{
-		case chb_Int8:
-			ret = Int16GetDatum((int16)(*(int8 *) rowval));
-			break;
-		case chb_UInt8:
-			ret = Int16GetDatum((int16)(*(uint8 *) rowval));
-			break;
-		case chb_Int16:
-			ret = Int16GetDatum(*(int16 *) rowval);
-			break;
-		case chb_UInt16:
-			ret = Int32GetDatum((int32)(*(uint16 *) rowval));
-			break;
-		case chb_Int32:
-			ret = Int32GetDatum(*(int32 *) rowval);
-			break;
-		case chb_UInt32:
-			ret = Int64GetDatum((int64)(*(uint32 *) rowval));
-			break;
-		case chb_Int64:
-			ret = Int64GetDatum(*(int64 *) rowval);
-			break;
-		case chb_UInt64:
-			{
-				uint64	val = *(uint64 *) rowval;
-				if (val > LONG_MAX)
-					elog(ERROR, "clickhouse_fdw: int64 overflow");
-
-				ret = Int64GetDatum((int64) val);
-			}
-			break;
-		case chb_Float32:
-			ret = Float4GetDatum(*(float *) rowval);
-			break;
-		case chb_Float64:
-			ret = Float8GetDatum(*(double *) rowval);
-			break;
-		case chb_FixedString:
-		case chb_String:
-		case chb_Enum8:
-		case chb_Enum16:
-			ret = CStringGetTextDatum((const char *) rowval);
-			break;
 		case chb_Date:
 			{
 				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
@@ -486,9 +414,9 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				char		typalign;
 
 				if (elmtype == InvalidOid)
-					/* TODO: support more complex arrays. But first check that
+					* TODO: support more complex arrays. But first check that
 					 * ClickHouse supports them (thigs like multidimensional
-					 * arrays and such */
+					 * arrays and such *
 					elog(ERROR, "clickhouse_fdw: array too complex for conversion");
 
 				valtype = get_array_type(elmtype);
@@ -537,7 +465,7 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 				desc = CreateTemplateTupleDescCompat(tuple->len);
 				tuple_values = palloc(sizeof(Datum) * desc->natts);
 
-				/* TODO: support NULLs in tuple */
+				* TODO: support NULLs in tuple *
 				tuple_nulls = palloc0(sizeof(bool) * desc->natts);
 
 				for (i = 0; i < desc->natts; ++i)
@@ -574,12 +502,12 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 
 					if (cdef && cdef->rowfunc != InvalidOid)
 					{
-						/* there is convertor from row to pgtype */
+						* there is convertor from row to pgtype *
 						ret = OidFunctionCall1(cdef->rowfunc, ret);
 					}
 					else if (pgtype == TEXTOID)
 					{
-						/* a lot of allocations, not so efficient */
+						* a lot of allocations, not so efficient *
 						ret = CStringGetTextDatum(DatumGetCString(OidFunctionCall1(F_RECORD_OUT, ret)));
 					}
 				}
@@ -628,62 +556,62 @@ make_datum(void *rowval, ch_binary_coltype coltype, Oid pgtype)
 						ReleaseTupleDesc(pgdesc);
 				}
 
-				/* no additional conversion needed */
 				return ret;
 			}
 			break;
 		default:
 			elog(ERROR, "clickhouse_fdw: %d type from ClickHouse is not supported", coltype);
 	}
+	*/
 
-	Assert(valtype != InvalidOid);
+	Assert(intype != InvalidOid);
 
-	if (pgtype != InvalidOid && valtype != pgtype)
+	if (outtype != InvalidOid && intype != outtype)
 	{
 		Oid			castfunc;
 		CoercionPathType ctype;
 
-		if (valtype == TEXTOID)
+		if (intype == TEXTOID)
 		{
 			Type		baseType;
 			Oid			baseTypeId;
 			int32		typmod = -1;
 
-			baseTypeId = getBaseTypeAndTypmod(pgtype, &typmod);
+			baseTypeId = getBaseTypeAndTypmod(outtype, &typmod);
 			if (baseTypeId != INTERVALOID)
 				typmod = -1;
 
 			baseType = typeidType(baseTypeId);
-			ret = stringTypeDatum(baseType, TextDatumGetCString(ret), typmod);
+			val = stringTypeDatum(baseType, TextDatumGetCString(val), typmod);
 			ReleaseSysCache(baseType);
 		}
-		else if (pgtype == BOOLOID && valtype == INT2OID)
+		else if (outtype == BOOLOID && intype == INT2OID)
 		{
-			int16 val = DatumGetInt16(ret);
-			ret = BoolGetDatum(val);
+			int16 val = DatumGetInt16(val);
+			val = BoolGetDatum(val);
 		}
 		else
 		{
 			/* try to convert */
-			ctype = find_coercion_pathway(pgtype, valtype,
+			ctype = find_coercion_pathway(outtype, intype,
 										  COERCION_EXPLICIT,
 										  &castfunc);
 			switch (ctype)
 			{
 				case COERCION_PATH_FUNC:
-					ret = OidFunctionCall1(castfunc, ret);
+					val = OidFunctionCall1(castfunc, val);
 					break;
 				case COERCION_PATH_RELABELTYPE:
 					/* all good */
 					break;
 				default:
 					elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
-							format_type_be(valtype), format_type_be(pgtype));
+							format_type_be(intype), format_type_be(outtype));
 			}
 		}
 	}
 
-	return ret;
+	return val;
 }
 
 static void **
@@ -693,8 +621,8 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	ListCell   *lc;
 	size_t		j;
 	ch_binary_read_state_t *state = cursor->read_state;
-	void				  **row_values = ch_binary_read_row(state);
-	size_t					attcount = list_length(attrs);
+	bool		have_data = ch_binary_read_row(state);
+	size_t		attcount = list_length(attrs);
 
 	if (state->error)
 		ereport(ERROR,
@@ -702,12 +630,12 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		         errmsg("clickhouse_fdw: error while reading row: %s",
 					 state->error)));
 
-	if (row_values == NULL)
+	if (!have_data)
 		return NULL;
 
 	if (attcount == 0)
 	{
-		if (state->resp->columns_count == 1 && (state->coltypes[0] == chb_Void))
+		if (state->resp->columns_count == 1 && state->nulls[0])
 		{
 			/* SELECT NULL, nulls array already contains nulls */
 			goto ok;
@@ -730,31 +658,25 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	{
 		Assert(values && nulls);
 
-		j = 0;
 		foreach(lc, attrs)
 		{
 			int		i = lfirst_int(lc);
-			void   *rowval = row_values[j];
+			bool	isnull = state->nulls[i - 1];
 
-			/* we should always get some value type or NULL */
-			Assert(state->coltypes[j] != chb_Nullable);
-
-			if (state->coltypes[j] == chb_Void || rowval == NULL)
-				nulls[i - 1] = true;
+			if (isnull)
+				values[i - 1] = (Datum) 0;
 			else
 			{
-				Oid restype;
-				Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-
-				values[i - 1] = make_datum(rowval, state->coltypes[j], pgtype);
-				nulls[i - 1] = false;
+				Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+				values[i - 1] = convert_datum(state->values[i - 1], state->coltypes[i - 1], outtype);
 			}
-			j++;
+
+			nulls[i - 1] = isnull;
 		}
 	}
 
 ok:
-	return (void **) row_values;
+	return (void **) state->values;
 }
 
 static void

@@ -394,9 +394,11 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 		DefElem    *def = (DefElem *) lfirst(lc);
 		if (strcmp(def->defname, "engine") == 0)
 		{
-			static char *expected = "collapsingmergetree";
+			static char *collapsing_text = "collapsingmergetree",
+						*aggregating_text = "aggregatingmergetree";
+
 			char *val = defGetString(def);
-			if (strncasecmp(val, expected, strlen(expected)) == 0)
+			if (strncasecmp(val, collapsing_text, strlen(collapsing_text)) == 0)
 			{
 				char   *start = index(val, '('),
 					   *end = rindex(val, ')');
@@ -413,6 +415,10 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 
 				strncpy(fpinfo->ch_table_sign_field, start + 1, end - start - 1);
 				fpinfo->ch_table_sign_field[end - start] = '\0';
+			}
+			else if (strncasecmp(val, aggregating_text, strlen(aggregating_text)) == 0)
+			{
+				fpinfo->ch_table_engine = CH_AGGREGATING_MERGE_TREE;
 			}
 		}
 	}

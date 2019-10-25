@@ -3044,6 +3044,7 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	CHFdwRelationInfo *fpinfo = context->scanrel->fdw_private;
 	bool	aggfilter = false;
 	bool	sign_count_filter = false;
+	uint8	brcount = 1;
 
 	/* Only basic, non-split aggregation accepted. */
 	Assert(node->aggsplit == AGGSPLIT_SIMPLE);
@@ -3055,6 +3056,12 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	/* 'If' part */
 	if (context->func && context->func->cf_type == CF_SIGN_COUNT && !node->aggstar)
 		sign_count_filter = true;
+
+	if (fpinfo->ch_table_engine == CH_AGGREGATING_MERGE_TREE)
+	{
+		brcount++;
+		appendStringInfoString(buf, "Merge");
+	}
 
 	if (node->aggfilter || sign_count_filter)
 	{
@@ -3137,7 +3144,8 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 		}
 	}
 
-	appendStringInfoChar(buf, ')');
+	while (brcount--)
+		appendStringInfoChar(buf, ')');
 
 	/* AVG stuff */
 	if (context->func && context->func->cf_type == CF_SIGN_AVG)

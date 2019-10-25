@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.5)
-project(clickhouse_fdw VERSION 1.0.0 LANGUAGES C)
+project(clickhouse_fdw VERSION 1.1.0 LANGUAGES C CXX)
+
+add_subdirectory (clickhouse-cpp)
+target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
+target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set (src
 	clickhousedb_connection.c
@@ -10,17 +14,30 @@ set (src
 	clickhousedb_shipable.c
 	clickhousedb_adjust.c
 	libclickhouse_link.c
+
+	# library part
+	clickhouse_http.c
+	clickhouse_parser.c
+	clickhouse_binary.cc
 )
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CURL libcurl REQUIRED)
+pkg_check_modules(UUID_LIB uuid REQUIRED)
+
 add_library(clickhouse_fdw MODULE ${src})
+set_property(TARGET clickhouse_fdw PROPERTY POSITION_INDEPENDENT_CODE 1)
+target_compile_features(clickhouse_fdw PRIVATE c_std_11)
 
 separate_arguments(PGSQL_LDFLAGS UNIX_COMMAND "${PGSQL_LDFLAGS}")
-target_link_libraries(clickhouse_fdw PRIVATE clickhouse ${PGSQL_LDFLAGS})
+target_link_libraries(clickhouse_fdw PRIVATE ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static stdc++ ${PGSQL_LDFLAGS})
 
 separate_arguments(PGSQL_CPPFLAGS UNIX_COMMAND "${PGSQL_CPPFLAGS}")
 target_compile_options(clickhouse_fdw PRIVATE ${PGSQL_CPPFLAGS} -fstack-protector -fstack-check)
 
 if (APPLE)
+	message("Using libcurl from brew installation...")
+	set(ENV{PKG_CONFIG_PATH}  "/usr/local/opt/curl/lib/pkgconfig")
 	target_link_libraries(clickhouse_fdw PRIVATE "-bundle_loader ${PGSQL_BINDIR}/postgres")
 endif()
 
@@ -35,7 +52,11 @@ set_target_properties(clickhouse_fdw PROPERTIES
 
 include_directories (
 	PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/clickhouse-cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 		${PGSQL_INCLUDEDIR_SERVER}
+		${CURL_INCLUDE_DIRS}
+		${UUID_LIB_INCLUDE_DIRS}
 )
 
 # concat sql files to one
@@ -53,7 +74,7 @@ add_custom_command(
 	DEPENDS sql/init.sql sql/functions.sql
 )
 add_custom_target(clickhouse_fdw_sql ALL DEPENDS ${sql_out} ${sql_migration_11})
-add_dependencies(clickhouse_fdw clickhouse clickhouse_fdw_sql)
+add_dependencies(clickhouse_fdw clickhouse_fdw_sql)
 
 #------------------------------------------------------------------------------
 # sql
