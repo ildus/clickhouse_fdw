@@ -1,6 +1,5 @@
 #include <clickhouse/client.h>
 #include <clickhouse/types/types.h>
-#include "clickhouse_internal.h"
 #include <iostream>
 #include <endian.h>
 #include <cassert>
@@ -10,11 +9,17 @@ extern "C" {
 
 #include "postgres.h"
 #include "pgtime.h"
+#include "funcapi.h"
+#include "access/htup_details.h"
 #include "catalog/pg_type_d.h"
 #include "utils/builtins.h"
 #include "utils/uuid.h"
 #include "utils/timestamp.h"
+#include "utils/lsyscache.h"
+#include "utils/palloc.h"
+#include "utils/array.h"
 #include "clickhouse_binary.hh"
+#include "clickhouse_internal.h"
 
 using namespace clickhouse;
 
@@ -79,7 +84,7 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	Client	*client = (Client *) conn->client;
 	auto resp = new ch_binary_response_t();
 	auto chquery = std::string(query);
-	auto values = new std::vector<std::vector<ColumnRef>>();
+	auto values = new std::vector<std::vector<clickhouse::ColumnRef>>();
 
 	assert(resp->values == NULL);
 	try
@@ -94,7 +99,7 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 			if (block.GetColumnCount() == 0)
 				return true;
 
-			auto vec = std::vector<ColumnRef>();
+			auto vec = std::vector<clickhouse::ColumnRef>();
 
 			if (resp->columns_count && block.GetColumnCount() != resp->columns_count)
 			{
@@ -141,7 +146,7 @@ void ch_binary_response_free(ch_binary_response_t *resp)
 {
 	if (resp->values)
 	{
-		auto values = (std::vector<std::vector<ColumnRef>> *) resp->values;
+		auto values = (std::vector<std::vector<clickhouse::ColumnRef>> *) resp->values;
 		values->clear();
 		delete values;
 	}
@@ -155,12 +160,13 @@ void ch_binary_response_free(ch_binary_response_t *resp)
 void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp)
 {
 	state->resp = resp;
-	state->coltypes = NULL;
 	state->block = 0;
 	state->row = 0;
 	state->done = false;
 	state->error = NULL;
-	state->gc = (void *) new std::vector<std::shared_ptr<void>>();
+	state->coltypes = NULL;
+	state->values = NULL;
+	state->nulls = NULL;
 
 	if (resp->error)
 	{
@@ -172,7 +178,7 @@ void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response
 	try
 	{
 		assert(resp->values);
-		auto& values = *((std::vector<std::vector<ColumnRef>> *) resp->values);
+		auto& values = *((std::vector<std::vector<clickhouse::ColumnRef>> *) resp->values);
 
 		if (resp->columns_count && values.size() > 0)
 		{
@@ -187,12 +193,37 @@ void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response
 	}
 }
 
+static Oid
+get_corr_array_type(Type::Code code)
+{
+	switch (code)
+	{
+		case Type::Code::Int8:
+		case Type::Code::Int16:
+		case Type::Code::UInt8: return INT2OID;
+		case Type::Code::Int32:
+		case Type::Code::UInt16: return INT4OID;
+		case Type::Code::Int64:
+		case Type::Code::UInt64:
+		case Type::Code::UInt32: return INT8OID;
+		case Type::Code::Float32: return FLOAT4OID;
+		case Type::Code::Float64: return FLOAT8OID;
+		case Type::Code::FixedString:
+		case Type::Code::Enum8:
+		case Type::Code::Enum16:
+		case Type::Code::String: return TEXTOID;
+		case Type::Code::Date: return DATEOID;
+		case Type::Code::DateTime: return TIMESTAMPOID;
+		case Type::Code::UUID: return UUIDOID;
+		default:
+			elog(ERROR, "clickhouse_fdw: unsupported type for arrays");
+	}
+}
+
 static Datum
-make_datum(ch_binary_read_state_t *state, ColumnRef col,
-	size_t row, Oid *valtype, bool *is_null)
+make_datum(clickhouse::ColumnRef col, size_t row, Oid *valtype, bool *is_null)
 {
 	Datum	ret = (Datum) 0;
-	auto	gc = (std::vector<std::shared_ptr<void>> *) state->gc;
 
 nested:
 	*is_null = false;
@@ -302,6 +333,8 @@ nested:
 		case Type::Code::Date:
 		{
 			auto val = static_cast<pg_time_t> (col->As<ColumnDate>()->At(row));
+			*valtype = DATEOID;
+
 			if (val == 0)
 				*is_null = true;
 			else
@@ -310,12 +343,13 @@ nested:
 				ret = TimestampGetDatum(t);
 				ret = DirectFunctionCall1(timestamp_date, ret);
 			}
-			*valtype = DATEOID;
 		}
 		break;
 		case Type::Code::DateTime:
 		{
-			auto val = static_cast<pg_time_t> (col->As<ColumnDate>()->At(row));
+			auto val = static_cast<pg_time_t> (col->As<ColumnDateTime>()->At(row));
+			*valtype = TIMESTAMPOID;
+
 			if (val == 0)
 				*is_null = true;
 			else
@@ -323,7 +357,6 @@ nested:
 				Timestamp t = (Timestamp) time_t_to_timestamptz(val);
 				ret = TimestampGetDatum(t);
 			}
-			*valtype = TIMESTAMPOID;
 		}
 		break;
 		case Type::Code::UUID:
@@ -358,54 +391,81 @@ nested:
 		break;
 		case Type::Code::Array:
 		{
-			auto arr = col->As<ColumnArray>()->GetAsColumn(row);
+			auto	arr = col->As<ColumnArray>()->GetAsColumn(row);
+			size_t	len = arr->Size();
 
-			std::shared_ptr<ch_binary_array_t> res(new ch_binary_array_t());
-			std::shared_ptr<void *> values(new void*[arr->Size()],
-					std::default_delete<void*[]>());
+			*valtype = get_array_type(get_corr_array_type(arr->Type()->GetCode()));
+			if (*valtype == InvalidOid)
+				elog(ERROR, "clickhouse_fdw: could not find array type for %d",
+						*valtype);
 
-			res->coltype = (ch_binary_coltype) arr->Type()->GetCode();
-			res->len = arr->Size();
+			if (len == 0)
+				ret = PointerGetDatum(construct_empty_array(*valtype));
+			else
+			{
+				int16		typlen;
+				bool		typbyval;
+				char		typalign;
+				Oid			item_type;
+				bool		item_isnull;
+				void	   *arrout;
 
-			for (size_t i = 0; i < res->len; i++)
-				values.get()[i] = get_value(state, arr, i, NULL);
+				Datum *out_datums = (Datum *) palloc(sizeof(Datum) * len);
 
-			res->values = values.get();
+				for (size_t i = 0; i < len; ++i)
+					out_datums[i] = make_datum(arr, i, &item_type, &item_isnull);
 
-			gc->push_back(res);
-			gc->push_back(values);
-			gc->push_back(arr);
-
-			return (void *) res.get();
+				get_typlenbyvalalign(item_type, &typlen, &typbyval, &typalign);
+				arrout = construct_array(out_datums, len, item_type, typlen,
+						typbyval, typalign);
+				ret = PointerGetDatum(arrout);
+			}
 		}
 		break;
 		case Type::Code::Tuple:
 		{
+			Datum		result;
+			HeapTuple	htup;
+			TupleDesc	desc;
+			size_t		i;
 			auto tuple = col->As<ColumnTuple>();
+			auto len = tuple->TupleSize();
+			TupleTableSlot *slot;
 
-			std::shared_ptr<ch_binary_tuple_t> res(new ch_binary_tuple_t());
-			std::shared_ptr<ch_binary_coltype> coltypes(new ch_binary_coltype[tuple->TupleSize()],
-					std::default_delete<ch_binary_coltype[]>());
-			std::shared_ptr<void *> values(new void*[tuple->TupleSize()],
-					std::default_delete<void*[]>());
+			if (len == 0)
+				elog(ERROR, "clickhouse_fdw: returned tuple is empty");
 
-			for (size_t i = 0; i < tuple->TupleSize(); i++)
+#if PG_VERSION_NUM < 120000
+			desc = CreateTemplateTupleDesc(len, false);
+#else
+			desc = CreateTemplateTupleDesc(len);
+#endif
+			auto tuple_values = (Datum *) palloc(sizeof(Datum) * desc->natts);
+			auto tuple_nulls = (bool *) palloc0(sizeof(bool) * desc->natts);
+
+			for (i = 0; i < desc->natts; ++i)
 			{
-				auto col = (*tuple)[i];
-				values.get()[i] = get_value(state, (*tuple)[i], row, &(coltypes.get()[i]));
-				if (values.get()[i] == NULL)
-					coltypes.get()[i] = chb_Void;
+				Oid		item_type;
+				auto tuple_col = (*tuple)[i];
+
+				tuple_values[i] = make_datum(tuple_col, row, &item_type,
+						&tuple_nulls[i]);
+				TupleDescInitEntry(desc, (AttrNumber) i + 1, "", item_type, -1, 0);
 			}
 
-			res->len = tuple->TupleSize();
-			res->coltypes = coltypes.get();
-			res->values = values.get();
+			desc = BlessTupleDesc(desc);
+			slot = MakeSingleTupleTableSlot(desc);
 
-			gc->push_back(res);
-			gc->push_back(coltypes);
-			gc->push_back(values);
+			htup = heap_form_tuple(slot->tts_tupleDescriptor,
+					tuple_values, tuple_nulls);
+			ExecStoreTuple(htup, slot, InvalidBuffer, false);
 
-			return (void *) res.get();
+			pfree(tuple_values);
+			pfree(tuple_nulls);
+
+			/* this one will need additional work, since we just return raw slot */
+			ret = PointerGetDatum(slot);
+			*valtype = RECORDOID;
 		}
 		break;
 		default:
@@ -417,13 +477,12 @@ nested:
 
 bool ch_binary_read_row(ch_binary_read_state_t *state)
 {
-	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
-
+	/* coltypes is NULL means there are no blocks */
 	if (state->done || state->coltypes == NULL || state->error)
 		return false;
 
 	assert(state->resp->values);
-	auto& values = *((std::vector<std::vector<ColumnRef>> *) state->resp->values);
+	auto& values = *((std::vector<std::vector<clickhouse::ColumnRef>> *) state->resp->values);
 	try {
 again:
 		assert(state->block < state->resp->blocks_count);
@@ -434,8 +493,11 @@ again:
 			goto next_row;
 
 		for (size_t i = 0; i < state->resp->columns_count; i++)
-			state->values[i] = make_datum(state, block[i], state->row,
+		{
+			/* fill value and null arrays */
+			state->values[i] = make_datum(block[i], state->row,
 					&state->coltypes[i], &state->nulls[i]);
+		}
 
 next_row:
 		state->row++;
@@ -458,16 +520,15 @@ next_row:
 
 void ch_binary_read_state_free(ch_binary_read_state_t *state)
 {
-	auto gc = (std::vector<std::shared_ptr<void>> *) state->gc;
-
 	if (state->coltypes)
+	{
 		delete[] state->coltypes;
+		delete[] state->values;
+		delete[] state->nulls;
+	}
 
 	if (state->error)
 		free(state->error);
-
-	gc->clear();
-	delete gc;
 }
 
 }

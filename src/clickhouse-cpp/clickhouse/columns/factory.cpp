@@ -9,6 +9,7 @@
 #include "string.h"
 #include "tuple.h"
 #include "uuid.h"
+#include "nothing.h"
 
 #include "../types/type_parser.h"
 
@@ -52,6 +53,9 @@ static ColumnRef CreateTerminalColumn(const TypeAst& ast) {
         return std::make_shared<ColumnDateTime>();
     case Type::Date:
         return std::make_shared<ColumnDate>();
+
+	case Type::Void:
+		return std::make_shared<ColumnNothing>();
 
     case Type::Decimal32:
         return std::make_shared<ColumnDecimal>(9, ast.elements.front().value);

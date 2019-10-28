@@ -16,6 +16,7 @@ SET ( clickhouse-cpp-lib-src
     columns/string.cpp
     columns/tuple.cpp
     columns/uuid.cpp
+    columns/nothing.cpp
 
     types/type_parser.cpp
     types/types.cpp
@@ -25,18 +26,34 @@ SET ( clickhouse-cpp-lib-src
     query.cpp
 )
 
+IF (UNIX)
+	IF ("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+		SET(CH_COMPILE_OPTIONS "-Wall -Wextra -Werror -Wstrict-aliasing -g -O2")
+	ELSEIF("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+		SET(CH_COMPILE_OPTIONS "-Wall -Wextra -Werror -Wstrict-aliasing -g3 -O0")
+	ENDIF()
+
+	IF (NOT APPLE)
+		SET(CH_COMPILE_OPTIONS ${CH_COMPILE_OPTIONS} -pthread)
+	ENDIF()
+ENDIF()
+
 ADD_LIBRARY (clickhouse-cpp-lib SHARED ${clickhouse-cpp-lib-src})
+TARGET_COMPILE_OPTIONS(clickhouse-cpp-lib PRIVATE ${CH_COMPILE_OPTIONS})
 
 SET_TARGET_PROPERTIES(clickhouse-cpp-lib
     PROPERTIES LINKER_LANGUAGE CXX)
 
-TARGET_LINK_LIBRARIES (clickhouse-cpp-lib
+TARGET_LINK_LIBRARIES (clickhouse-cpp-lib PRIVATE
     cityhash-lib
     lz4-lib
+	pthread
 )
 
 ADD_LIBRARY (clickhouse-cpp-lib-static STATIC ${clickhouse-cpp-lib-src})
-TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static
+TARGET_COMPILE_OPTIONS(clickhouse-cpp-lib-static PRIVATE ${CH_COMPILE_OPTIONS})
+TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static PRIVATE
     cityhash-lib
     lz4-lib
+	pthread
 )

@@ -388,19 +388,6 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 	Assert(rowval != NULL);
 	switch (coltype)
 	{
-		case chb_Date:
-			{
-				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
-				ret = TimestampGetDatum(t);
-				ret = DirectFunctionCall1(timestamp_date, ret);
-			}
-			break;
-		case chb_DateTime:
-			{
-				Timestamp t = (Timestamp) time_t_to_timestamptz((pg_time_t)(*(time_t *) rowval));
-				ret = TimestampGetDatum(t);
-			}
-			break;
 		case chb_Array:
 			{
 				size_t		i;
@@ -439,14 +426,6 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 				}
 			}
 			break;
-		case chb_UUID:
-			{
-				pg_uuid_t	*val = (pg_uuid_t *) rowval;
-				StaticAssertStmt(val + offsetof(pg_uuid_t, data) == val,
-					"pg_uuid_t should have only array");
-				ret = UUIDPGetDatum(val);
-			}
-			break;
 		case chb_Tuple:
 			{
 				Datum		result;
@@ -455,7 +434,6 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 				bool	   *tuple_nulls;
 				TupleDesc	desc;
 				size_t		i;
-				CustomObjectDef	*cdef = chfdw_check_for_custom_type(pgtype);
 
 				ch_binary_tuple_t *tuple = rowval;
 
@@ -495,68 +473,6 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 				pfree(tuple_values);
 				pfree(tuple_nulls);
 
-				if (cdef || pgtype == RECORDOID || pgtype == TEXTOID)
-				{
-					ret = heap_copy_tuple_as_datum(htup, desc);
-					heap_freetuple(htup);
-
-					if (cdef && cdef->rowfunc != InvalidOid)
-					{
-						* there is convertor from row to pgtype *
-						ret = OidFunctionCall1(cdef->rowfunc, ret);
-					}
-					else if (pgtype == TEXTOID)
-					{
-						* a lot of allocations, not so efficient *
-						ret = CStringGetTextDatum(DatumGetCString(OidFunctionCall1(F_RECORD_OUT, ret)));
-					}
-				}
-				else
-				{
-					bool			pinned = false;
-					TupleDesc		pgdesc;
-					TypeCacheEntry *typentry;
-					TupleConversionMap *tupmap;
-					HeapTuple		temptup;
-
-					typentry = lookup_type_cache(pgtype,
-												 TYPECACHE_TUPDESC |
-												 TYPECACHE_DOMAIN_BASE_INFO);
-
-					if (typentry->typtype == TYPTYPE_DOMAIN)
-						pgdesc = lookup_rowtype_tupdesc_noerror(typentry->domainBaseType,
-															  typentry->domainBaseTypmod,
-															  false);
-					else
-					{
-						if (typentry->tupDesc == NULL)
-							ereport(ERROR,
-									(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-									 errmsg("type %s is not composite",
-											format_type_be(pgtype))));
-
-						pinned = true;
-						pgdesc = typentry->tupDesc;
-						PinTupleDesc(pgdesc);
-					}
-
-					tupmap = convert_tuples_by_position(desc, pgdesc,
-						"clickhouse_fdw: could not map tuple to returned type");
-					if (tupmap)
-					{
-						temptup = execute_attr_map_tuple(htup, tupmap);
-						pfree(tupmap);
-						heap_freetuple(htup);
-						htup = temptup;
-					}
-
-					ret = heap_copy_tuple_as_datum(htup, pgdesc);
-					heap_freetuple(htup);
-					if (pinned)
-						ReleaseTupleDesc(pgdesc);
-				}
-
-				return ret;
 			}
 			break;
 		default:
@@ -565,8 +481,75 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 	*/
 
 	Assert(intype != InvalidOid);
+	Assert(outtype != InvalidOid);
 
-	if (outtype != InvalidOid && intype != outtype)
+	if (intype == RECORDOID)
+	{
+		/* we've got a tuple */
+		TupleTableSlot	*slot = (TupleTableSlot *) DatumGetPointer(val);
+		CustomObjectDef	*cdef = chfdw_check_for_custom_type(outtype);
+
+		if ((cdef && cdef->rowfunc) || outtype == RECORDOID || outtype == TEXTOID)
+		{
+			val = heap_copy_tuple_as_datum(slot->tts_tuple, slot->tts_tupleDescriptor);
+
+			if (cdef->rowfunc != InvalidOid)
+			{
+				/* there is convertor from row to outtype */
+				val = OidFunctionCall1(cdef->rowfunc, val);
+			}
+			else if (outtype == TEXTOID)
+			{
+				/* a lot of allocations, not so efficient */
+				val = CStringGetTextDatum(DatumGetCString(OidFunctionCall1(F_RECORD_OUT, val)));
+			}
+		}
+		else
+		{
+			bool			pinned = false;
+			TupleDesc		pgdesc;
+			TypeCacheEntry *typentry;
+			TupleConversionMap *tupmap;
+			HeapTuple		temptup;
+
+			typentry = lookup_type_cache(outtype,
+										 TYPECACHE_TUPDESC |
+										 TYPECACHE_DOMAIN_BASE_INFO);
+
+			if (typentry->typtype == TYPTYPE_DOMAIN)
+				pgdesc = lookup_rowtype_tupdesc_noerror(typentry->domainBaseType,
+													  typentry->domainBaseTypmod,
+													  false);
+			else
+			{
+				if (typentry->tupDesc == NULL)
+					ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							 errmsg("type %s is not composite",
+									format_type_be(outtype))));
+
+				pinned = true;
+				pgdesc = typentry->tupDesc;
+				PinTupleDesc(pgdesc);
+			}
+
+			tupmap = convert_tuples_by_position(slot->tts_tupleDescriptor, pgdesc,
+				"clickhouse_fdw: could not map tuple to returned type");
+
+			if (tupmap)
+			{
+				temptup = execute_attr_map_tuple(slot->tts_tuple, tupmap);
+				pfree(tupmap);
+			}
+			else
+				temptup = slot->tts_tuple;
+
+			val = heap_copy_tuple_as_datum(temptup, pgdesc);
+			if (pinned)
+				ReleaseTupleDesc(pgdesc);
+		}
+	}
+	else if (intype != outtype)
 	{
 		Oid			castfunc;
 		CoercionPathType ctype;
@@ -656,6 +639,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 
 	if (tupdesc)
 	{
+		size_t j = 0;
 		Assert(values && nulls);
 
 		foreach(lc, attrs)
@@ -668,10 +652,12 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 			else
 			{
 				Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-				values[i - 1] = convert_datum(state->values[i - 1], state->coltypes[i - 1], outtype);
+				values[i - 1] = convert_datum(state->values[j],
+						state->coltypes[j], outtype);
 			}
 
 			nulls[i - 1] = isnull;
+			j++;
 		}
 	}
 
