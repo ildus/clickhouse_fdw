@@ -101,7 +101,8 @@ CREATE FOREIGN TABLE ftuples (
 SELECT * FROM fints ORDER BY c1;
 SELECT c2, c1, c8, c3, c4, c7, c6, c5 FROM fints ORDER BY c1;
 SELECT a, b FROM (SELECT c1 * 10 as a, c8 * 11 as b FROM fints ORDER BY a LIMIT 2) t1;
-SELECT c2, NULL, c1, NULL FROM fints LIMIT 2;
+SELECT NULL FROM fints LIMIT 2;
+SELECT c2, NULL, c1, NULL FROM fints ORDER BY c2 LIMIT 2;
 
 -- types
 SELECT * FROM ftypes ORDER BY c1;

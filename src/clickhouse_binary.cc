@@ -226,6 +226,7 @@ make_datum(clickhouse::ColumnRef col, size_t row, Oid *valtype, bool *is_null)
 	Datum	ret = (Datum) 0;
 
 nested:
+	*valtype = InvalidOid;
 	*is_null = false;
 	switch (col->Type()->GetCode())
 	{
@@ -364,11 +365,12 @@ nested:
 			/* we form char[16] from two uint64 numbers, and they should
 			 * be big endian */
 			UInt128 val = col->As<ColumnUUID>()->At(row);
-			uint64	parts[2];
+			pg_uuid_t	*uuid_val = (pg_uuid_t *) palloc(sizeof(pg_uuid_t));
 
-			parts[0] = htobe64(std::get<0>(val));
-			parts[1] = htobe64(std::get<1>(val));
-			pg_uuid_t	*uuid_val = (pg_uuid_t *) parts;
+			val.first = htobe64(val.first);
+			val.second = htobe64(val.second);
+			memcpy(uuid_val->data, &val.first, 8);
+			memcpy(uuid_val->data + 8, &val.second, 8);
 
 			ret = UUIDPGetDatum(uuid_val);
 			*valtype = UUIDOID;
@@ -380,7 +382,6 @@ nested:
 			if (nullable->IsNull(row))
 			{
 				*is_null = true;
-				*valtype = InvalidOid;
 			}
 			else
 			{
@@ -419,6 +420,7 @@ nested:
 				arrout = construct_array(out_datums, len, item_type, typlen,
 						typbyval, typalign);
 				ret = PointerGetDatum(arrout);
+				pfree(out_datums);
 			}
 		}
 		break;
@@ -427,7 +429,6 @@ nested:
 			Datum		result;
 			HeapTuple	htup;
 			TupleDesc	desc;
-			size_t		i;
 			auto tuple = col->As<ColumnTuple>();
 			auto len = tuple->TupleSize();
 			TupleTableSlot *slot;
@@ -443,7 +444,7 @@ nested:
 			auto tuple_values = (Datum *) palloc(sizeof(Datum) * desc->natts);
 			auto tuple_nulls = (bool *) palloc0(sizeof(bool) * desc->natts);
 
-			for (i = 0; i < desc->natts; ++i)
+			for (size_t i = 0; i < desc->natts; ++i)
 			{
 				Oid		item_type;
 				auto tuple_col = (*tuple)[i];
@@ -478,6 +479,8 @@ nested:
 bool ch_binary_read_row(ch_binary_read_state_t *state)
 {
 	/* coltypes is NULL means there are no blocks */
+	bool res = false;
+
 	if (state->done || state->coltypes == NULL || state->error)
 		return false;
 
@@ -498,6 +501,7 @@ again:
 			state->values[i] = make_datum(block[i], state->row,
 					&state->coltypes[i], &state->nulls[i]);
 		}
+		res = true;
 
 next_row:
 		state->row++;
@@ -515,7 +519,8 @@ next_row:
 	{
 		set_state_error(state, e.what());
 	}
-	return true;
+
+	return res;
 }
 
 void ch_binary_read_state_free(ch_binary_read_state_t *state)

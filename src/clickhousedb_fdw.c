@@ -970,7 +970,6 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	int			r;
 	void      **row_values;
 
-	MemoryContextReset(fsstate->temp_cxt);
 	oldcontext = MemoryContextSwitchTo(fsstate->temp_cxt);
 
 	values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
@@ -984,7 +983,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 
 	/* in both cases (binary and non binary), NULL means end of tuples */
 	if (row_values == NULL)
-		return NULL;
+		goto cleanup;
 
 	/* Parse clickhouse result */
 	if (!fsstate->conn.is_binary)
@@ -1066,6 +1065,8 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	HeapTupleHeaderSetXmin(tuple->t_data, InvalidTransactionId);
 	HeapTupleHeaderSetCmin(tuple->t_data, InvalidTransactionId);
 
+cleanup:
+	MemoryContextReset(fsstate->temp_cxt);
 	return tuple;
 }
 

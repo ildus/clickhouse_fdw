@@ -181,6 +181,13 @@ SELECT NULL FROM fints LIMIT 2;
  
 (2 rows)
 
+SELECT c2, NULL, c1, NULL FROM fints ORDER BY c2 LIMIT 2;
+ c2 | ?column? | c1 | ?column? 
+----+----------+----+----------
+  1 |          |  0 | 
+  2 |          |  1 | 
+(2 rows)
+
 -- types
 SELECT * FROM ftypes ORDER BY c1;
      c1     |         c2          |    c3    |  c4   |                  c5                  | c6  |  c7   

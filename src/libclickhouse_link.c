@@ -13,6 +13,9 @@
 #include "utils/uuid.h"
 #include "utils/fmgroids.h"
 #include "access/htup_details.h"
+#include <sys/stat.h>
+#include <fcntl.h>
+ #include <unistd.h>
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
@@ -489,11 +492,11 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 		TupleTableSlot	*slot = (TupleTableSlot *) DatumGetPointer(val);
 		CustomObjectDef	*cdef = chfdw_check_for_custom_type(outtype);
 
-		if ((cdef && cdef->rowfunc) || outtype == RECORDOID || outtype == TEXTOID)
+		if (cdef || outtype == RECORDOID || outtype == TEXTOID)
 		{
 			val = heap_copy_tuple_as_datum(slot->tts_tuple, slot->tts_tupleDescriptor);
 
-			if (cdef->rowfunc != InvalidOid)
+			if (cdef && cdef->rowfunc != InvalidOid)
 			{
 				/* there is convertor from row to outtype */
 				val = OidFunctionCall1(cdef->rowfunc, val);
@@ -645,7 +648,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		foreach(lc, attrs)
 		{
 			int		i = lfirst_int(lc);
-			bool	isnull = state->nulls[i - 1];
+			bool	isnull = state->nulls[j];
 
 			if (isnull)
 				values[i - 1] = (Datum) 0;
@@ -699,6 +702,15 @@ static char *str_types_map[STR_TYPES_COUNT][2] = {
 	{"UUID", "UUID"}
 };
 
+static char *
+readstr(ch_connection conn, char *val)
+{
+	if (conn.is_binary)
+		return TextDatumGetCString(PointerGetDatum(val));
+	else
+		return val;
+}
+
 List *
 chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *server)
 {
@@ -712,7 +724,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				   *datts = NIL;
 	char		  **row_values;
 
-	ch_connection_details	details;
+	/* default settings */
+	ch_connection_details	details = {"127.0.0.1", 8123, NULL, NULL, "default"};
 
 	details.dbname = "default";
 	chfdw_extract_options(server->options, &driver, &details.host,
@@ -734,9 +747,9 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	{
 		StringInfoData	buf;
 		ch_cursor  *table_def;
-		char	   *table_name = row_values[0];
-		char	   *engine = row_values[1];
-		char	   *engine_full = row_values[2];
+		char	   *table_name = readstr(conn, row_values[0]);
+		char	   *engine = readstr(conn, row_values[1]);
+		char	   *engine_full = readstr(conn, row_values[2]);
 		char	  **dvalues;
 		bool		first = true;
 
@@ -774,7 +787,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 					is_array = false,
 					add_type = true;
 
-			char   *remote_type = dvalues[1],
+			char   *remote_type = readstr(conn, dvalues[1]),
 				   *pos;
 
 			if (!first)
@@ -782,7 +795,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			first = false;
 
 			/* name */
-			appendStringInfo(&buf, "\t\"%s\" ", dvalues[0]);
+			appendStringInfo(&buf, "\t\"%s\" ", readstr(conn, dvalues[0]));
 			while ((pos = strstr(remote_type, "(")) != NULL)
 			{
 				char *brpart = pnstrdup(pos, strstr(remote_type, ")") - pos + 1);
@@ -878,6 +891,11 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 
 		appendStringInfoString(&buf, ");\n");
 		result = lappend(result, buf.data);
+		static int i = 0;
+		int f = open(psprintf("/tmp/imp%d", i++), O_RDWR | O_CREAT);
+		write(f, buf.data, buf.len);
+		fsync(f);
+		close(f);
 		MemoryContextDelete(table_def->memcxt);
 	}
 
