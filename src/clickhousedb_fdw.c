@@ -135,9 +135,10 @@ typedef struct CHFdwModifyState
 	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
 
 	/* for remote query execution */
-	ch_connection	conn;			/* connection for the scan */
+	ch_connection	conn;		/* connection for the scan */
 
 	/* constructed query */
+	char		   *sql_begin;	/* beginning part of constructed sql */
 	StringInfoData	sql;
 
 	/* extracted fdw_private data */
@@ -232,8 +233,7 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
         List *target_attrs);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
-static const char **extend_insert_query(CHFdwModifyState *fmstate,
-	ItemPointer tupleid, TupleTableSlot *slot);
+static const char **extend_insert_query(CHFdwModifyState *fmstate, TupleTableSlot *slot);
 static void finish_foreign_modify(CHFdwModifyState *fmstate);
 static void prepare_query_params(PlanState *node,
                                  List *fdw_exprs,
@@ -1251,25 +1251,6 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	resultRelInfo->ri_FdwState = fmstate;
 }
 
-/*
- * clickhouseExecForeignInsert
- *		Insert one row into a foreign table
- */
-static TupleTableSlot *
-clickhouseExecForeignInsert(EState *estate,
-                            ResultRelInfo *resultRelInfo,
-                            TupleTableSlot *slot,
-                            TupleTableSlot *planSlot)
-{
-	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
-
-	extend_insert_query(fmstate, NULL, slot);
-
-	MemoryContextReset(fmstate->temp_cxt);
-
-	return slot;
-}
-
 ForeignServer *
 chfdw_get_foreign_server(Relation rel)
 {
@@ -1344,6 +1325,31 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 }
 
 /*
+ * clickhouseExecForeignInsert
+ *		Put one row to buffer, if buffer is big enough push it to ClickHouse
+ */
+static TupleTableSlot *
+clickhouseExecForeignInsert(EState *estate,
+                            ResultRelInfo *resultRelInfo,
+                            TupleTableSlot *slot,
+                            TupleTableSlot *planSlot)
+{
+	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
+
+	extend_insert_query(fmstate, slot);
+
+	if (fmstate->sql.len > (MaxAllocSize / 2 /* 512MB */))
+	{
+		fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
+		resetStringInfo(&fmstate->sql);
+	}
+
+	MemoryContextReset(fmstate->temp_cxt);
+
+	return slot;
+}
+
+/*
  * clickhouseEndForeignInsert
  *		Finish an insert operation on a foreign table
  */
@@ -1355,7 +1361,8 @@ clickhouseEndForeignInsert(EState *estate,
 
 	if (fmstate)
 	{
-		fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
+		if (fmstate->sql.len > 0)
+			fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
 
 		/* Destroy the execution state */
 		finish_foreign_modify(fmstate);
@@ -1496,8 +1503,7 @@ create_foreign_modify(EState *estate,
 
 	/* Init query prefix */
 	initStringInfo(&fmstate->sql);
-	appendStringInfoString(&fmstate->sql, query);
-	appendStringInfoString(&fmstate->sql, " FORMAT TSV\n");
+	fmstate->sql_begin = psprintf("%s FORMAT TSV\n", query);
 
 	/* Create context for per-query temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
@@ -1526,7 +1532,6 @@ create_foreign_modify(EState *estate,
 	}
 
 	Assert(fmstate->p_nums <= n_params);
-
 	return fmstate;
 }
 
@@ -1535,14 +1540,16 @@ create_foreign_modify(EState *estate,
  *		Construct values part of INSERT query
  */
 static const char **
-extend_insert_query(CHFdwModifyState *fmstate, ItemPointer tupleid,
-					TupleTableSlot *slot)
+extend_insert_query(CHFdwModifyState *fmstate, TupleTableSlot *slot)
 {
 	int			pindex = 0;
 	MemoryContext oldcontext;
 	bool first = true;
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
+
+	if (fmstate->sql.len == 0)
+		appendStringInfoString(&fmstate->sql, fmstate->sql_begin);
 
 	/* get following parameters from slot */
 	if (slot != NULL && fmstate->target_attrs != NIL)

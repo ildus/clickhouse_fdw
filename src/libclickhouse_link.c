@@ -74,7 +74,7 @@ chfdw_http_connect(char *connstring)
 	if (!initialized)
 	{
 		initialized = true;
-		ch_http_init(1, (uint32_t) MyProcPid);
+		ch_http_init(0, (uint32_t) MyProcPid);
 	}
 
 	if (conn == NULL)
@@ -179,7 +179,7 @@ again:
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw:%s\nQUERY:%s", format_error(error), query)));
+		         errmsg("clickhouse_fdw:%s\nQUERY:%.10000s", format_error(error), query)));
 	}
 
 	/* we could not control properly deallocation of libclickhouse memory, so
@@ -229,7 +229,8 @@ http_simple_insert(void *conn, const char *query)
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw:%s\nQUERY:%s", format_error(error), query)));
+		         errmsg("clickhouse_fdw:%s", format_error(error)),
+				 errdetail("query: %.1024s", query)));
 	}
 
 	ch_http_response_free(resp);
