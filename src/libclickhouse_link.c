@@ -738,10 +738,6 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	datts = lappend_int(datts, 6);
 	datts = lappend_int(datts, 7);
 
-	/*
-	 * We use only char values from result, so basicly we don't need
-	 * to convert anything for binary
-	 */
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
 				list_make3_int(1,2,3), NULL, NULL, NULL)) != NULL)
 	{
