@@ -489,12 +489,12 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 	if (intype == RECORDOID)
 	{
 		/* we've got a tuple */
-		TupleTableSlot	*slot = (TupleTableSlot *) DatumGetPointer(val);
+		ch_binary_tuple_t	*slot = (ch_binary_tuple_t *) DatumGetPointer(val);
 		CustomObjectDef	*cdef = chfdw_check_for_custom_type(outtype);
 
 		if (cdef || outtype == RECORDOID || outtype == TEXTOID)
 		{
-			val = heap_copy_tuple_as_datum(slot->tts_tuple, slot->tts_tupleDescriptor);
+			val = heap_copy_tuple_as_datum(slot->tup, slot->desc);
 
 			if (cdef && cdef->rowfunc != InvalidOid)
 			{
@@ -536,16 +536,16 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 				PinTupleDesc(pgdesc);
 			}
 
-			tupmap = convert_tuples_by_position(slot->tts_tupleDescriptor, pgdesc,
+			tupmap = convert_tuples_by_position(slot->desc, pgdesc,
 				"clickhouse_fdw: could not map tuple to returned type");
 
 			if (tupmap)
 			{
-				temptup = execute_attr_map_tuple(slot->tts_tuple, tupmap);
+				temptup = execute_attr_map_tuple(slot->tup, tupmap);
 				pfree(tupmap);
 			}
 			else
-				temptup = slot->tts_tuple;
+				temptup = slot->tup;
 
 			val = heap_copy_tuple_as_datum(temptup, pgdesc);
 			if (pinned)
@@ -887,11 +887,6 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 
 		appendStringInfoString(&buf, ");\n");
 		result = lappend(result, buf.data);
-		static int i = 0;
-		int f = open(psprintf("/tmp/imp%d", i++), O_RDWR | O_CREAT);
-		write(f, buf.data, buf.len);
-		fsync(f);
-		close(f);
 		MemoryContextDelete(table_def->memcxt);
 	}
 

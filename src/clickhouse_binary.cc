@@ -131,7 +131,7 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 }
 
 ch_binary_response_t *ch_binary_simple_insert(ch_binary_connection_t *conn,
-	char *table_name, ch_binary_block_t *blocks, size_t nblocks, size_t nrows)
+	char *table_name, void *blocks, size_t nblocks, size_t nrows)
 {
 	throw std::logic_error("not implemented");
 }
@@ -431,7 +431,6 @@ nested:
 			TupleDesc	desc;
 			auto tuple = col->As<ColumnTuple>();
 			auto len = tuple->TupleSize();
-			TupleTableSlot *slot;
 
 			if (len == 0)
 				elog(ERROR, "clickhouse_fdw: returned tuple is empty");
@@ -455,11 +454,11 @@ nested:
 			}
 
 			desc = BlessTupleDesc(desc);
-			slot = MakeSingleTupleTableSlot(desc);
+			auto slot = (ch_binary_tuple_t *) palloc(sizeof(ch_binary_tuple_t));
+			slot->desc = desc;
 
-			htup = heap_form_tuple(slot->tts_tupleDescriptor,
-					tuple_values, tuple_nulls);
-			ExecStoreTuple(htup, slot, InvalidBuffer, false);
+			htup = heap_form_tuple(slot->desc, tuple_values, tuple_nulls);
+			slot->tup = htup;
 
 			pfree(tuple_values);
 			pfree(tuple_nulls);
