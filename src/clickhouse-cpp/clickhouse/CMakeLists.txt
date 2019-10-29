@@ -27,14 +27,15 @@ SET ( clickhouse-cpp-lib-src
 )
 
 IF (UNIX)
+	LIST(APPEND CH_COMPILE_OPTIONS "-Wall" "-Wextra" "-Werror" "-Wstrict-aliasing")
 	IF ("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
-		SET(CH_COMPILE_OPTIONS "-Wall -Wextra -Werror -Wstrict-aliasing -g -O2")
+		LIST(APPEND CH_COMPILE_OPTIONS "-g" "-O2")
 	ELSEIF("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-		SET(CH_COMPILE_OPTIONS "-Wall -Wextra -Werror -Wstrict-aliasing -g3 -O0")
+		LIST(APPEND CH_COMPILE_OPTIONS "-g3" "-O0")
 	ENDIF()
 
 	IF (NOT APPLE)
-		STRING(CONCAT CH_COMPILE_OPTIONS ${CH_COMPILE_OPTIONS} "-pthread")
+		LIST(APPEND CH_COMPILE_OPTIONS "-pthread")
 	ENDIF()
 ENDIF()
 
