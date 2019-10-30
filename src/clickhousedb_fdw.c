@@ -970,11 +970,6 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	int			r;
 	void      **row_values;
 
-	/*
-	 * Do the following work in a temp context that we reset after each tuple.
-	 * This cleans up not only the data we have direct access to, but any
-	 * cruft the I/O functions might leak.
-	 */
 	oldcontext = MemoryContextSwitchTo(fsstate->temp_cxt);
 
 	values = (Datum *) palloc0(tupdesc->natts * sizeof(Datum));
@@ -1071,9 +1066,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 	HeapTupleHeaderSetCmin(tuple->t_data, InvalidTransactionId);
 
 cleanup:
-	/* Clean up */
 	MemoryContextReset(fsstate->temp_cxt);
-
 	return tuple;
 }
 

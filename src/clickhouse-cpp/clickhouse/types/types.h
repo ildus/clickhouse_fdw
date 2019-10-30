@@ -90,6 +90,8 @@ public:
 
     static TypeRef CreateDecimal(size_t precision, size_t scale);
 
+	static TypeRef CreateNothing();
+
 private:
     const Code code_;
 };

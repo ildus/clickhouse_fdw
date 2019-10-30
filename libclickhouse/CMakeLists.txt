@@ -6,15 +6,16 @@ target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
 target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set(src
-	src/clickhouse_http.c
-	src/clickhouse_parser.c
-	src/clickhouse_binary.cc
 )
 
 add_library(clickhouse STATIC ${src})
 set_property(TARGET clickhouse PROPERTY POSITION_INDEPENDENT_CODE 1)
 target_compile_features(clickhouse PRIVATE c_std_11)
 option(BUILD_TESTS "build tests" OFF)
+
+separate_arguments(PGSQL_LDFLAGS UNIX_COMMAND "${PGSQL_LDFLAGS}")
+separate_arguments(PGSQL_CPPFLAGS UNIX_COMMAND "${PGSQL_CPPFLAGS}")
+target_compile_options(clickhouse PRIVATE ${PGSQL_CPPFLAGS} -fstack-protector -fstack-check)
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
     set(CMAKE_BUILD_TYPE "Debug")
@@ -28,13 +29,19 @@ endif()
 if (APPLE)
 	message("Using libcurl from brew installation...")
 	set(ENV{PKG_CONFIG_PATH}  "/usr/local/opt/curl/lib/pkgconfig")
+	target_link_libraries(clickhouse PRIVATE "-bundle_loader ${PGSQL_BINDIR}/postgres")
 endif()
+
+set_target_properties(clickhouse PROPERTIES
+	BUILD_WITH_INSTALL_RPATH TRUE
+	INSTALL_RPATH ${PGSQL_PKGLIBDIR}
+)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CURL libcurl REQUIRED)
 pkg_check_modules(UUID_LIB uuid REQUIRED)
 
-target_link_libraries(clickhouse ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static stdc++)
+target_link_libraries(clickhouse ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static stdc++ ${PGSQL_LDFLAGS})
 
 target_include_directories(clickhouse
     PUBLIC
@@ -45,6 +52,7 @@ target_include_directories(clickhouse
         ${CMAKE_CURRENT_SOURCE_DIR}/clickhouse-cpp
 		${CURL_INCLUDE_DIRS}
 		${UUID_LIB_INCLUDE_DIRS}
+		${PGSQL_INCLUDEDIR_SERVER}
 )
 
 if (BUILD_TESTS)

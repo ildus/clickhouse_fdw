@@ -75,7 +75,8 @@ List *chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer
 
 typedef enum {
 	CH_DEFAULT,
-	CH_COLLAPSING_MERGE_TREE
+	CH_COLLAPSING_MERGE_TREE,
+	CH_AGGREGATING_MERGE_TREE
 } CHRemoteTableEngine;
 
 /*

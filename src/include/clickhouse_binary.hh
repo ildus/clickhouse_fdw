@@ -11,39 +11,12 @@ typedef struct ch_binary_response_t
 	bool				success;
 } ch_binary_response_t;
 
-/*
- * order is very important !!!!,
- * look at clickhouse-cpp code, also external code (clickhouse_link.c) depends
- * on that
- */
-typedef enum {
-	chb_Void = 0,
-	chb_Int8,
-	chb_Int16,
-	chb_Int32,
-	chb_Int64,
-	chb_UInt8,
-	chb_UInt16,
-	chb_UInt32,
-	chb_UInt64,
-	chb_Float32,
-	chb_Float64,
-	chb_String,
-	chb_FixedString,
-	chb_DateTime,
-	chb_Date,
-	chb_Array,
-	chb_Nullable,
-	chb_Tuple,
-	chb_Enum8,
-	chb_Enum16,
-	chb_UUID,
-} ch_binary_coltype;
-
 /* gcc should support this */
 typedef struct {
 	ch_binary_response_t	*resp;
-	ch_binary_coltype		*coltypes;
+	Oid		*coltypes;
+	Datum	*values;
+	bool	*nulls;
 
 	size_t	block;		/* current block */
 	size_t	row;		/* row in current block */
@@ -53,23 +26,9 @@ typedef struct {
 } ch_binary_read_state_t;
 
 typedef struct {
-	size_t				len;
-	ch_binary_coltype  *coltypes;
-	void			  **values;
+	HeapTuple	tup;
+	TupleDesc	desc;
 } ch_binary_tuple_t;
-
-typedef struct {
-	size_t				len;
-	ch_binary_coltype	coltype;
-	void			  **values;
-} ch_binary_array_t;
-
-typedef struct {
-	ch_binary_coltype	coltype;
-	char			   *colname;
-	void			   *coldata;
-	size_t				n_arg;		/* FixedString(n) */
-} ch_binary_block_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,11 +41,11 @@ extern ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn
 		const char *query, bool (*check_cancel)(void));
 extern void ch_binary_response_free(ch_binary_response_t *resp);
 extern ch_binary_response_t *ch_binary_simple_insert(ch_binary_connection_t *conn,
-	char *table_name, ch_binary_block_t *blocks, size_t nblocks, size_t nrows);
+	char *table_name, void *blocks, size_t nblocks, size_t nrows);
 
 void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp);
 void ch_binary_read_state_free(ch_binary_read_state_t *state);
-void **ch_binary_read_row(ch_binary_read_state_t *state);
+bool ch_binary_read_row(ch_binary_read_state_t *state);
 
 #ifdef __cplusplus
 }

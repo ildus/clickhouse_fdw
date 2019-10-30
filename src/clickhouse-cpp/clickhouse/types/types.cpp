@@ -106,6 +106,11 @@ TypeRef Type::CreateDecimal(size_t precision, size_t scale) {
     return TypeRef(new DecimalType(precision, scale));
 }
 
+TypeRef Type::CreateNothing() {
+	return TypeRef(new Type(Type::Void));
+}
+
+
 /// class ArrayType
 
 ArrayType::ArrayType(TypeRef item_type) : Type(Array), item_type_(item_type) {
