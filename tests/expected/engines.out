@@ -1,0 +1,169 @@
+CREATE EXTENSION clickhouse_fdw;
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+SELECT clickhousedb_raw_query('drop database if exists regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('create database regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	create table regression.t1 (a int, b int)
+	engine = MergeTree()
+	order by a');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	create table regression.t2 (a int, b AggregateFunction(sum, Int32))
+	engine = AggregatingMergeTree()
+	order by a');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	insert into regression.t1 select number % 10, number from numbers(1, 100);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	insert into regression.t2 select number % 10 as a, sumState(toInt32(number)) as b from numbers(1, 100) group by a;');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	create materialized view regression.t1_aggr
+		engine=AggregatingMergeTree()
+		order by a populate as select a, sumState(b) as b from aggrtest group by a;');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
+\d+ t1
+                                       Foreign table "public.t1"
+ Column |  Type   | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+---------+-----------+----------+---------+-------------+---------+--------------+-------------
+ a      | integer |           | not null |         |             | plain   |              | 
+ b      | integer |           | not null |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 't1', engine 'MergeTree')
+
+\d+ t1_aggr
+                                            Foreign table "public.t1_aggr"
+ Column |  Type   | Collation | Nullable | Default |        FDW options        | Storage | Stats target | Description 
+--------+---------+-----------+----------+---------+---------------------------+---------+--------------+-------------
+ a      | integer |           | not null |         |                           | plain   |              | 
+ b      | integer |           | not null |         | (aggregatefunction 'sum') | plain   |              | 
+Server: loopback
+FDW options: (table_name 't1_aggr', engine 'MaterializedView')
+
+\d+ t2
+                                              Foreign table "public.t2"
+ Column |  Type   | Collation | Nullable | Default |        FDW options        | Storage | Stats target | Description 
+--------+---------+-----------+----------+---------+---------------------------+---------+--------------+-------------
+ a      | integer |           | not null |         |                           | plain   |              | 
+ b      | integer |           | not null |         | (aggregatefunction 'sum') | plain   |              | 
+Server: loopback
+FDW options: (table_name 't2', engine 'AggregatingMergeTree')
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b) FROM t1 GROUP BY a;
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(b))
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT a, sum(b) FROM regression.t1 GROUP BY a
+(4 rows)
+
+SELECT a, sum(b) FROM t1 GROUP BY a ORDER BY a;
+ a | sum 
+---+-----
+ 0 | 550
+ 1 | 460
+ 2 | 470
+ 3 | 480
+ 4 | 490
+ 5 | 500
+ 6 | 510
+ 7 | 520
+ 8 | 530
+ 9 | 540
+(10 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b) FROM t1_aggr GROUP BY a;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(b))
+   Relations: Aggregate on (t1_aggr)
+   Remote SQL: SELECT a, sumMerge(b) FROM regression.t1_aggr GROUP BY a
+(4 rows)
+
+SELECT a, sum(b) FROM t1_aggr GROUP BY a ORDER BY a;
+ a | sum 
+---+-----
+ 0 | 550
+ 1 | 460
+ 2 | 470
+ 3 | 480
+ 4 | 490
+ 5 | 500
+ 6 | 510
+ 7 | 520
+ 8 | 530
+ 9 | 540
+(10 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b) FROM t2 GROUP BY a;
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(b))
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT a, sumMerge(b) FROM regression.t2 GROUP BY a
+(4 rows)
+
+SELECT a, sum(b) FROM t2 GROUP BY a ORDER BY a;
+ a | sum 
+---+-----
+ 0 | 550
+ 1 | 460
+ 2 | 470
+ 3 | 480
+ 4 | 490
+ 5 | 500
+ 6 | 510
+ 7 | 520
+ 8 | 530
+ 9 | 540
+(10 rows)
+
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to server loopback
+drop cascades to foreign table t1
+drop cascades to foreign table t1_aggr
+drop cascades to foreign table t2
