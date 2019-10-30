@@ -135,7 +135,7 @@ NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, 
  c9     | real             |           | not null |         |             | plain   |              | 
  c10    | double precision |           |          |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 'ints')
+FDW options: (table_name 'ints', engine 'MergeTree')
 
 \d+ clickhouse.types;
                                               Foreign table "clickhouse.types"
@@ -151,7 +151,7 @@ FDW options: (table_name 'ints')
  c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'types')
+FDW options: (table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse.arrays;
                                      Foreign table "clickhouse.arrays"
@@ -160,7 +160,7 @@ FDW options: (table_name 'types')
  c1     | integer[] |           | not null |         |             | extended |              | 
  c2     | text[]    |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'arrays')
+FDW options: (table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse.tuples;
                                     Foreign table "clickhouse.tuples"
@@ -169,7 +169,7 @@ FDW options: (table_name 'arrays')
  c1     | smallint |           | not null |         |             | plain    |              | 
  c2     | text     |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'tuples')
+FDW options: (table_name 'tuples', engine 'MergeTree')
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -218,7 +218,7 @@ NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, 
  c9     | real             |           | not null |         |             | plain   |              | 
  c10    | double precision |           |          |         |             | plain   |              | 
 Server: loopback_bin
-FDW options: (table_name 'ints')
+FDW options: (table_name 'ints', engine 'MergeTree')
 
 \d+ clickhouse_bin.types;
                                             Foreign table "clickhouse_bin.types"
@@ -234,7 +234,7 @@ FDW options: (table_name 'ints')
  c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback_bin
-FDW options: (table_name 'types')
+FDW options: (table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse_bin.arrays;
                                    Foreign table "clickhouse_bin.arrays"
@@ -243,7 +243,7 @@ FDW options: (table_name 'types')
  c1     | integer[] |           | not null |         |             | extended |              | 
  c2     | text[]    |           | not null |         |             | extended |              | 
 Server: loopback_bin
-FDW options: (table_name 'arrays')
+FDW options: (table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse_bin.tuples;
                                   Foreign table "clickhouse_bin.tuples"
@@ -252,7 +252,7 @@ FDW options: (table_name 'arrays')
  c1     | smallint |           | not null |         |             | plain    |              | 
  c2     | text     |           | not null |         |             | extended |              | 
 Server: loopback_bin
-FDW options: (table_name 'tuples')
+FDW options: (table_name 'tuples', engine 'MergeTree')
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -300,7 +300,7 @@ IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loo
  c9     | real             |           | not null |         |             | plain   |              | 
  c10    | double precision |           |          |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 'ints')
+FDW options: (table_name 'ints', engine 'MergeTree')
 
 \d+ clickhouse_limit.types;
                                            Foreign table "clickhouse_limit.types"
@@ -316,7 +316,7 @@ FDW options: (table_name 'ints')
  c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'types')
+FDW options: (table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse_limit.arrays;
 \d+ clickhouse_limit.tuples;
@@ -331,7 +331,7 @@ NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, 
  c1     | integer[] |           | not null |         |             | extended |              | 
  c2     | text[]    |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'arrays')
+FDW options: (table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse_except.tuples;
                                  Foreign table "clickhouse_except.tuples"
@@ -340,7 +340,7 @@ FDW options: (table_name 'arrays')
  c1     | smallint |           | not null |         |             | plain    |              | 
  c2     | text     |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'tuples')
+FDW options: (table_name 'tuples', engine 'MergeTree')
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback_bin;

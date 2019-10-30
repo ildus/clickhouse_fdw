@@ -732,7 +732,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	chfdw_extract_options(server->options, &driver, &details.host,
 		&details.port, &details.dbname, &details.username, &details.password);
 
-	query = psprintf("select name, engine, engine_full from system.tables where database='%s'", details.dbname);
+	query = psprintf("select name, engine, engine_full "
+			"from system.tables where database='%s' and name not like '.inner.%%'", details.dbname);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
 	datts = list_make5_int(1,2,3,4,5);
@@ -786,6 +787,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 
 			char   *remote_type = readstr(conn, dvalues[1]),
 				   *pos;
+			List   *options = NIL;
 
 			if (!first)
 				appendStringInfoString(&buf, ",\n");
@@ -839,6 +841,17 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 					is_array = true;
 				else if (strncmp(remote_type, "Nullable", strlen("Nullable")) == 0)
 					is_nullable = true;
+				else if (strncmp(remote_type, "AggregateFunction", strlen("AggregateFunction")) == 0)
+				{
+					char *pos2 = strstr(pos, ",");
+					if (pos2 == NULL)
+						elog(ERROR, "clickhouse_fdw: expected comma in AggregateFunction");
+
+					char *func = pnstrdup(pos + 1, strstr(pos + 1, ",") - pos - 1);
+					options = lappend(options, makeInteger(1));
+					options = lappend(options, makeString(func));
+					pos = pos2 + 1; /* also there is space */
+				}
 
 				remote_type = pos + 1;
 			}
@@ -866,6 +879,35 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 					elog(ERROR, "clickhouse_fdw: could not map type: %s", remote_type);
 			}
 
+			if (options != NIL)
+			{
+				bool first = true;
+				ListCell *lc;
+
+				appendStringInfoString(&buf, " OPTIONS (");
+				foreach(lc, options)
+				{
+					Value	*val = lfirst(lc);
+					if (IsA(val, Integer))
+					{
+						if (!first)
+							appendStringInfoString(&buf, ", ");
+						first = false;
+						switch intVal(val) {
+							case 1:
+								appendStringInfoString(&buf, "AggregateFunction");
+								break;
+							default:
+								elog(ERROR, "programming error");
+						}
+					}
+					else
+						appendStringInfo(&buf, " '%s'", strVal(val));
+				}
+				appendStringInfoString(&buf, ")");
+				list_free_deep(options);
+			}
+
 			if (is_array)
 				appendStringInfoString(&buf, "[]");
 
@@ -885,6 +927,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				appendStringInfo(&buf, ", engine '%s'", engine_full);
 			}
 		}
+		else if (engine)
+			appendStringInfo(&buf, ", engine '%s'", engine);
 
 		appendStringInfoString(&buf, ");\n");
 		result = lappend(result, buf.data);

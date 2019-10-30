@@ -57,7 +57,7 @@ typedef struct foreign_glob_cxt
 
 typedef struct foreign_loc_cxt
 {
-	int	a;
+	bool	found_aggregation_func;
 } foreign_loc_cxt;
 
 /*
@@ -207,7 +207,7 @@ chfdw_is_foreign_expr(PlannerInfo *root,
 				Expr *expr)
 {
 	foreign_glob_cxt glob_cxt;
-	foreign_loc_cxt loc_cxt;
+	foreign_loc_cxt loc_cxt = {false};
 	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *)(baserel->fdw_private);
 
 	/*
@@ -302,6 +302,9 @@ foreign_expr_walker(Node *node,
 		if (bms_is_member(var->varno, glob_cxt->relids) &&
 		        var->varlevelsup == 0)
 		{
+			RangeTblEntry		*rte;
+			CustomColumnInfo	*cinfo;
+
 			/* Var belongs to foreign table */
 
 			/*
@@ -312,6 +315,12 @@ foreign_expr_walker(Node *node,
 			 */
 			if (var->varattno < 0)
 				return false;
+
+			rte = planner_rt_fetch(var->varno, glob_cxt->root);
+			cinfo = chfdw_get_custom_column_info(rte->relid, var->varattno);
+
+			if (cinfo && cinfo->is_aggregation_func)
+				outer_cxt->found_aggregation_func = true;
 		}
 	}
 	break;
@@ -535,18 +544,18 @@ foreign_expr_walker(Node *node,
 				n = (Node *) tle->expr;
 			}
 
+			inner_cxt.found_aggregation_func = false;
 			if (!foreign_expr_walker(n, glob_cxt, &inner_cxt))
-			{
 				return false;
-			}
+
+			if (inner_cxt.found_aggregation_func)
+				agg->location = -2;
 		}
 
 		/* Check aggregate filter */
 		if (!foreign_expr_walker((Node *) agg->aggfilter,
 		                         glob_cxt, &inner_cxt))
-		{
 			return false;
-		}
 	}
 	break;
 	case T_CaseExpr:
@@ -3057,11 +3066,9 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 	if (context->func && context->func->cf_type == CF_SIGN_COUNT && !node->aggstar)
 		sign_count_filter = true;
 
-	if (fpinfo->ch_table_engine == CH_AGGREGATING_MERGE_TREE)
-	{
-		brcount++;
+	/* We use this field as indicator of aggregate functions */
+	if (node->location == -2)
 		appendStringInfoString(buf, "Merge");
-	}
 
 	if (node->aggfilter || sign_count_filter)
 	{

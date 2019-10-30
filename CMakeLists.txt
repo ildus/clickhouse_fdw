@@ -48,10 +48,19 @@ exec_program(${PG_CONFIG} ARGS --libs OUTPUT_VARIABLE PGSQL_LIBS)
 #------------------------------------------------------------------------------
 # tests
 #------------------------------------------------------------------------------
-find_program(PG_REGRESS pg_regress ${PGSQL_PKGLIBDIR}/pgxs/src/test/regress/
-		   REQUIRED)
+find_program(PG_REGRESS pg_regress ${PGSQL_PKGLIBDIR}/pgxs/src/test/regress/ REQUIRED)
+LIST(APPEND REGRESS_TESTS
+	http
+	binary
+	import_schema
+	istore
+	istore_binary
+	binary_queries
+	functions
+	engines
+)
 add_custom_target(installcheck
-	COMMAND ${PG_REGRESS} --inputdir=${PROJECT_SOURCE_DIR}/tests --outputdir=${PROJECT_SOURCE_DIR}/tests \${EXTRA_REGRESS_OPTS} http binary import_schema istore istore_binary binary_queries functions)
+	COMMAND ${PG_REGRESS} --inputdir=${PROJECT_SOURCE_DIR}/tests --outputdir=${PROJECT_SOURCE_DIR}/tests \${EXTRA_REGRESS_OPTS} ${REGRESS_TESTS})
 
 #------------------------------------------------------------------------------
 # use default install location if not specified

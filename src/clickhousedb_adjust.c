@@ -450,6 +450,7 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 		entry->varattno = attnum;
 		entry->table_engine = fpinfo->ch_table_engine;
 		entry->coltype = CF_USUAL;
+		entry->is_aggregation_func = false;
 		strcpy(entry->colname, NameStr(attr->attname));
 		strcpy(entry->signfield, fpinfo->ch_table_sign_field);
 
@@ -464,6 +465,8 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 				strncpy(entry->colname, defGetString(def), NAMEDATALEN);
 				entry->colname[NAMEDATALEN - 1] = '\0';
 			}
+			else if (strcmp(def->defname, "aggregatefunction") == 0)
+				entry->is_aggregation_func = true;
 			else if (strcmp(def->defname, "arrays") == 0)
 				cf_type = CF_ISTORE_ARR;
 			else if (strcmp(def->defname, "keys") == 0)

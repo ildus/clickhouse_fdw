@@ -277,6 +277,7 @@ typedef struct CustomColumnInfo
 	Oid		relid;
 	int		varattno;
 	char	colname[NAMEDATALEN];
+	bool	is_aggregation_func;
 	custom_object_type coltype;
 
 	CHRemoteTableEngine	table_engine;
