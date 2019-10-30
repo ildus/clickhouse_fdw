@@ -13,6 +13,7 @@ Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differe
 * use `cmake` for Makefile generation (for out for source builds and proper dependency checks)
 * support arrays and `ANY`, `ALL` functions
 * support CollapsingMergeTree engine (with `sign` column) in aggregations
+* support AggregatingMergeTree engine (add `Merge` prefix)
 * add infrastructure for adding custom behaviours in the code (for custom types)
 * code cleanup
 * many other improvements
@@ -36,7 +37,8 @@ Installation
 ###### Prerequisite
 
 The `clickhouse_fdw` uses an HTTP interface provided by ClickHouse. `libcurl` and
-`uuid` libraries should be installed in the system.
+`uuid` libraries should be installed in the system. Make sure that ClickHouse
+uses UTC timezone.
 
 ###### Installing `clickhouse_fdw`
 
@@ -171,8 +173,8 @@ Join Pushdown
 Join pushdown is also a very new feature of PostgreSQL FDW’s. The `clickhouse_fdw` also supports join pushdown.
 
     EXPLAIN VERBOSE SELECT t2.bbl, t2.owner_name, t1.bav FROM tax_bills_nyc t1 RIGHT OUTER JOIN tax_bills t2 ON (t1.bbl = t2.bbl);
-                                                                        QUERY PLAN                                                                     
-    
+                                                                        QUERY PLAN
+
     -------------------------------------------------------------------------------------------------------------------------------------------------------
     ----
     Foreign Scan  (cost=1.00..-1.00 rows=1000 width=50)
@@ -181,6 +183,17 @@ Join pushdown is also a very new feature of PostgreSQL FDW’s. The `clickhouse_
     Remote SQL: SELECT r2.bbl, r2.owner_name, r1.bav FROM  test_database.tax_bills r2 ALL LEFT JOIN test_database.tax_bills_nyc r1 ON (((r1.bbl = r2.bbl
     )))
     (4 rows)
+
+AggregatingMergeTree
+--------------------
+
+For columns where you need `Merge` prefix in aggregations just add `AggregateFunction` option with aggregation function name. Example:
+
+```
+ALTER TABLE table ALTER COLUMN b OPTIONS (SET AggregateFunction 'count');
+```
+
+Or use `IMPORT SCHEMA` for automatic definitions.
 
 [1]: https://www.postgresql.org/
 [2]: http://www.clickhouse.com

@@ -23,7 +23,7 @@ SELECT clickhousedb_raw_query('
 SELECT clickhousedb_raw_query('
 	create materialized view regression.t1_aggr
 		engine=AggregatingMergeTree()
-		order by a populate as select a, sumState(b) as b from aggrtest group by a;');
+		order by a populate as select a, sumState(b) as b from regression.t1 group by a;');
 
 IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
 
