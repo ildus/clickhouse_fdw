@@ -6,14 +6,14 @@ target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
 target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set (src
-	clickhousedb_connection.c
-	clickhousedb_deparse.c
-	clickhousedb_fdw.c
-	clickhousedb_option.c
-	clickhousedb_shipable.c
-	clickhousedb_shipable.c
-	clickhousedb_adjust.c
-	libclickhouse_link.c
+	clickhouse_connection.c
+	clickhouse_deparse.c
+	clickhouse_fdw.c
+	clickhouse_option.c
+	clickhouse_shipable.c
+	clickhouse_shipable.c
+	clickhouse_adjust.c
+	clickhouse_link.c
 
 	# library part
 	clickhouse_http.c
