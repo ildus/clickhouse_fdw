@@ -64,6 +64,7 @@ You can upgrade libcurl with command:
 
 ```sh
 sudo rpm -Uvh  *curl*rpm --nodeps
+sudo yum install libmetalink
 ```
 
 `uuid` can be installed with:
