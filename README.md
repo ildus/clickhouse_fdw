@@ -50,6 +50,29 @@ cmake ..
 make && make install
 ```
 
+###### Centos 7 Notes
+
+You should be using modern compiler, available in [devtoolset-7](https://www.softwarecollections.org/en/scls/rhscl/devtoolset-7/). Once installed, activate it with the command:
+
+```sh
+source scl_source enable devtoolset-7
+```
+
+Minimal libcurl compatible with clickhouse-fdw is 7.43.0. It is not available in the official Centos repo. You can download recent RPMs from [here](https://cbs.centos.org/koji/buildinfo?buildID=1408)
+
+You can upgrade libcurl with command:
+
+```sh
+sudo rpm -Uvh  *curl*rpm --nodeps
+sudo yum install libmetalink
+```
+
+`uuid` can be installed with:
+
+```sh
+yum install libuuid-devel
+```
+
 Usage
 -----
 
