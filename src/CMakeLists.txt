@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.5)
 project(clickhouse_fdw VERSION 1.1.0 LANGUAGES C CXX)
 
+if (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.0)
+  set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++17")
+  set(CMAKE_CXX17_EXTENSION_COMPILE_OPTION "-std=gnu++17")
+elseif (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.1)
+  set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++1z")
+  set(CMAKE_CXX17_EXTENSION_COMPILE_OPTION "-std=gnu++1z")
+endif()
+
 add_subdirectory (clickhouse-cpp)
 target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
 target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
