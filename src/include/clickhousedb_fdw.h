@@ -21,6 +21,7 @@
 #else
 #include "optimizer/optimizer.h"
 #include "nodes/pathnodes.h"
+#include "nodes/execnodes.h"
 #endif
 
 /* libclickhouse_link.c */
@@ -44,6 +45,8 @@ typedef void (*simple_insert_method)(void *conn, const char *query);
 typedef void (*cursor_free_method)(ch_cursor *cursor);
 typedef void **(*cursor_fetch_row_method)(ch_cursor *cursor, List *attrs,
 	TupleDesc tupdesc, Datum *values, bool *nulls);
+typedef void *(*prepare_insert_method)(void *conn, ResultRelInfo *, List *, char *);
+typedef void (*insert_tuple_method)(void *state, TupleTableSlot *slot);
 
 typedef struct
 {
@@ -52,6 +55,8 @@ typedef struct
 	simple_insert_method		simple_insert;
 	cursor_free_method			cursor_free;
 	cursor_fetch_row_method		fetch_row;
+	prepare_insert_method		prepare_insert;
+	insert_tuple_method			insert_tuple;
 } libclickhouse_methods;
 
 typedef struct {

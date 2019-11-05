@@ -27,14 +27,17 @@ static void http_disconnect(void *conn);
 static ch_cursor *http_simple_query(void *conn, const char *query);
 static void http_simple_insert(void *conn, const char *query);
 static void http_cursor_free(void *);
-static void **http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
-	Datum *values, bool *nulls);
+static void **http_fetch_row(ch_cursor *, List *, TupleDesc, Datum *, bool *);
+static void *http_prepare_insert(void *, ResultRelInfo *, List *, char *);
+static void http_insert_tuple(void *, TupleTableSlot *);
 
 static libclickhouse_methods http_methods = {
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
 	.simple_insert=http_simple_insert,
-	.fetch_row=http_fetch_row
+	.fetch_row=http_fetch_row,
+	.prepare_insert=http_prepare_insert,
+	.insert_tuple=http_insert_tuple
 };
 
 static void binary_disconnect(void *conn);
@@ -299,6 +302,156 @@ chfdw_http_fetch_raw_data(ch_cursor *cursor)
 		return NULL;
 
 	return cstring_to_text_with_len(state->data, state->maxpos + 1);
+}
+
+/*
+ * extend_insert_query
+ *		Construct values part of INSERT query
+ */
+static const char **
+extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
+{
+	int			pindex = 0;
+	bool first = true;
+
+	if (state->sql.len == 0)
+		appendStringInfoString(&state->sql, state->sql_begin);
+
+	/* get following parameters from slot */
+	if (slot != NULL && state->target_attrs != NIL)
+	{
+		ListCell   *lc;
+
+		foreach (lc, state->target_attrs)
+		{
+			int			attnum = lfirst_int(lc);
+			Datum		value;
+			Oid		    type;
+			bool		isnull;
+
+			value = slot_getattr(slot, attnum, &isnull);
+			type = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid;
+
+			if (!first)
+				appendStringInfoChar(&state->sql, '\t');
+			first = false;
+
+			if (isnull)
+			{
+				appendStringInfoString(&state->sql, "\\N");
+				pindex++;
+				continue;
+			}
+
+			switch (type)
+			{
+			case BOOLOID:
+			case INT2OID:
+			case INT4OID:
+				appendStringInfo(&state->sql, "%d", DatumGetInt32(value));
+			break;
+			case INT8OID:
+				appendStringInfo(&state->sql, INT64_FORMAT, DatumGetInt64(value));
+			break;
+			case FLOAT4OID:
+				appendStringInfo(&state->sql, "%f", DatumGetFloat4(value));
+			break;
+			case FLOAT8OID:
+				appendStringInfo(&state->sql, "%f", DatumGetFloat8(value));
+			break;
+			case NUMERICOID:
+			{
+				Datum  valueDatum;
+				float8 f;
+
+				valueDatum = DirectFunctionCall1(numeric_float8, value);
+				f = DatumGetFloat8(valueDatum);
+				appendStringInfo(&state->sql, "%f", f);
+			}
+			break;
+			case BPCHAROID:
+			case VARCHAROID:
+			case TEXTOID:
+			case JSONOID:
+			case NAMEOID:
+			case BITOID:
+			case BYTEAOID:
+			{
+				char   *str = NULL;
+				bool	tl = false;
+				Oid		typoutput = InvalidOid;
+
+				getTypeOutputInfo(type, &typoutput, &tl);
+				str = OidOutputFunctionCall(typoutput, value);
+				appendStringInfo(&state->sql, "%s", str);
+			}
+			break;
+			case DATEOID:
+			{
+				/* we expect Date on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_date_out, value));
+				appendStringInfoString(&state->sql, extval);
+				pfree(extval);
+				break;
+			}
+			case TIMEOID:
+			{
+				/* we expect DateTime on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_time_out, value));
+				appendStringInfo(&state->sql, "0001-01-01 %s", extval);
+				pfree(extval);
+				break;
+			}
+			case TIMESTAMPOID:
+			case TIMESTAMPTZOID:
+			{
+				/* we expect DateTime on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
+				appendStringInfoString(&state->sql, extval);
+				pfree(extval);
+				break;
+			}
+			default:
+				ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+				                errmsg("cannot convert constant value to clickhouse value"),
+				                errhint("Constant value data type: %u", type)));
+			}
+			pindex++;
+		}
+		appendStringInfoChar(&state->sql, '\n');
+	}
+
+	Assert(pindex == state->p_nums);
+
+	return NULL;
+}
+
+static void *
+http_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs, char *query)
+{
+	ch_http_insert_state *state = palloc0(sizeof(ch_http_insert_state));
+
+	initStringInfo(&state->sql);
+	state->sql_begin = psprintf("%s FORMAT TSV\n", query);
+	state->target_attrs = target_attrs;
+	state->p_nums = list_length(state->target_attrs);
+	state->conn = conn;
+
+	return state;
+}
+
+static void
+http_insert_tuple(void *istate, TupleTableSlot *slot)
+{
+	ch_http_insert_state *state = istate;
+
+	extend_insert_query(state, slot);
+
+	if ((slot == NULL && state->sql.len > 0) || state->sql.len > (MaxAllocSize / 2 /* 512MB */))
+	{
+		http_simple_insert(state->conn, state->sql.data);
+		resetStringInfo(&state->sql);
+	}
 }
 
 /*** BINARY PROTOCOL ***/
