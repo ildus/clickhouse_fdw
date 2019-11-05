@@ -2875,6 +2875,9 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 	/* Retrieve information about the operator from system catalog. */
 	int			optype = chfdw_is_equal_op(node->opno);
 
+	if (optype == 0)
+		elog(ERROR, "clickhouse_fdw supports only equal (not equal) operations on ANY/ALL functions");
+
 	/* Sanity check. */
 	Assert(list_length(node->args) == 2);
 
