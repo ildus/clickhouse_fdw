@@ -308,7 +308,7 @@ chfdw_http_fetch_raw_data(ch_cursor *cursor)
  * extend_insert_query
  *		Construct values part of INSERT query
  */
-static const char **
+static void
 extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 {
 	int			pindex = 0;
@@ -419,11 +419,9 @@ extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 			pindex++;
 		}
 		appendStringInfoChar(&state->sql, '\n');
+
+		Assert(pindex == state->p_nums);
 	}
-
-	Assert(pindex == state->p_nums);
-
-	return NULL;
 }
 
 static void *
@@ -447,7 +445,8 @@ http_insert_tuple(void *istate, TupleTableSlot *slot)
 
 	extend_insert_query(state, slot);
 
-	if ((slot == NULL && state->sql.len > 0) || state->sql.len > (MaxAllocSize / 2 /* 512MB */))
+	if ((slot == NULL && state->sql.len > 0)
+			|| state->sql.len > (MaxAllocSize / 2 /* 512MB */))
 	{
 		http_simple_insert(state->conn, state->sql.data);
 		resetStringInfo(&state->sql);
