@@ -77,6 +77,8 @@ public:
 
     void Insert(const std::string& table_name, const Block& block);
 
+	void PrepareInsert(Query query);
+
     void Ping();
 
     void ResetConnection();
@@ -103,6 +105,8 @@ private:
     bool ReceiveException(bool rethrow = false);
 
     void WriteBlock(const Block& block, CodedOutputStream* output);
+
+	bool ReceiveSamplePacket(uint64_t* server_packet);
 
 private:
     void Disconnect() {
@@ -229,6 +233,7 @@ void Client::Impl::Insert(const std::string& table_name, const Block& block) {
     SendQuery("INSERT INTO " + table_name + " ( " + fields_section.str() + " ) VALUES");
 
     uint64_t server_packet;
+
     // Receive data packet.
     while (true) {
         bool ret = ReceivePacket(&server_packet);
@@ -254,6 +259,63 @@ void Client::Impl::Insert(const std::string& table_name, const Block& block) {
     while (ReceivePacket()) {
         ;
     }
+}
+
+bool Client::Impl::ReceiveSamplePacket(uint64_t* server_packet) {
+    uint64_t packet_type = 0;
+
+	while (true)
+	{
+		if (!input_.ReadVarint64(&packet_type))
+			break;
+
+		if (server_packet) {
+			*server_packet = packet_type;
+		}
+
+		switch (packet_type) {
+		case ServerCodes::Data: {
+			if (!ReceiveData()) {
+				throw std::runtime_error("can't read data packet from input stream");
+			}
+			return true;
+		}
+
+		case ServerCodes::Exception: {
+			ReceiveException(true);
+			return false;
+		}
+
+		case ServerCodes::Log: continue;
+
+		default:
+			throw std::runtime_error("unexpected package" +
+					std::to_string((int)packet_type) + " for insert query");
+			break;
+		}
+	}
+
+    return false;
+}
+
+/* More detailed insertion, get a sample block and use it to construct blocks */
+void Client::Impl::PrepareInsert(Query query)
+{
+    EnsureNull en(static_cast<QueryEvents*>(&query), &events_);
+
+    if (options_.ping_before_query) {
+        RetryGuard([this]() { Ping(); });
+    }
+
+    SendQuery(query.GetText());
+
+    // Receive data packet.
+    uint64_t server_packet;
+	bool ret = ReceiveSamplePacket(&server_packet);
+
+	if (!ret) {
+		throw std::runtime_error("fail to receive data packet");
+	}
 }
 
 void Client::Impl::Ping() {
@@ -759,6 +821,11 @@ void Client::Select(const Query& query) {
 
 void Client::Insert(const std::string& table_name, const Block& block) {
     impl_->Insert(table_name, block);
+}
+
+void Client::InsertWithSample(const std::string &table_name, InsertCallback cb) {
+	auto query = "INSERT INTO " + table_name + " VALUES";
+    impl_->PrepareInsert(Query(query).OnInsertData(cb));
 }
 
 void Client::Ping() {

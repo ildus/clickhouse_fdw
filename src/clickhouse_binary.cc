@@ -89,7 +89,8 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	assert(resp->values == NULL);
 	try
 	{
-		client->SelectCancelable(chquery, [&resp, &values, &check_cancel] (const Block& block) {
+		client->SelectCancelable(chquery,
+				[&resp, &values, &check_cancel] (const Block& block) {
 			if (check_cancel && check_cancel())
 			{
 				set_resp_error(resp, "query was canceled");
@@ -130,10 +131,39 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	return resp;
 }
 
-ch_binary_response_t *ch_binary_simple_insert(ch_binary_connection_t *conn,
-	char *table_name, void *blocks, size_t nblocks, size_t nrows)
+void *
+ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
+		char *query, char *table_name)
 {
-	throw std::logic_error("not implemented");
+	if (table_name == NULL)
+		elog(ERROR, "expected table name");
+
+	Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
+	auto tn = std::string(table_name);
+
+	try
+	{
+		client->InsertWithSample(tn, [] (const Block& sample_block) {
+			if (sample_block.GetColumnCount() == 0)
+				return true;
+
+			auto vec = std::vector<clickhouse::ColumnRef>();
+			elog(NOTICE, "columns count: %d", sample_block.GetColumnCount());
+
+			return true;
+		});
+	}
+	catch (const std::exception& e)
+	{
+		elog(NOTICE, "clickhouse_fdw: insertion error - %s", e.what());
+	}
+	return NULL;
+}
+
+void
+ch_binary_insert_tuple(void *istate, TupleTableSlot *slot)
+{
+	elog(NOTICE, "insert ok");
 }
 
 void ch_binary_close(ch_binary_connection_t *conn)

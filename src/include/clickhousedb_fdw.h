@@ -45,7 +45,8 @@ typedef void (*simple_insert_method)(void *conn, const char *query);
 typedef void (*cursor_free_method)(ch_cursor *cursor);
 typedef void **(*cursor_fetch_row_method)(ch_cursor *cursor, List *attrs,
 	TupleDesc tupdesc, Datum *values, bool *nulls);
-typedef void *(*prepare_insert_method)(void *conn, ResultRelInfo *, List *, char *);
+typedef void *(*prepare_insert_method)(void *conn, ResultRelInfo *, List *,
+		char *, char *);
 typedef void (*insert_tuple_method)(void *state, TupleTableSlot *slot);
 
 typedef struct
@@ -201,7 +202,7 @@ extern void chfdw_classify_conditions(PlannerInfo *root,
 extern bool chfdw_is_foreign_expr(PlannerInfo *root,
                             RelOptInfo *baserel,
                             Expr *expr);
-extern void chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
+extern char *chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
                              Index rtindex, Relation rel,
                              List *targetAttrs);
 extern Expr *chfdw_find_em_expr(EquivalenceClass *ec, RelOptInfo *rel);

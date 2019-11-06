@@ -28,7 +28,7 @@ static ch_cursor *http_simple_query(void *conn, const char *query);
 static void http_simple_insert(void *conn, const char *query);
 static void http_cursor_free(void *);
 static void **http_fetch_row(ch_cursor *, List *, TupleDesc, Datum *, bool *);
-static void *http_prepare_insert(void *, ResultRelInfo *, List *, char *);
+static void *http_prepare_insert(void *, ResultRelInfo *, List *, char *, char *);
 static void http_insert_tuple(void *, TupleTableSlot *);
 
 static libclickhouse_methods http_methods = {
@@ -51,7 +51,9 @@ static libclickhouse_methods binary_methods = {
 	.disconnect=binary_disconnect,
 	.simple_query=binary_simple_query,
 	.simple_insert=binary_simple_insert,
-	.fetch_row=binary_fetch_row
+	.fetch_row=binary_fetch_row,
+	.prepare_insert=ch_binary_prepare_insert,
+	.insert_tuple=ch_binary_insert_tuple
 };
 
 static int http_progress_callback(void *clientp, double dltotal, double dlnow,
@@ -425,7 +427,8 @@ extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 }
 
 static void *
-http_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs, char *query)
+http_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
+		char *query, char *table_name)
 {
 	ch_http_insert_state *state = palloc0(sizeof(ch_http_insert_state));
 

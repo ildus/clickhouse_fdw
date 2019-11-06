@@ -90,7 +90,9 @@ enum FdwModifyPrivateIndex
 	/* SQL statement to execute remotely (as a String node) */
 	FdwModifyPrivateInsertSQL,
 	/* Integer list of target attribute numbers for INSERT/UPDATE */
-	FdwModifyPrivateTargetAttnums
+	FdwModifyPrivateTargetAttnums,
+	/* Deparsed name of the result table */
+	FdwModifyPrivateTableName
 };
 
 
@@ -222,7 +224,8 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
         CmdType operation,
         Plan *subplan,
         char *query,
-        List *target_attrs);
+        List *target_attrs,
+		char *table_name);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
 static void finish_foreign_modify(CHFdwModifyState *fmstate);
@@ -1167,10 +1170,12 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	/*
 	 * Construct the SQL command string.
 	 */
+	char *table_name;
+
 	switch (operation)
 	{
 	case CMD_INSERT:
-		chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
+		table_name = chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
 		break;
 	case CMD_UPDATE:
 		elog(ERROR, "ClickHouse does not support updates");
@@ -1188,7 +1193,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	 * Build the fdw_private list that will be available to the executor.
 	 * Items in the list must match enum FdwModifyPrivateIndex, above.
 	 */
-	return list_make2(makeString(sql.data), targetAttrs);
+	return list_make3(makeString(sql.data), targetAttrs, makeString(table_name));
 }
 
 /*
@@ -1206,7 +1211,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	char	   *query;
 	List	   *target_attrs = NULL;
 	RangeTblEntry *rte;
-
+	char	   *table_name;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  resultRelInfo->ri_FdwState
@@ -1218,6 +1223,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	/* Deconstruct fdw_private data. */
 	query = strVal(list_nth(fdw_private, FdwModifyPrivateInsertSQL));
 	target_attrs = (List *) list_nth(fdw_private, FdwModifyPrivateTargetAttnums);
+	table_name = strVal(list_nth(fdw_private, FdwModifyPrivateTableName));
 
 	/* Find RTE. */
 	rte = rt_fetch(resultRelInfo->ri_RangeTableIndex,
@@ -1230,7 +1236,8 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	                                mtstate->operation,
 	                                mtstate->mt_plans[subplan_index]->plan,
 	                                query,
-	                                target_attrs);
+	                                target_attrs,
+									table_name);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1266,6 +1273,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	List	   *retrieved_attrs = NIL;
 	bool		doNothing = false;
 	StringInfoData	sql;
+	char	   *table_name;
 
 	/* We transmit all columns that are defined in the foreign table. */
 	for (attnum = 1; attnum <= tupdesc->natts; attnum++)
@@ -1294,7 +1302,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	}
 
 	initStringInfo(&sql);
-	chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
+	table_name = chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
 
 	/* Construct an execution state. */
 	fmstate = create_foreign_modify(mtstate->ps.state,
@@ -1303,7 +1311,8 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                CMD_INSERT,
 	                                NULL,
 	                                sql.data,
-	                                targetAttrs);
+	                                targetAttrs,
+									table_name);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1456,7 +1465,8 @@ create_foreign_modify(EState *estate,
                       CmdType operation,
                       Plan *subplan,
                       char *query,
-                      List *target_attrs)
+                      List *target_attrs,
+					  char *table_name)
 {
 	CHFdwModifyState *fmstate;
 	Oid			userid;
@@ -1485,7 +1495,7 @@ create_foreign_modify(EState *estate,
 	/* make a connection and prepare an insertion state */
 	fmstate->conn = chfdw_get_connection(user);
 	fmstate->state = fmstate->conn.methods->prepare_insert(fmstate->conn.conn,
-			rri, target_attrs, query);
+			rri, target_attrs, query, table_name);
 
 	/* Create context for per-query temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,

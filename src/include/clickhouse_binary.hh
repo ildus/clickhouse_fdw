@@ -40,8 +40,9 @@ extern void ch_binary_close(ch_binary_connection_t *conn);
 extern ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 		const char *query, bool (*check_cancel)(void));
 extern void ch_binary_response_free(ch_binary_response_t *resp);
-extern ch_binary_response_t *ch_binary_simple_insert(ch_binary_connection_t *conn,
-	char *table_name, void *blocks, size_t nblocks, size_t nrows);
+extern void *ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
+		char *query, char *table_name);
+extern void ch_binary_insert_tuple(void *istate, TupleTableSlot *slot);
 
 void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp);
 void ch_binary_read_state_free(ch_binary_read_state_t *state);

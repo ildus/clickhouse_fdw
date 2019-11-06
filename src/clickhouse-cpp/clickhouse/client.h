@@ -97,6 +97,9 @@ public:
     /// Intends for insert block of data into a table \p table_name.
     void Insert(const std::string& table_name, const Block& block);
 
+    /// Intends for insert but with sample block which is used to construct a block
+    void InsertWithSample(const std::string& table_name, InsertCallback cb);
+
     /// Ping server for aliveness.
     void Ping();
 

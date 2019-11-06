@@ -83,6 +83,7 @@ using ExceptionCallback        = std::function<void(const Exception& e)>;
 using ProgressCallback         = std::function<void(const Progress& progress)>;
 using SelectCallback           = std::function<void(const Block& block)>;
 using SelectCancelableCallback = std::function<bool(const Block& block)>;
+using InsertCallback           = std::function<void(const Block& sample_block)>;
 
 
 class Query : public QueryEvents {
@@ -100,6 +101,12 @@ public:
     /// Set handler for receiving result data.
     inline Query& OnData(SelectCallback cb) {
         select_cb_ = cb;
+        return *this;
+    }
+
+    /// Set handler for receiving result data.
+    inline Query& OnInsertData(InsertCallback cb) {
+        insert_cb_ = cb;
         return *this;
     }
 
@@ -125,7 +132,9 @@ private:
     void OnData(const Block& block) override {
         if (select_cb_) {
             select_cb_(block);
-        }
+        } else if (insert_cb_) {
+            insert_cb_(block);
+		}
     }
 
     bool OnDataCancelable(const Block& block) override {
@@ -160,6 +169,7 @@ private:
     ExceptionCallback exception_cb_;
     ProgressCallback progress_cb_;
     SelectCallback select_cb_;
+    InsertCallback insert_cb_;
     SelectCancelableCallback select_cancelable_cb_;
 };
 
