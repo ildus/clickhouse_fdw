@@ -138,12 +138,11 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 	if (table_name == NULL)
 		elog(ERROR, "expected table name");
 
-	Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
-	auto tn = std::string(table_name);
-
 	try
 	{
-		client->InsertWithSample(tn, [] (const Block& sample_block) {
+		Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
+		auto tn = std::string(table_name);
+		client->PrepareInsert(tn, [] (const Block& sample_block) {
 			if (sample_block.GetColumnCount() == 0)
 				return true;
 
@@ -155,7 +154,7 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 	}
 	catch (const std::exception& e)
 	{
-		elog(NOTICE, "clickhouse_fdw: insertion error - %s", e.what());
+		elog(ERROR, "clickhouse_fdw: insertion error - %s", e.what());
 	}
 	return NULL;
 }
@@ -187,7 +186,8 @@ void ch_binary_response_free(ch_binary_response_t *resp)
 	delete resp;
 }
 
-void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp)
+void ch_binary_read_state_init(ch_binary_read_state_t *state,
+		ch_binary_response_t *resp)
 {
 	state->resp = resp;
 	state->block = 0;
@@ -198,6 +198,7 @@ void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response
 	state->values = NULL;
 	state->nulls = NULL;
 
+	/* it response was errored just set error in state too */
 	if (resp->error)
 	{
 		state->done = true;
@@ -246,10 +247,20 @@ get_corr_array_type(Type::Code code)
 		case Type::Code::DateTime: return TIMESTAMPOID;
 		case Type::Code::UUID: return UUIDOID;
 		default:
-			elog(ERROR, "clickhouse_fdw: unsupported type for arrays");
+			throw std::runtime_error("clickhouse_fdw: unsupported type for arrays");
 	}
 }
 
+/*
+ * This function is preparing values for `convert_datum` which is called in upper
+ * code.
+ *
+ * This function calls postgres functions, which can call `palloc` so we can end up
+ * with elog(ERROR) and longjmp to upper postgres code with leaking c++ memory.
+ *
+ * There is no an adequate (without huge overheads) solution, we just consider
+ * this state unfixable.
+ */
 static Datum
 make_datum(clickhouse::ColumnRef col, size_t row, Oid *valtype, bool *is_null)
 {
@@ -258,19 +269,20 @@ make_datum(clickhouse::ColumnRef col, size_t row, Oid *valtype, bool *is_null)
 nested:
 	*valtype = InvalidOid;
 	*is_null = false;
+
 	switch (col->Type()->GetCode())
 	{
 		case Type::Code::UInt8:
 		{
 			int16 val = col->As<ColumnUInt8>()->At(row);
-			ret = Int16GetDatum(val);
+			ret = (Datum) val;
 			*valtype = INT2OID;
 		}
 		break;
 		case Type::Code::UInt16:
 		{
 			int16	val = col->As<ColumnUInt16>()->At(row);
-			ret = Int16GetDatum(val);
+			ret = (Datum) val;
 			*valtype = INT4OID;
 		}
 		break;
@@ -285,7 +297,7 @@ nested:
 		{
 			uint64	val = col->As<ColumnUInt64>()->At(row);
 			if (val > LONG_MAX)
-				elog(ERROR, "clickhouse_fdw: int64 overflow");
+				throw std::overflow_error("clickhouse_fdw: int64 overflow");
 
 			ret = Int64GetDatum((int64) val);
 			*valtype = INT8OID;
@@ -294,21 +306,21 @@ nested:
 		case Type::Code::Int8:
 		{
 			int16 val = col->As<ColumnInt8>()->At(row);
-			ret = CharGetDatum(val);
+			ret = (Datum) val;
 			*valtype = INT2OID;
 		}
 		break;
 		case Type::Code::Int16:
 		{
 			int16	val = col->As<ColumnInt16>()->At(row);
-			ret = Int16GetDatum(val);
+			ret = (Datum) val;
 			*valtype = INT2OID;
 		}
 		break;
 		case Type::Code::Int32:
 		{
 			int	val = col->As<ColumnInt32>()->At(row);
-			ret = Int32GetDatum(val);
+			ret = (Datum) val;
 			*valtype = INT4OID;
 		}
 		break;
@@ -372,7 +384,6 @@ nested:
 			{
 				Timestamp t = (Timestamp) time_t_to_timestamptz(val);
 				ret = TimestampGetDatum(t);
-				ret = DirectFunctionCall1(timestamp_date, ret);
 			}
 		}
 		break;
@@ -424,74 +435,53 @@ nested:
 		{
 			auto	arr = col->As<ColumnArray>()->GetAsColumn(row);
 			size_t	len = arr->Size();
+			auto	slot = (ch_binary_array_t *) palloc(sizeof(ch_binary_array_t));
 
 			*valtype = get_array_type(get_corr_array_type(arr->Type()->GetCode()));
 			if (*valtype == InvalidOid)
-				elog(ERROR, "clickhouse_fdw: could not find array type for %d",
-						*valtype);
+				throw std::runtime_error(std::string("clickhouse_fdw: could not") +
+						" find array type for " + std::to_string(*valtype));
 
-			if (len == 0)
-				ret = PointerGetDatum(construct_empty_array(*valtype));
-			else
+			slot->len = len;
+			slot->array_type = *valtype;
+			*valtype = ANYARRAYOID;
+
+			if (len > 0)
 			{
-				int16		typlen;
-				bool		typbyval;
-				char		typalign;
-				Oid			item_type;
 				bool		item_isnull;
-				void	   *arrout;
 
-				Datum *out_datums = (Datum *) palloc(sizeof(Datum) * len);
-
+				slot->datums = (Datum *) palloc(sizeof(Datum) * len);
 				for (size_t i = 0; i < len; ++i)
-					out_datums[i] = make_datum(arr, i, &item_type, &item_isnull);
-
-				get_typlenbyvalalign(item_type, &typlen, &typbyval, &typalign);
-				arrout = construct_array(out_datums, len, item_type, typlen,
-						typbyval, typalign);
-				ret = PointerGetDatum(arrout);
-				pfree(out_datums);
+				{
+					slot->datums[i] = make_datum(arr, i, &slot->item_type, &item_isnull);
+					Assert(!item_isnull);
+				}
 			}
 		}
 		break;
 		case Type::Code::Tuple:
 		{
-			Datum		result;
-			HeapTuple	htup;
-			TupleDesc	desc;
 			auto tuple = col->As<ColumnTuple>();
 			auto len = tuple->TupleSize();
 
 			if (len == 0)
-				elog(ERROR, "clickhouse_fdw: returned tuple is empty");
+				throw std::runtime_error("clickhouse_fdw: returned tuple is empty");
 
-#if PG_VERSION_NUM < 120000
-			desc = CreateTemplateTupleDesc(len, false);
-#else
-			desc = CreateTemplateTupleDesc(len);
-#endif
-			auto tuple_values = (Datum *) palloc(sizeof(Datum) * desc->natts);
-			auto tuple_nulls = (bool *) palloc0(sizeof(bool) * desc->natts);
+			auto slot = (ch_binary_tuple_t *) palloc(sizeof(ch_binary_tuple_t));
 
-			for (size_t i = 0; i < desc->natts; ++i)
+			slot->datums = (Datum *) palloc(sizeof(Datum) * len);
+			slot->nulls = (bool *) palloc0(sizeof(bool) * len);
+			slot->types = (Oid *) palloc0(sizeof(Oid) * len);
+			slot->len = len;
+
+			for (size_t i = 0; i < len; ++i)
 			{
 				Oid		item_type;
 				auto tuple_col = (*tuple)[i];
 
-				tuple_values[i] = make_datum(tuple_col, row, &item_type,
-						&tuple_nulls[i]);
-				TupleDescInitEntry(desc, (AttrNumber) i + 1, "", item_type, -1, 0);
+				slot->datums[i] = make_datum(tuple_col, row, &slot->types[i],
+						&slot->nulls[i]);
 			}
-
-			desc = BlessTupleDesc(desc);
-			auto slot = (ch_binary_tuple_t *) palloc(sizeof(ch_binary_tuple_t));
-			slot->desc = desc;
-
-			htup = heap_form_tuple(slot->desc, tuple_values, tuple_nulls);
-			slot->tup = htup;
-
-			pfree(tuple_values);
-			pfree(tuple_nulls);
 
 			/* this one will need additional work, since we just return raw slot */
 			ret = PointerGetDatum(slot);
@@ -499,7 +489,7 @@ nested:
 		}
 		break;
 		default:
-			elog(ERROR, "clickhouse_fdw: unsupported type");
+			throw std::runtime_error("clickhouse_fdw: unsupported type");
 	}
 
 	return ret;

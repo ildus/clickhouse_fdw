@@ -26,9 +26,18 @@ typedef struct {
 } ch_binary_read_state_t;
 
 typedef struct {
-	HeapTuple	tup;
-	TupleDesc	desc;
+	Datum	*datums;
+	bool	*nulls;
+	size_t	 len;
+	Oid		*types;
 } ch_binary_tuple_t;
+
+typedef struct {
+	Datum  *datums;
+	size_t	len;
+	Oid		item_type;
+	Oid		array_type;
+} ch_binary_array_t;
 
 #ifdef __cplusplus
 extern "C" {

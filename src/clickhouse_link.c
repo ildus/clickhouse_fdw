@@ -644,13 +644,27 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 
 	if (intype == RECORDOID)
 	{
+		HeapTuple	htup;
+		TupleDesc	desc;
+
 		/* we've got a tuple */
 		ch_binary_tuple_t	*slot = (ch_binary_tuple_t *) DatumGetPointer(val);
 		CustomObjectDef	*cdef = chfdw_check_for_custom_type(outtype);
 
+#if PG_VERSION_NUM < 120000
+		desc = CreateTemplateTupleDesc(slot->len, false);
+#else
+		desc = CreateTemplateTupleDesc(slot->len);
+#endif
+		for (size_t i = 0; i < slot->len; ++i)
+			TupleDescInitEntry(desc, (AttrNumber) i + 1, "", slot->types[i], -1, 0);
+
+		desc = BlessTupleDesc(desc);
+		htup = heap_form_tuple(desc, slot->datums, slot->nulls);
+
 		if (cdef || outtype == RECORDOID || outtype == TEXTOID)
 		{
-			val = heap_copy_tuple_as_datum(slot->tup, slot->desc);
+			val = heap_copy_tuple_as_datum(htup, desc);
 
 			if (cdef && cdef->rowfunc != InvalidOid)
 			{
@@ -692,16 +706,16 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 				PinTupleDesc(pgdesc);
 			}
 
-			tupmap = convert_tuples_by_position(slot->desc, pgdesc,
+			tupmap = convert_tuples_by_position(desc, pgdesc,
 				"clickhouse_fdw: could not map tuple to returned type");
 
 			if (tupmap)
 			{
-				temptup = execute_attr_map_tuple(slot->tup, tupmap);
+				temptup = execute_attr_map_tuple(htup, tupmap);
 				pfree(tupmap);
 			}
 			else
-				temptup = slot->tup;
+				temptup = htup;
 
 			val = heap_copy_tuple_as_datum(temptup, pgdesc);
 			if (pinned)
@@ -712,6 +726,33 @@ convert_datum(Datum val, Oid intype, Oid outtype)
 	{
 		Oid			castfunc;
 		CoercionPathType ctype;
+
+		if (intype == DATEOID)
+			val = DirectFunctionCall1(timestamp_date, val);
+		else if (intype == ANYARRAYOID)
+		{
+			ch_binary_array_t	*slot = (ch_binary_array_t *) DatumGetPointer(val);
+
+			if (slot->len == 0)
+				val = PointerGetDatum(construct_empty_array(intype));
+			else
+			{
+				int16		typlen;
+				bool		typbyval;
+				char		typalign;
+				void	   *arrout;
+
+				get_typlenbyvalalign(slot->item_type, &typlen, &typbyval, &typalign);
+				arrout = construct_array(slot->datums, slot->len, slot->item_type,
+						typlen, typbyval, typalign);
+				val = PointerGetDatum(arrout);
+				pfree(slot->datums);
+			}
+
+			/* restore intype */
+			intype = slot->array_type;
+			pfree(slot);
+		}
 
 		if (intype == TEXTOID)
 		{

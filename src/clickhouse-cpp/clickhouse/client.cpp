@@ -99,7 +99,7 @@ private:
     bool ReceiveHello();
 
     /// Reads data packet form input stream.
-    bool ReceiveData();
+    bool ReceiveData(bool log = false);
 
     /// Reads exception packet form input stream.
     bool ReceiveException(bool rethrow = false);
@@ -286,7 +286,12 @@ bool Client::Impl::ReceiveSamplePacket(uint64_t* server_packet) {
 			return false;
 		}
 
-		case ServerCodes::Log: continue;
+		case ServerCodes::Log: {
+			if (!ReceiveData(true)) {
+				throw std::runtime_error("can't read log packet from input stream");
+			}
+			continue;
+		}
 
 		default:
 			throw std::runtime_error("unexpected package" +
@@ -518,7 +523,7 @@ bool Client::Impl::ReadBlock(Block* block, CodedInputStream* input) {
     return true;
 }
 
-bool Client::Impl::ReceiveData() {
+bool Client::Impl::ReceiveData(bool log) {
     Block block;
 
     if (REVISION >= DBMS_MIN_REVISION_WITH_TEMPORARY_TABLES) {
@@ -542,7 +547,8 @@ bool Client::Impl::ReceiveData() {
         }
     }
 
-    if (events_) {
+	/* Now we just ignore log blocks */
+    if (events_ && !log) {
         events_->OnData(block);
         if (!events_->OnDataCancelable(block)) {
             SendCancel();
@@ -823,7 +829,7 @@ void Client::Insert(const std::string& table_name, const Block& block) {
     impl_->Insert(table_name, block);
 }
 
-void Client::InsertWithSample(const std::string &table_name, InsertCallback cb) {
+void Client::PrepareInsert(const std::string &table_name, InsertCallback cb) {
 	auto query = "INSERT INTO " + table_name + " VALUES";
     impl_->PrepareInsert(Query(query).OnInsertData(cb));
 }
