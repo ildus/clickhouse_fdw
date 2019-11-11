@@ -1,3 +1,4 @@
+#include "clickhouse/columns/nullable.h"
 #include <clickhouse/client.h>
 #include <clickhouse/types/types.h>
 #include <iostream>
@@ -18,44 +19,104 @@ extern "C" {
 #include "utils/lsyscache.h"
 #include "utils/palloc.h"
 #include "utils/array.h"
+#include "utils/memdebug.h"
+#include "utils/date.h"
 #include "clickhouse_binary.hh"
 #include "clickhouse_internal.h"
 
 using namespace clickhouse;
 
+
+/* palloc which will throw exceptions */
+static void *
+exc_palloc(Size size)
+{
+	/* duplicates MemoryContextAlloc to avoid increased overhead */
+	void	   *ret;
+	MemoryContext context = CurrentMemoryContext;
+
+	AssertArg(MemoryContextIsValid(context));
+
+	if (!AllocSizeIsValid(size))
+		throw std::bad_alloc();
+
+	context->isReset = false;
+
+	ret = context->methods->alloc(context, size);
+	if (unlikely(ret == NULL))
+		throw std::bad_alloc();
+
+	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
+
+	return ret;
+}
+
+void *
+exc_palloc0(Size size)
+{
+	/* duplicates MemoryContextAllocZero to avoid increased overhead */
+	void	   *ret;
+	MemoryContext context = CurrentMemoryContext;
+
+	AssertArg(MemoryContextIsValid(context));
+
+	if (!AllocSizeIsValid(size))
+		throw std::bad_alloc();
+
+	context->isReset = false;
+
+	ret = context->methods->alloc(context, size);
+	if (unlikely(ret == NULL))
+		throw std::bad_alloc();
+
+	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
+
+	MemSetAligned(ret, 0, size);
+
+	return ret;
+}
+
 ch_binary_connection_t *ch_binary_connect(char *host, int port,
 		char *database, char *user, char *password, char **error)
 {
+	ClientOptions	*options = NULL;
 	ch_binary_connection_t	*conn = NULL;
-	ClientOptions	*options = new ClientOptions();
-
-	options->SetPingBeforeQuery(true);
-	if (host)
-		options->SetHost(std::string(host));
-	if (port)
-		options->SetPort(port);
-	if (database)
-		options->SetDefaultDatabase(std::string(database));
-	if (user)
-		options->SetUser(std::string(user));
-	if (password)
-		options->SetPassword(std::string(password));
-
-	//options->SetRethrowException(false);
-	conn = new ch_binary_connection_t();
 
 	try
 	{
+		options = new ClientOptions();
+		options->SetPingBeforeQuery(true);
+
+		if (host)
+			options->SetHost(std::string(host));
+		if (port)
+			options->SetPort(port);
+		if (database)
+			options->SetDefaultDatabase(std::string(database));
+		if (user)
+			options->SetUser(std::string(user));
+		if (password)
+			options->SetPassword(std::string(password));
+
+		//options->SetRethrowException(false);
+		conn = new ch_binary_connection_t();
+
 		Client *client = new Client(*options);
 		conn->client = client;
 		conn->options = options;
 	}
 	catch (const std::exception& e)
 	{
-		delete conn;
-		conn = NULL;
 		if (error)
 			*error = strdup(e.what());
+
+		if (conn != NULL)
+			delete conn;
+
+		if (options != NULL)
+			delete options;
+
+		conn = NULL;
 	}
 	return conn;
 }
@@ -82,21 +143,24 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 	const char *query, bool (*check_cancel)(void) )
 {
 	Client	*client = (Client *) conn->client;
-	auto resp = new ch_binary_response_t();
-	auto chquery = std::string(query);
-	auto values = new std::vector<std::vector<clickhouse::ColumnRef>>();
+	ch_binary_response_t	*resp;
+	std::vector<std::vector<clickhouse::ColumnRef>> *values;
 
-	assert(resp->values == NULL);
 	try
 	{
-		client->SelectCancelable(chquery,
+		resp = new ch_binary_response_t();
+		values = new std::vector<std::vector<clickhouse::ColumnRef>>();
+
+		client->SelectCancelable(std::string(query),
 				[&resp, &values, &check_cancel] (const Block& block) {
+
 			if (check_cancel && check_cancel())
 			{
 				set_resp_error(resp, "query was canceled");
 				return false;
 			}
 
+			/* some empty block */
 			if (block.GetColumnCount() == 0)
 				return true;
 
@@ -117,6 +181,8 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 			values->push_back(std::move(vec));
 			return true;
 		});
+
+		resp->values = (void *) values;
 	}
 	catch (const std::exception& e)
 	{
@@ -126,9 +192,45 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 		values = NULL;
 	}
 
-	resp->values = (void *) values;
 	resp->success = (resp->error == NULL);
 	return resp;
+}
+
+static Oid
+get_corr_postgres_type(const Type &type)
+{
+	switch (type.GetCode())
+	{
+		case Type::Code::Int8:
+		case Type::Code::Int16:
+		case Type::Code::UInt8: return INT2OID;
+		case Type::Code::Int32:
+		case Type::Code::UInt16: return INT4OID;
+		case Type::Code::Int64:
+		case Type::Code::UInt64:
+		case Type::Code::UInt32: return INT8OID;
+		case Type::Code::Float32: return FLOAT4OID;
+		case Type::Code::Float64: return FLOAT8OID;
+		case Type::Code::FixedString:
+		case Type::Code::Enum8:
+		case Type::Code::Enum16:
+		case Type::Code::String: return TEXTOID;
+		case Type::Code::Date: return DATEOID;
+		case Type::Code::DateTime: return TIMESTAMPOID;
+		case Type::Code::UUID: return UUIDOID;
+		case Type::Code::Array:
+		{
+			Oid array_type = get_array_type(get_corr_postgres_type(
+						*type.As<clickhouse::ArrayType>()->GetItemType().get()));
+			if (array_type == InvalidOid)
+				throw std::runtime_error("clickhouse_fdw: could not find array "
+						" type for column type " + type.GetName());
+
+			return array_type;
+		}
+		default:
+			throw std::runtime_error("clickhouse_fdw: unsupported column type " + type.GetName());
+	}
 }
 
 void *
@@ -142,21 +244,197 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 	{
 		Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
 		auto tn = std::string(table_name);
-		client->PrepareInsert(tn, [] (const Block& sample_block) {
+		auto state = (ch_binary_insert_state *)
+			exc_palloc(sizeof(ch_binary_insert_state));
+
+		client->PrepareInsert(tn, [state] (const Block& sample_block)
+		{
 			if (sample_block.GetColumnCount() == 0)
 				return true;
 
-			auto vec = std::vector<clickhouse::ColumnRef>();
-			elog(NOTICE, "columns count: %d", sample_block.GetColumnCount());
+			auto vec = new std::vector<clickhouse::ColumnRef>();
 
+			state->len = sample_block.GetColumnCount();
+			state->coltypes = (Oid *) exc_palloc(sizeof(Oid) * state->len);
+
+			for (size_t i = 0; i < state->len; i++)
+			{
+				clickhouse::ColumnRef	col = sample_block[i];
+				vec->push_back(col);
+				state->coltypes[i] = get_corr_postgres_type(*col->Type().get());
+			}
+
+			state->columns = (void *) vec;
 			return true;
 		});
+
+		return state;
 	}
 	catch (const std::exception& e)
 	{
 		elog(ERROR, "clickhouse_fdw: insertion error - %s", e.what());
 	}
 	return NULL;
+}
+
+static void
+append_data(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
+{
+	bool nullable = false;
+
+	if (col->Type()->GetCode() == Type::Code::Nullable)
+		nullable = true;
+
+	if (isnull && !nullable)
+		throw std::runtime_error("clickhouse_fdw: unexpected column "
+				"type for NULL: " + col->Type()->GetName());
+
+	if (nullable)
+	{
+		auto nullable = col->As<ColumnNullable>();
+		nullable->Append(isnull);
+		col = nullable->Nested();
+	}
+
+	switch (valtype)
+	{
+		case INT2OID:
+		{
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::UInt8:
+					col->As<ColumnUInt8>()->Append((uint8_t) val);
+					break;
+				case Type::Code::Int8:
+					col->As<ColumnInt8>()->Append((int8_t) val);
+					break;
+				case Type::Code::Int16:
+					col->As<ColumnInt16>()->Append((int16_t) val);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for INT2: " + col->Type()->GetName());
+			}
+			break;
+		}
+		case INT4OID:
+		{
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::Int32:
+					col->As<ColumnInt32>()->Append((int32_t) val);
+					break;
+				case Type::Code::UInt16:
+					col->As<ColumnUInt16>()->Append((uint16_t) val);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for INT4: " + col->Type()->GetName());
+			}
+			break;
+		}
+		case INT8OID:
+		{
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::Int64:
+					col->As<ColumnInt64>()->Append((int64_t) val);
+					break;
+				case Type::Code::UInt32:
+					col->As<ColumnUInt32>()->Append((uint32_t) val);
+					break;
+				case Type::Code::UInt64:
+					col->As<ColumnUInt64>()->Append((uint64_t) val);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for INT8: " + col->Type()->GetName());
+			}
+			break;
+		}
+		case FLOAT4OID:
+		{
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::Float32:
+					col->As<ColumnFloat32>()->Append((float) val);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for FLOAT4: " + col->Type()->GetName());
+			}
+			break;
+		}
+		case FLOAT8OID:
+		{
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::Float64:
+					col->As<ColumnFloat64>()->Append((double) val);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for FLOAT8: " + col->Type()->GetName());
+			}
+			break;
+		}
+		case TEXTOID:
+		{
+			char *s = TextDatumGetCString(val);
+
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::FixedString:
+					col->As<ColumnFixedString>()->Append(s);
+					break;
+				case Type::Code::String:
+					col->As<ColumnString>()->Append(s);
+					break;
+				case Type::Code::Enum8:
+					col->As<ColumnEnum8>()->Append(s);
+					break;
+				case Type::Code::Enum16:
+					col->As<ColumnEnum16>()->Append(s);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for TEXT: " + col->Type()->GetName());
+			}
+
+			break;
+		}
+		case DATEOID:
+		{
+			Timestamp t = date2timestamp_no_overflow(DatumGetDateADT(val));
+			pg_time_t d = timestamptz_to_time_t(t);
+
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::Date:
+					col->As<ColumnDate>()->Append(d);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for DATE: " + col->Type()->GetName());
+			}
+			break;
+		}
+		case TIMESTAMPOID:
+		{
+			pg_time_t d = timestamptz_to_time_t(DatumGetTimestamp(val));
+
+			switch (col->Type()->GetCode())
+			{
+				case Type::Code::DateTime:
+					col->As<ColumnDateTime>()->Append(d);
+					break;
+				default:
+					throw std::runtime_error("clickhouse_fdw: unexpected column "
+							"type for TIMESTAMPOID: " + col->Type()->GetName());
+			}
+			break;
+		}
+	}
 }
 
 void
@@ -221,33 +499,6 @@ void ch_binary_read_state_init(ch_binary_read_state_t *state,
 	catch (const std::exception& e)
 	{
 		set_state_error(state, e.what());
-	}
-}
-
-static Oid
-get_corr_array_type(Type::Code code)
-{
-	switch (code)
-	{
-		case Type::Code::Int8:
-		case Type::Code::Int16:
-		case Type::Code::UInt8: return INT2OID;
-		case Type::Code::Int32:
-		case Type::Code::UInt16: return INT4OID;
-		case Type::Code::Int64:
-		case Type::Code::UInt64:
-		case Type::Code::UInt32: return INT8OID;
-		case Type::Code::Float32: return FLOAT4OID;
-		case Type::Code::Float64: return FLOAT8OID;
-		case Type::Code::FixedString:
-		case Type::Code::Enum8:
-		case Type::Code::Enum16:
-		case Type::Code::String: return TEXTOID;
-		case Type::Code::Date: return DATEOID;
-		case Type::Code::DateTime: return TIMESTAMPOID;
-		case Type::Code::UUID: return UUIDOID;
-		default:
-			throw std::runtime_error("clickhouse_fdw: unsupported type for arrays");
 	}
 }
 
@@ -406,7 +657,7 @@ nested:
 			/* we form char[16] from two uint64 numbers, and they should
 			 * be big endian */
 			UInt128 val = col->As<ColumnUUID>()->At(row);
-			pg_uuid_t	*uuid_val = (pg_uuid_t *) palloc(sizeof(pg_uuid_t));
+			pg_uuid_t	*uuid_val = (pg_uuid_t *) exc_palloc(sizeof(pg_uuid_t));
 
 			val.first = htobe64(val.first);
 			val.second = htobe64(val.second);
@@ -435,9 +686,9 @@ nested:
 		{
 			auto	arr = col->As<ColumnArray>()->GetAsColumn(row);
 			size_t	len = arr->Size();
-			auto	slot = (ch_binary_array_t *) palloc(sizeof(ch_binary_array_t));
+			auto	slot = (ch_binary_array_t *) exc_palloc(sizeof(ch_binary_array_t));
 
-			*valtype = get_array_type(get_corr_array_type(arr->Type()->GetCode()));
+			*valtype = get_array_type(get_corr_postgres_type(*arr->Type().get()));
 			if (*valtype == InvalidOid)
 				throw std::runtime_error(std::string("clickhouse_fdw: could not") +
 						" find array type for " + std::to_string(*valtype));
@@ -450,7 +701,7 @@ nested:
 			{
 				bool		item_isnull;
 
-				slot->datums = (Datum *) palloc(sizeof(Datum) * len);
+				slot->datums = (Datum *) exc_palloc(sizeof(Datum) * len);
 				for (size_t i = 0; i < len; ++i)
 				{
 					slot->datums[i] = make_datum(arr, i, &slot->item_type, &item_isnull);
@@ -467,11 +718,11 @@ nested:
 			if (len == 0)
 				throw std::runtime_error("clickhouse_fdw: returned tuple is empty");
 
-			auto slot = (ch_binary_tuple_t *) palloc(sizeof(ch_binary_tuple_t));
+			auto slot = (ch_binary_tuple_t *) exc_palloc(sizeof(ch_binary_tuple_t));
 
-			slot->datums = (Datum *) palloc(sizeof(Datum) * len);
-			slot->nulls = (bool *) palloc0(sizeof(bool) * len);
-			slot->types = (Oid *) palloc0(sizeof(Oid) * len);
+			slot->datums = (Datum *) exc_palloc(sizeof(Datum) * len);
+			slot->nulls = (bool *) exc_palloc0(sizeof(bool) * len);
+			slot->types = (Oid *) exc_palloc0(sizeof(Oid) * len);
 			slot->len = len;
 
 			for (size_t i = 0; i < len; ++i)
@@ -504,7 +755,8 @@ bool ch_binary_read_row(ch_binary_read_state_t *state)
 		return false;
 
 	assert(state->resp->values);
-	auto& values = *((std::vector<std::vector<clickhouse::ColumnRef>> *) state->resp->values);
+	auto& values = *((std::vector<std::vector<clickhouse::ColumnRef>> *)
+			state->resp->values);
 	try {
 again:
 		assert(state->block < state->resp->blocks_count);

@@ -1,6 +1,10 @@
 #ifndef CLICKHOUSE_BINARY_H
 #define CLICKHOUSE_BINARY_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct ch_binary_connection_t ch_binary_connection_t;
 typedef struct ch_binary_response_t
 {
@@ -39,9 +43,11 @@ typedef struct {
 	Oid		array_type;
 } ch_binary_array_t;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+typedef struct {
+	Oid	   *coltypes;
+	void   *columns;
+	size_t	len;
+} ch_binary_insert_state;
 
 extern ch_binary_connection_t *ch_binary_connect(char *host, int port,
 		char *database, char *user, char *password, char **error);
