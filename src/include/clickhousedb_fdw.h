@@ -36,6 +36,8 @@ typedef struct ch_cursor
 	char	*query;
 	double	 request_time;
 	double	 total_time;
+	size_t   columns_count;
+	uintptr_t	*conversion_states; /* for binary */
 } ch_cursor;
 
 typedef void (*disconnect_method)(void *conn);

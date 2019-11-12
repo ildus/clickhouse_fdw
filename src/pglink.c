@@ -519,7 +519,9 @@ binary_simple_query(void *conn, const char *query)
 	state = (ch_binary_read_state_t *) palloc0(sizeof(ch_binary_read_state_t));
 	cursor->query = pstrdup(query);
 	cursor->read_state = state;
+	cursor->columns_count = resp->columns_count;
 	ch_binary_read_state_init(cursor->read_state, resp);
+	cursor->conversion_states = palloc0(sizeof(uintptr_t) * cursor->columns_count);
 
 	cursor->memcxt = tempcxt;
 	cursor->callback.func = binary_cursor_free;
@@ -722,7 +724,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	{
 		if (state->resp->columns_count == 1 && state->nulls[0])
 		{
-			/* SELECT NULL, nulls array already contains nulls */
+			nulls[0] = true;
 			goto ok;
 		}
 		else
@@ -748,14 +750,34 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		{
 			int		i = lfirst_int(lc);
 			bool	isnull = state->nulls[j];
+			intptr_t	convstate;
+
 
 			if (isnull)
 				values[i - 1] = (Datum) 0;
 			else
 			{
-				Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-				values[i - 1] = convert_datum(state->values[j],
-						state->coltypes[j], outtype);
+again:
+				convstate = cursor->conversion_states[j];
+				switch (convstate)
+				{
+					case 0:
+					{
+						Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+						void *s = ch_binary_init_convert_state(state->values[j], state->coltypes[j], outtype);
+						if (s == NULL)
+							/* no conversion but state is initalized */
+							cursor->conversion_states[j] = 1;
+						else
+							cursor->conversion_states[j] = (uintptr_t) s;
+						goto again;
+					}
+					case 1:
+						/* no conversion */
+						values[i - 1] = state->values[j];
+					default:
+						values[i - 1] = ch_binary_convert_datum((void *) convstate, state->values[j]);
+				}
 			}
 
 			nulls[i - 1] = isnull;
@@ -771,6 +793,12 @@ static void
 binary_cursor_free(void *c)
 {
 	ch_cursor *cursor = c;
+	for (size_t i = 0; i < cursor->columns_count; i++)
+	{
+		if (cursor->conversion_states[i] > 1)
+			ch_binary_free_convert_state((void *) cursor->conversion_states[i]);
+	}
+
 	ch_binary_read_state_free(cursor->read_state);
 	ch_binary_response_free(cursor->query_response);
 }

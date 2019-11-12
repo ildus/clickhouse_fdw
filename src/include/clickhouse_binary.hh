@@ -15,7 +15,6 @@ typedef struct ch_binary_response_t
 	bool				success;
 } ch_binary_response_t;
 
-/* gcc should support this */
 typedef struct {
 	ch_binary_response_t	*resp;
 	Oid		*coltypes;
@@ -62,6 +61,9 @@ extern void ch_binary_insert_tuple(void *istate, TupleTableSlot *slot);
 void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp);
 void ch_binary_read_state_free(ch_binary_read_state_t *state);
 bool ch_binary_read_row(ch_binary_read_state_t *state);
+Datum ch_binary_convert_datum(void *state, Datum val);
+void *ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype);
+void ch_binary_free_convert_state(void *);
 
 #ifdef __cplusplus
 }

@@ -22,6 +22,7 @@ set (src
 	shipable.c
 	adjust.c
 	pglink.c
+	convert.c
 
 	# library part
 	http.c
