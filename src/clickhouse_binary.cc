@@ -197,9 +197,9 @@ ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 }
 
 static Oid
-get_corr_postgres_type(const Type &type)
+get_corr_postgres_type(const TypeRef &type)
 {
-	switch (type.GetCode())
+	switch (type->GetCode())
 	{
 		case Type::Code::Int8:
 		case Type::Code::Int16:
@@ -221,15 +221,16 @@ get_corr_postgres_type(const Type &type)
 		case Type::Code::Array:
 		{
 			Oid array_type = get_array_type(get_corr_postgres_type(
-						*type.As<clickhouse::ArrayType>()->GetItemType().get()));
+						type->As<clickhouse::ArrayType>()->GetItemType()));
 			if (array_type == InvalidOid)
 				throw std::runtime_error("clickhouse_fdw: could not find array "
-						" type for column type " + type.GetName());
+						" type for column type " + type->GetName());
 
 			return array_type;
 		}
+		case Type::Code::Tuple: return RECORDOID;
 		default:
-			throw std::runtime_error("clickhouse_fdw: unsupported column type " + type.GetName());
+			throw std::runtime_error("clickhouse_fdw: unsupported column type " + type->GetName());
 	}
 }
 
@@ -261,7 +262,7 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 			{
 				clickhouse::ColumnRef	col = sample_block[i];
 				vec->push_back(col);
-				state->coltypes[i] = get_corr_postgres_type(*col->Type().get());
+				state->coltypes[i] = get_corr_postgres_type(col->Type());
 			}
 
 			state->columns = (void *) vec;
@@ -688,7 +689,7 @@ nested:
 			size_t	len = arr->Size();
 			auto	slot = (ch_binary_array_t *) exc_palloc(sizeof(ch_binary_array_t));
 
-			*valtype = get_array_type(get_corr_postgres_type(*arr->Type().get()));
+			*valtype = get_array_type(get_corr_postgres_type(arr->Type()));
 			if (*valtype == InvalidOid)
 				throw std::runtime_error(std::string("clickhouse_fdw: could not") +
 						" find array type for " + std::to_string(*valtype));
