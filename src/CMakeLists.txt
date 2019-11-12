@@ -14,19 +14,19 @@ target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
 target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 
 set (src
-	clickhouse_connection.c
-	clickhouse_deparse.c
 	clickhouse_fdw.c
-	clickhouse_option.c
-	clickhouse_shipable.c
-	clickhouse_shipable.c
-	clickhouse_adjust.c
-	clickhouse_link.c
+	connection.c
+	deparse.c
+	option.c
+	shipable.c
+	shipable.c
+	adjust.c
+	pglink.c
 
 	# library part
-	clickhouse_http.c
-	clickhouse_parser.c
-	clickhouse_binary.cc
+	http.c
+	parser.c
+	binary.cc
 )
 
 find_package(PkgConfig REQUIRED)
