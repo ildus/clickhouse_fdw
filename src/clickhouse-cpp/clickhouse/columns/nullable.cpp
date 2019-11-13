@@ -30,7 +30,7 @@ ColumnRef ColumnNullable::Nested() const {
 
 ColumnRef ColumnNullable::Nulls() const
 {
-       return nulls_;
+    return nulls_;
 }
 
 void ColumnNullable::Append(ColumnRef column) {

@@ -44,6 +44,15 @@ typedef struct ch_convert_state {
 	Oid					castfunc;
 } ch_convert_state;
 
+typedef struct ch_convert_output_state {
+	Oid				intype;
+	Oid				outtype;
+	convert_func	func;
+
+	// generic
+	CoercionPathType	ctype;
+	Oid					castfunc;
+} ch_convert_output_state;
 
 static Datum
 convert_record(ch_convert_state *state, Datum val)
@@ -150,6 +159,7 @@ ch_binary_convert_datum(void *state, Datum val)
 	return state ? ((ch_convert_state *) state)->func(state, val) : val;
 }
 
+/* input */
 void *
 ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 {
@@ -290,6 +300,38 @@ no_conversion:
 		/* no conversion needed */
 		pfree(state);
 		state = NULL;
+	}
+
+	return state;
+}
+
+/* output */
+void *
+ch_binary_init_output_convert_state(Oid intype, Oid outtype)
+{
+	ch_convert_output_state *state;
+
+	if (intype == outtype)
+		return NULL;
+
+	state = palloc0(sizeof(ch_convert_output_state));
+	state->intype = intype;
+	state->outtype = outtype;
+	state->func = convert_generic;
+	state->ctype = find_coercion_pathway(outtype, intype, COERCION_EXPLICIT,
+											&state->castfunc);
+	switch (state->ctype)
+	{
+		case COERCION_PATH_FUNC:
+			break;
+		case COERCION_PATH_RELABELTYPE:
+		{
+			pfree(state);
+			return NULL;
+		}
+		default:
+			elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
+					format_type_be(intype), format_type_be(outtype));
 	}
 
 	return state;

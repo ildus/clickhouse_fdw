@@ -1,4 +1,5 @@
 #include "clickhouse/columns/nullable.h"
+#include "clickhouse/columns/factory.h"
 #include <clickhouse/client.h>
 #include <clickhouse/types/types.h>
 #include <iostream>
@@ -234,26 +235,48 @@ get_corr_postgres_type(const TypeRef &type)
 	}
 }
 
+static void
+binary_insert_state_free(void *c)
+{
+	auto *state = (ch_binary_insert_state *) c;
+	if (state->columns)
+		delete (std::vector<clickhouse::ColumnRef> *) state->columns;
+}
+
 void *
 ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 		char *query, char *table_name)
 {
+	MemoryContext	tempcxt,
+					oldcxt;
+	std::vector<clickhouse::ColumnRef> *vec = nullptr;
+	ch_binary_insert_state *state = NULL;
+
 	if (table_name == NULL)
 		elog(ERROR, "expected table name");
+
+	tempcxt = AllocSetContextCreate(PortalContext,
+		"clickhouse_fdw binary insert state", ALLOCSET_DEFAULT_SIZES);
+
+	/* prepare cleanup */
+	oldcxt = MemoryContextSwitchTo(tempcxt);
+	state = (ch_binary_insert_state *) palloc0(sizeof(ch_binary_insert_state));
+	state->memcxt = tempcxt;
+	state->callback.func = binary_insert_state_free;
+	state->callback.arg = state;
+	MemoryContextRegisterResetCallback(tempcxt, &state->callback);
 
 	try
 	{
 		Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
 		auto tn = std::string(table_name);
-		auto state = (ch_binary_insert_state *)
-			exc_palloc(sizeof(ch_binary_insert_state));
 
-		client->PrepareInsert(tn, [state] (const Block& sample_block)
+		client->PrepareInsert(tn, [&state, &vec] (const Block& sample_block)
 		{
 			if (sample_block.GetColumnCount() == 0)
 				return true;
 
-			auto vec = new std::vector<clickhouse::ColumnRef>();
+			vec = new std::vector<clickhouse::ColumnRef>();
 
 			state->len = sample_block.GetColumnCount();
 			state->coltypes = (Oid *) exc_palloc(sizeof(Oid) * state->len);
@@ -261,21 +284,24 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 			for (size_t i = 0; i < state->len; i++)
 			{
 				clickhouse::ColumnRef	col = sample_block[i];
-				vec->push_back(col);
+				vec->push_back(clickhouse::CreateColumnByType(col->Type()->GetName()));
 				state->coltypes[i] = get_corr_postgres_type(col->Type());
 			}
 
 			state->columns = (void *) vec;
 			return true;
 		});
-
-		return state;
 	}
 	catch (const std::exception& e)
 	{
+		if (vec != nullptr)
+			delete vec;
+
 		elog(ERROR, "clickhouse_fdw: insertion error - %s", e.what());
 	}
-	return NULL;
+
+	MemoryContextSwitchTo(oldcxt);
+	return state;
 }
 
 static void
@@ -435,6 +461,9 @@ append_data(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 			}
 			break;
 		}
+		default:
+			throw std::runtime_error("clickhouse_fdw: unexpected type " +
+					std::to_string(valtype) + " type for : " + col->Type()->GetName());
 	}
 }
 

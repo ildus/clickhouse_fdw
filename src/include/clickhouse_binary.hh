@@ -43,9 +43,13 @@ typedef struct {
 } ch_binary_array_t;
 
 typedef struct {
+	MemoryContext	memcxt;	/* used for cleanup */
+	MemoryContextCallback callback;
+
 	Oid	   *coltypes;
-	void   *columns;
+	void   *columns;	/* std::vector */
 	size_t	len;
+	void  **conversion_states;
 } ch_binary_insert_state;
 
 extern ch_binary_connection_t *ch_binary_connect(char *host, int port,
