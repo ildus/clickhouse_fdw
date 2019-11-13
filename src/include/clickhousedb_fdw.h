@@ -15,13 +15,14 @@
 #include "lib/stringinfo.h"
 #include "utils/relcache.h"
 #include "catalog/pg_operator.h"
+#include "nodes/execnodes.h"
 
 #if PG_VERSION_NUM < 120000
 #include "optimizer/var.h"
+#include "access/htup_details.h"
 #else
 #include "optimizer/optimizer.h"
 #include "nodes/pathnodes.h"
-#include "nodes/execnodes.h"
 #endif
 
 /* libclickhouse_link.c */
