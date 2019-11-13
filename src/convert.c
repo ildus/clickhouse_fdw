@@ -13,6 +13,7 @@
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_binary.hh"
+#include <stdint.h>
 
 typedef struct ch_convert_state ch_convert_state;
 typedef Datum (*convert_func)(ch_convert_state *, Datum);
@@ -27,6 +28,7 @@ typedef struct ch_convert_state {
 	CustomObjectDef	*cdef;
 	TupleDesc		indesc;		/* for RECORD */
 	TupleDesc		outdesc;	/* for RECORD */
+	ch_convert_state **conversion_states;
 
 	// array
 	int16		typlen;
@@ -49,6 +51,13 @@ convert_record(ch_convert_state *state, Datum val)
 	HeapTuple		temptup;
 	HeapTuple		htup;
 	ch_binary_tuple_t	*slot = (ch_binary_tuple_t *) DatumGetPointer(val);
+
+	for (size_t i = 0; i < slot->len; i++)
+	{
+		ch_convert_state *s = state->conversion_states[i];
+		if (s)
+			slot->datums[i] = s->func(s, slot->datums[i]);
+	}
 
 	htup = heap_form_tuple(state->indesc, slot->datums, slot->nulls);
 	if (!state->outdesc)
@@ -83,10 +92,11 @@ convert_record(ch_convert_state *state, Datum val)
 inline static Datum
 convert_generic(ch_convert_state *state, Datum val)
 {
-	Assert(state->castfunc != InvalidOid);
-
 	if (state->ctype == COERCION_PATH_FUNC)
+	{
+		Assert(state->castfunc != InvalidOid);
 		val = OidFunctionCall1(state->castfunc, val);
+	}
 
 	return val;
 }
@@ -149,6 +159,21 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 	state->outtype = outtype;
 	state->cdef = chfdw_check_for_custom_type(outtype);
 	state->typmod = -1;
+	state->ctype = COERCION_PATH_NONE;
+
+	if (intype == DATEOID)
+		state->func = convert_date;
+	else if (intype == ANYARRAYOID)
+	{
+		ch_binary_array_t	*slot = (ch_binary_array_t *) DatumGetPointer(val);
+		get_typlenbyvalalign(slot->item_type, &state->typlen, &state->typbyval,
+				&state->typalign);
+
+		/* restore intype */
+		state->intype = slot->array_type;
+		intype = slot->array_type;
+		state->func = convert_array;
+	}
 
 	if (intype == RECORDOID)
 	{
@@ -161,9 +186,24 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 #else
 		state->indesc = CreateTemplateTupleDesc(slot->len);
 #endif
+		state->conversion_states = palloc(sizeof(void *) * slot->len);
+
 		for (size_t i = 0; i < slot->len; ++i)
+		{
+			void *s;
+			Oid item_type = slot->types[i];
+
+			if (slot->types[i] == ANYARRAYOID)
+			{
+				ch_binary_array_t	*arr = (ch_binary_array_t *) DatumGetPointer(slot->datums[i]);
+				item_type = arr->array_type;
+			}
+			state->conversion_states[i] = ch_binary_init_convert_state(slot->datums[i],
+					slot->types[i], item_type);
+
 			TupleDescInitEntry(state->indesc, (AttrNumber) i + 1, "",
-					slot->types[i], -1, 0);
+				item_type, -1, 0);
+		}
 
 		state->indesc = BlessTupleDesc(state->indesc);
 
@@ -199,20 +239,8 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 	}
 	else if (intype != outtype)
 	{
-		state->func = convert_generic;
-
-		if (intype == DATEOID)
-			state->func = convert_date;
-		else if (intype == ANYARRAYOID)
-		{
-			ch_binary_array_t	*slot = (ch_binary_array_t *) DatumGetPointer(val);
-			get_typlenbyvalalign(slot->item_type, &state->typlen, &state->typbyval,
-					&state->typalign);
-
-			/* restore intype */
-			state->intype = slot->array_type;
-			state->func = convert_array;
-		}
+		if (!state->func)
+			state->func = convert_generic;
 
 		if (intype == TEXTOID)
 		{
@@ -256,12 +284,12 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 			}
 		}
 	}
-	else
+	else if (!state->func)
 	{
 no_conversion:
 		/* no conversion needed */
 		pfree(state);
-		return NULL;
+		state = NULL;
 	}
 
 	return state;

@@ -763,8 +763,20 @@ again:
 				{
 					case 0:
 					{
+						MemoryContext old_mcxt;
+
 						Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-						void *s = ch_binary_init_convert_state(state->values[j], state->coltypes[j], outtype);
+						void *s;
+
+						/*
+						 * now we're should be in temporary memory context,
+						 * so make sure conversion states outlive it.
+						 */
+						old_mcxt = MemoryContextSwitchTo(cursor->memcxt);
+						s = ch_binary_init_convert_state(state->values[j],
+								state->coltypes[j], outtype);
+						MemoryContextSwitchTo(old_mcxt);
+
 						if (s == NULL)
 							/* no conversion but state is initalized */
 							cursor->conversion_states[j] = 1;
@@ -775,8 +787,10 @@ again:
 					case 1:
 						/* no conversion */
 						values[i - 1] = state->values[j];
+						break;
 					default:
-						values[i - 1] = ch_binary_convert_datum((void *) convstate, state->values[j]);
+						values[i - 1] = ch_binary_convert_datum((void *) convstate,
+								state->values[j]);
 				}
 			}
 

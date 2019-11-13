@@ -631,6 +631,7 @@ nested:
 			*valtype = DATEOID;
 
 			if (val == 0)
+				/* clickhouse special case */
 				*is_null = true;
 			else
 			{
@@ -695,8 +696,9 @@ nested:
 						" find array type for " + std::to_string(*valtype));
 
 			slot->len = len;
+
+			/* keep real type of the array */
 			slot->array_type = *valtype;
-			*valtype = ANYARRAYOID;
 
 			if (len > 0)
 			{
@@ -709,6 +711,10 @@ nested:
 					Assert(!item_isnull);
 				}
 			}
+
+			/* this one will need additional work, since we just return raw slot */
+			ret = PointerGetDatum(slot);
+			*valtype = ANYARRAYOID;
 		}
 		break;
 		case Type::Code::Tuple:
