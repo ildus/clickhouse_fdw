@@ -73,10 +73,11 @@ void ch_binary_free_convert_state(void *);
 /* insertion */
 void ch_binary_prepare_insert(void *conn, char *table_name,
 		ch_binary_insert_state *state);
-void ch_binary_column_append_data(void *col_p, Datum val, Oid valtype,
-		bool isnull);
+void ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx);
 void *ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc);
 void ch_binary_insert_state_free(void *c);
+void ch_binary_do_output_convertion(ch_binary_insert_state *insert_state,
+		TupleTableSlot *slot);
 
 #ifdef __cplusplus
 }

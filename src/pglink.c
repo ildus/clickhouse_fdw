@@ -707,10 +707,10 @@ binary_insert_tuple(void *istate, TupleTableSlot *slot)
 		MemoryContextSwitchTo(old_mcxt);
 	}
 
-	for (size_t i = 0; i < slot->tts_tupleDescriptor->natts; i++)
-	{
-		Form_pg_attribute attr = TupleDescAttr(slot->tts_tupleDescriptor, i);
-	}
+	ch_binary_do_output_convertion(state, slot);
+
+	for (size_t i = 0; i < state->outdesc->natts; i++)
+		ch_binary_column_append_data(state, i);
 }
 
 #define STR_TYPES_COUNT 16

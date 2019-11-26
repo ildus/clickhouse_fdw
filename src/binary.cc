@@ -305,10 +305,15 @@ ch_binary_prepare_insert(void *conn, char *table_name,
 }
 
 void
-ch_binary_column_append_data(void *col_p, Datum val, Oid valtype, bool isnull)
+ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 {
 	bool nullable = false;
-	auto col = *((clickhouse::ColumnRef *) col_p);
+	auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
+	auto col = columns[colidx];
+
+	Datum	val = state->values[colidx];
+	Oid		valtype = state->outdesc->attrs[colidx].atttypid;
+	bool	isnull = state->nulls[colidx];
 
 	if (col->Type()->GetCode() == Type::Code::Nullable)
 		nullable = true;
