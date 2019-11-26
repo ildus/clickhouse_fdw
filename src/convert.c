@@ -10,13 +10,17 @@
 #include "utils/syscache.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
+#include "executor/tuptable.h"
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_binary.hh"
 #include <stdint.h>
 
 typedef struct ch_convert_state ch_convert_state;
+typedef struct ch_convert_output_state ch_convert_output_state;
 typedef Datum (*convert_func)(ch_convert_state *, Datum);
+typedef Datum (*out_convert_func)(ch_convert_output_state *, Datum);
+
 typedef struct ch_convert_state {
 	Oid				intype;
 	Oid				outtype;
@@ -47,7 +51,8 @@ typedef struct ch_convert_state {
 typedef struct ch_convert_output_state {
 	Oid				intype;
 	Oid				outtype;
-	convert_func	func;
+	AttrNumber		attnum;
+	out_convert_func	func;
 
 	// generic
 	CoercionPathType	ctype;
@@ -100,6 +105,18 @@ convert_record(ch_convert_state *state, Datum val)
 
 inline static Datum
 convert_generic(ch_convert_state *state, Datum val)
+{
+	if (state->ctype == COERCION_PATH_FUNC)
+	{
+		Assert(state->castfunc != InvalidOid);
+		val = OidFunctionCall1(state->castfunc, val);
+	}
+
+	return val;
+}
+
+inline static Datum
+convert_out_generic(ch_convert_output_state *state, Datum val)
 {
 	if (state->ctype == COERCION_PATH_FUNC)
 	{
@@ -305,38 +322,6 @@ no_conversion:
 	return state;
 }
 
-/* output */
-void *
-ch_binary_init_output_convert_state(Oid intype, Oid outtype)
-{
-	ch_convert_output_state *state;
-
-	if (intype == outtype)
-		return NULL;
-
-	state = palloc0(sizeof(ch_convert_output_state));
-	state->intype = intype;
-	state->outtype = outtype;
-	state->func = convert_generic;
-	state->ctype = find_coercion_pathway(outtype, intype, COERCION_EXPLICIT,
-											&state->castfunc);
-	switch (state->ctype)
-	{
-		case COERCION_PATH_FUNC:
-			break;
-		case COERCION_PATH_RELABELTYPE:
-		{
-			pfree(state);
-			return NULL;
-		}
-		default:
-			elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
-					format_type_be(intype), format_type_be(outtype));
-	}
-
-	return state;
-}
-
 void
 ch_binary_free_convert_state(void *s)
 {
@@ -349,4 +334,94 @@ ch_binary_free_convert_state(void *s)
 		ReleaseSysCache(state->baseType);
 
 	pfree(state);
+}
+
+/* output */
+
+static void
+init_output_convert_state(ch_convert_output_state *state)
+{
+	if (state->outtype == state->intype)
+		return;
+
+	state->func = convert_out_generic;
+	state->ctype = find_coercion_pathway(state->outtype, state->intype,
+		COERCION_EXPLICIT, &state->castfunc);
+
+	switch (state->ctype)
+	{
+		case COERCION_PATH_FUNC:
+			break;
+		case COERCION_PATH_RELABELTYPE:
+			state->func = NULL;
+			return;
+		default:
+			elog(ERROR, "clickhouse_fdw: could not find a casting path from %s to %s",
+					format_type_be(state->intype), format_type_be(state->outtype));
+	}
+}
+
+void *
+ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc)
+{
+	ch_convert_output_state	 *states;
+	int			n;
+	int			i;
+
+	n = outdesc->natts;
+	states = (ch_convert_output_state *) palloc0(n * sizeof(ch_convert_output_state));
+
+	for (i = 0; i < n; i++)
+	{
+		ch_convert_output_state *curstate = &states[i];
+
+		Form_pg_attribute attout = TupleDescAttr(outdesc, i);
+		char	   *attname;
+		Oid			atttypid;
+		int			j;
+
+		attname = NameStr(attout->attname);
+		curstate->outtype = attout->atttypid;
+
+		for (j = 0; j < indesc->natts; j++)
+		{
+			Form_pg_attribute attin = TupleDescAttr(indesc, j);
+			curstate->intype = attin->atttypid;
+
+			if (strcmp(attname, NameStr(attin->attname)) == 0)
+			{
+				init_output_convert_state(curstate);
+				curstate->attnum = (AttrNumber) (j + 1);
+				break;
+			}
+		}
+
+		if (curstate->attnum == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg_internal("clickhouse_fdw: could not create conversion map"),
+					 errdetail("Attribute \"%s\" of type %s does not exist in type %s.",
+							   attname,
+							   format_type_be(indesc->tdtypeid),
+							   format_type_be(outdesc->tdtypeid))));
+	}
+
+	return states;
+}
+
+void
+ch_binary_do_output_convertion(ch_binary_insert_state *insert_state,
+		TupleTableSlot *slot)
+{
+	Datum *out_values = insert_state->values;
+	bool *out_nulls = insert_state->nulls;
+
+	for (size_t i = 0; i < insert_state->outdesc->natts; i++)
+	{
+		ch_convert_output_state *cstate = insert_state->conversion_states[i];
+		AttrNumber attnum = cstate->attnum;
+		out_values[i] = slot_getattr(slot, attnum, &out_nulls[i]);
+		if (!out_nulls[i] && cstate->func)
+			out_values[i] = cstate->func(cstate, out_values[i]);
+	}
 }

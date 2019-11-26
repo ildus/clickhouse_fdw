@@ -1,11 +1,12 @@
-#include "clickhouse/columns/nullable.h"
-#include "clickhouse/columns/factory.h"
-#include <clickhouse/client.h>
-#include <clickhouse/types/types.h>
 #include <iostream>
 #include <endian.h>
 #include <cassert>
 #include <stdexcept>
+
+#include "clickhouse/columns/nullable.h"
+#include "clickhouse/columns/factory.h"
+#include <clickhouse/client.h>
+#include <clickhouse/types/types.h>
 
 extern "C" {
 
@@ -13,15 +14,17 @@ extern "C" {
 #include "pgtime.h"
 #include "funcapi.h"
 #include "access/htup_details.h"
+#include "access/tupdesc.h"
 #include "catalog/pg_type_d.h"
-#include "utils/builtins.h"
-#include "utils/uuid.h"
-#include "utils/timestamp.h"
-#include "utils/lsyscache.h"
-#include "utils/palloc.h"
 #include "utils/array.h"
-#include "utils/memdebug.h"
+#include "utils/builtins.h"
 #include "utils/date.h"
+#include "utils/elog.h"
+#include "utils/lsyscache.h"
+#include "utils/memdebug.h"
+#include "utils/palloc.h"
+#include "utils/timestamp.h"
+#include "utils/uuid.h"
 #include "clickhouse_binary.hh"
 #include "clickhouse_internal.h"
 
@@ -235,43 +238,26 @@ get_corr_postgres_type(const TypeRef &type)
 	}
 }
 
-static void
-binary_insert_state_free(void *c)
+void
+ch_binary_insert_state_free(void *c)
 {
 	auto *state = (ch_binary_insert_state *) c;
 	if (state->columns)
 		delete (std::vector<clickhouse::ColumnRef> *) state->columns;
 }
 
-void *
-ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
-		char *query, char *table_name)
+void
+ch_binary_prepare_insert(void *conn, char *table_name,
+		ch_binary_insert_state *state)
 {
-	MemoryContext	tempcxt,
-					oldcxt;
 	std::vector<clickhouse::ColumnRef> *vec = nullptr;
-	ch_binary_insert_state *state = NULL;
-
-	if (table_name == NULL)
-		elog(ERROR, "expected table name");
-
-	tempcxt = AllocSetContextCreate(PortalContext,
-		"clickhouse_fdw binary insert state", ALLOCSET_DEFAULT_SIZES);
-
-	/* prepare cleanup */
-	oldcxt = MemoryContextSwitchTo(tempcxt);
-	state = (ch_binary_insert_state *) palloc0(sizeof(ch_binary_insert_state));
-	state->memcxt = tempcxt;
-	state->callback.func = binary_insert_state_free;
-	state->callback.arg = state;
-	MemoryContextRegisterResetCallback(tempcxt, &state->callback);
 
 	try
 	{
 		Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
 		auto tn = std::string(table_name);
 
-		client->PrepareInsert(tn, [&state, &vec] (const Block& sample_block)
+		client->PrepareInsert("INSERT INTO " + tn, [&state, &vec] (const Block& sample_block)
 		{
 			if (sample_block.GetColumnCount() == 0)
 				return true;
@@ -279,13 +265,30 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 			vec = new std::vector<clickhouse::ColumnRef>();
 
 			state->len = sample_block.GetColumnCount();
-			state->coltypes = (Oid *) exc_palloc(sizeof(Oid) * state->len);
+
+#if PG_VERSION_NUM < 120000
+			state->outdesc = CreateTemplateTupleDesc(state->len, false);
+#else
+			state->outdesc = CreateTemplateTupleDesc(state->len);
+#endif
 
 			for (size_t i = 0; i < state->len; i++)
 			{
 				clickhouse::ColumnRef	col = sample_block[i];
 				vec->push_back(clickhouse::CreateColumnByType(col->Type()->GetName()));
-				state->coltypes[i] = get_corr_postgres_type(col->Type());
+
+				/* we can't afford long jumps outside of this function */
+				PG_TRY();
+				{
+					TupleDescInitEntry(state->outdesc, (AttrNumber) i + 1,
+						sample_block.GetColumnName(i).c_str(),
+						get_corr_postgres_type(col->Type()), -1, 0);
+				}
+				PG_CATCH();
+				{
+					throw std::runtime_error("could not init tuple descriptor");
+				}
+				PG_END_TRY();
 			}
 
 			state->columns = (void *) vec;
@@ -297,17 +300,15 @@ ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 		if (vec != nullptr)
 			delete vec;
 
-		elog(ERROR, "clickhouse_fdw: insertion error - %s", e.what());
+		elog(ERROR, "clickhouse_fdw: error while insert preparation - %s", e.what());
 	}
-
-	MemoryContextSwitchTo(oldcxt);
-	return state;
 }
 
-static void
-append_data(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
+void
+ch_binary_column_append_data(void *col_p, Datum val, Oid valtype, bool isnull)
 {
 	bool nullable = false;
+	auto col = *((clickhouse::ColumnRef *) col_p);
 
 	if (col->Type()->GetCode() == Type::Code::Nullable)
 		nullable = true;
@@ -465,12 +466,6 @@ append_data(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 			throw std::runtime_error("clickhouse_fdw: unexpected type " +
 					std::to_string(valtype) + " type for : " + col->Type()->GetName());
 	}
-}
-
-void
-ch_binary_insert_tuple(void *istate, TupleTableSlot *slot)
-{
-	elog(NOTICE, "insert ok");
 }
 
 void ch_binary_close(ch_binary_connection_t *conn)

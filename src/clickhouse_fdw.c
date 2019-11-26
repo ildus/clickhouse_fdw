@@ -34,6 +34,7 @@
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/palloc.h"
 #include "utils/rel.h"
 
 #if PG_VERSION_NUM >= 120000
@@ -1476,6 +1477,7 @@ create_foreign_modify(EState *estate,
 	Oid			typefnoid;
 	bool		isvarlena;
 	ListCell   *lc;
+	MemoryContext	old_mcxt;
 	Relation	rel = rri->ri_RelationDesc;
 
 	/* Begin constructing CHFdwModifyState. */
@@ -1494,16 +1496,20 @@ create_foreign_modify(EState *estate,
 
 	/* make a connection and prepare an insertion state */
 	fmstate->conn = chfdw_get_connection(user);
+
+	old_mcxt = MemoryContextSwitchTo(estate->es_query_cxt);
 	fmstate->state = fmstate->conn.methods->prepare_insert(fmstate->conn.conn,
 			rri, target_attrs, query, table_name);
 
 	/* Create context for per-query temp workspace. */
-	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
-	                    "postgres_fdw temporary data",
+	fmstate->temp_cxt = AllocSetContextCreate(CurrentMemoryContext,
+	                    "clickhouse_fdw temporary data",
 	                    ALLOCSET_SMALL_SIZES);
+	MemoryContextSwitchTo(old_mcxt);
 
 	/* Set up remote query information. */
 	fmstate->query = query;
+	return fmstate;
 }
 
 /*

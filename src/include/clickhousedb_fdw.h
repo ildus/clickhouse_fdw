@@ -56,7 +56,6 @@ typedef struct
 {
 	disconnect_method			disconnect;
 	simple_query_method			simple_query;
-	simple_insert_method		simple_insert;
 	cursor_free_method			cursor_free;
 	cursor_fetch_row_method		fetch_row;
 	prepare_insert_method		prepare_insert;

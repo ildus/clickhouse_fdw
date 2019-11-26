@@ -13,6 +13,7 @@
 #include "utils/uuid.h"
 #include "utils/fmgroids.h"
 #include "access/htup_details.h"
+#include "access/tupdesc.h"
 #include <sys/stat.h>
 #include <fcntl.h>
  #include <unistd.h>
@@ -34,7 +35,6 @@ static void http_insert_tuple(void *, TupleTableSlot *);
 static libclickhouse_methods http_methods = {
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
-	.simple_insert=http_simple_insert,
 	.fetch_row=http_fetch_row,
 	.prepare_insert=http_prepare_insert,
 	.insert_tuple=http_insert_tuple
@@ -46,14 +46,16 @@ static void binary_cursor_free(void *cursor);
 static void binary_simple_insert(void *conn, const char *query);
 static void **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc,
 		Datum *values, bool *nulls);
+static void binary_insert_tuple(void *, TupleTableSlot *slot);
+static void *binary_prepare_insert(void *, ResultRelInfo *, List *,
+		char *query, char *table_name);
 
 static libclickhouse_methods binary_methods = {
 	.disconnect=binary_disconnect,
 	.simple_query=binary_simple_query,
-	.simple_insert=binary_simple_insert,
 	.fetch_row=binary_fetch_row,
-	.prepare_insert=ch_binary_prepare_insert,
-	.insert_tuple=ch_binary_insert_tuple
+	.prepare_insert=binary_prepare_insert,
+	.insert_tuple=binary_insert_tuple
 };
 
 static int http_progress_callback(void *clientp, double dltotal, double dlnow,
@@ -656,10 +658,59 @@ binary_cursor_free(void *c)
 	ch_binary_response_free(cursor->query_response);
 }
 
-static void
-binary_simple_insert(void *conn, const char *query)
+static void *
+binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
+		char *query, char *table_name)
 {
-	elog(ERROR, "clickhouse_fdw: insertion is not implemented for binary protocol yet");
+	void *res;
+	ch_binary_insert_state *state = NULL;
+	MemoryContext	tempcxt,
+					oldcxt;
+
+	if (table_name == NULL)
+		elog(ERROR, "expected table name");
+
+	tempcxt = AllocSetContextCreate(CurrentMemoryContext,
+		"clickhouse_fdw binary insert state", ALLOCSET_DEFAULT_SIZES);
+
+	/* prepare cleanup */
+	oldcxt = MemoryContextSwitchTo(tempcxt);
+	state = (ch_binary_insert_state *) palloc0(sizeof(ch_binary_insert_state));
+	state->memcxt = tempcxt;
+	state->callback.func = ch_binary_insert_state_free;
+	state->callback.arg = state;
+	MemoryContextRegisterResetCallback(tempcxt, &state->callback);
+
+	/* time for c++ stuff */
+	ch_binary_prepare_insert(conn, table_name, state);
+
+	/* buffers */
+	state->values = (Datum *) palloc0(sizeof(Datum) * state->len);
+	state->nulls = (bool *) palloc0(sizeof(bool) * state->len);
+	MemoryContextSwitchTo(oldcxt);
+
+	return res;
+}
+
+static void
+binary_insert_tuple(void *istate, TupleTableSlot *slot)
+{
+	ch_binary_insert_state *state = istate;
+
+	if (state->conversion_states == NULL)
+	{
+		MemoryContext	old_mcxt;
+
+		old_mcxt = MemoryContextSwitchTo(state->memcxt);
+		state->conversion_states = ch_binary_make_tuple_map(
+				slot->tts_tupleDescriptor, state->outdesc);
+		MemoryContextSwitchTo(old_mcxt);
+	}
+
+	for (size_t i = 0; i < slot->tts_tupleDescriptor->natts; i++)
+	{
+		Form_pg_attribute attr = TupleDescAttr(slot->tts_tupleDescriptor, i);
+	}
 }
 
 #define STR_TYPES_COUNT 16

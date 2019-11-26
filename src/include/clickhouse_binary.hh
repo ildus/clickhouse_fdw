@@ -46,10 +46,13 @@ typedef struct {
 	MemoryContext	memcxt;	/* used for cleanup */
 	MemoryContextCallback callback;
 
-	Oid	   *coltypes;
+	TupleDesc	outdesc;
 	void   *columns;	/* std::vector */
 	size_t	len;
 	void  **conversion_states;
+
+	Datum	*values;
+	bool	*nulls;
 } ch_binary_insert_state;
 
 extern ch_binary_connection_t *ch_binary_connect(char *host, int port,
@@ -58,16 +61,22 @@ extern void ch_binary_close(ch_binary_connection_t *conn);
 extern ch_binary_response_t *ch_binary_simple_query(ch_binary_connection_t *conn,
 		const char *query, bool (*check_cancel)(void));
 extern void ch_binary_response_free(ch_binary_response_t *resp);
-extern void *ch_binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
-		char *query, char *table_name);
-extern void ch_binary_insert_tuple(void *istate, TupleTableSlot *slot);
 
+/* reading */
 void ch_binary_read_state_init(ch_binary_read_state_t *state, ch_binary_response_t *resp);
 void ch_binary_read_state_free(ch_binary_read_state_t *state);
 bool ch_binary_read_row(ch_binary_read_state_t *state);
 Datum ch_binary_convert_datum(void *state, Datum val);
 void *ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype);
 void ch_binary_free_convert_state(void *);
+
+/* insertion */
+void ch_binary_prepare_insert(void *conn, char *table_name,
+		ch_binary_insert_state *state);
+void ch_binary_column_append_data(void *col_p, Datum val, Oid valtype,
+		bool isnull);
+void *ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc);
+void ch_binary_insert_state_free(void *c);
 
 #ifdef __cplusplus
 }
