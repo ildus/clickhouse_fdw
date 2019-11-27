@@ -736,9 +736,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			"from system.tables where database='%s' and name not like '.inner.%%'", details.dbname);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
-	datts = list_make5_int(1,2,3,4,5);
-	datts = lappend_int(datts, 6);
-	datts = lappend_int(datts, 7);
+	datts = list_make2_int(1,2);
 
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
 				list_make3_int(1,2,3), NULL, NULL, NULL)) != NULL)
@@ -775,7 +773,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "CREATE FOREIGN TABLE %s.%s (\n",
 			stmt->local_schema, table_name);
-		query = psprintf("describe table %s.%s", details.dbname, table_name);
+		query = psprintf("select name, type from system.columns where database='%s' and table='%s'", details.dbname, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);
 
 		while ((dvalues = (char **) conn.methods->fetch_row(table_def,
