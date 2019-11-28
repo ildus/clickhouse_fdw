@@ -303,8 +303,8 @@ ch_binary_prepare_insert(void *conn, char *query,
 	}
 }
 
-void
-ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
+static void
+column_append(ch_binary_insert_state *state, size_t colidx)
 {
 	bool nullable = false;
 	auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
@@ -318,7 +318,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 		nullable = true;
 
 	if (isnull && !nullable)
-		throw std::runtime_error("clickhouse_fdw: unexpected column "
+		throw std::runtime_error("unexpected column "
 				"type for NULL: " + col->Type()->GetName());
 
 	if (nullable)
@@ -360,7 +360,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnUInt16>()->Append((uint16_t) val);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for INT4: " + col->Type()->GetName());
 			}
 			break;
@@ -379,7 +379,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnUInt64>()->Append((uint64_t) val);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for INT8: " + col->Type()->GetName());
 			}
 			break;
@@ -392,7 +392,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnFloat32>()->Append((float) val);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for FLOAT4: " + col->Type()->GetName());
 			}
 			break;
@@ -405,7 +405,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnFloat64>()->Append((double) val);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for FLOAT8: " + col->Type()->GetName());
 			}
 			break;
@@ -429,7 +429,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnEnum16>()->Append(s);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for TEXT: " + col->Type()->GetName());
 			}
 
@@ -446,7 +446,7 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnDate>()->Append(d);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for DATE: " + col->Type()->GetName());
 			}
 			break;
@@ -461,14 +461,26 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 					col->As<ColumnDateTime>()->Append(d);
 					break;
 				default:
-					throw std::runtime_error("clickhouse_fdw: unexpected column "
+					throw std::runtime_error("unexpected column "
 							"type for TIMESTAMPOID: " + col->Type()->GetName());
 			}
 			break;
 		}
 		default:
-			throw std::runtime_error("clickhouse_fdw: unexpected type " +
+			throw std::runtime_error("unexpected type " +
 					std::to_string(valtype) + " type for : " + col->Type()->GetName());
+	}
+}
+
+void
+ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
+{
+	try {
+		column_append(state, colidx);
+	}
+	catch (const std::exception& e)
+	{
+		elog(ERROR, "clickhouse_fdw: could not append data to column - %s", e.what());
 	}
 }
 
