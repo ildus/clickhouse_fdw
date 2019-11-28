@@ -247,7 +247,7 @@ ch_binary_insert_state_free(void *c)
 }
 
 void
-ch_binary_prepare_insert(void *conn, char *table_name,
+ch_binary_prepare_insert(void *conn, char *query,
 		ch_binary_insert_state *state)
 {
 	std::vector<clickhouse::ColumnRef> *vec = nullptr;
@@ -255,9 +255,8 @@ ch_binary_prepare_insert(void *conn, char *table_name,
 	try
 	{
 		Client	*client = (Client *) ((ch_binary_connection_t *) conn)->client;
-		auto tn = std::string(table_name);
 
-		client->PrepareInsert("INSERT INTO " + tn, [&state, &vec] (const Block& sample_block)
+		client->PrepareInsert(std::string(query) + " VALUES", [&state, &vec] (const Block& sample_block)
 		{
 			if (sample_block.GetColumnCount() == 0)
 				return true;
@@ -471,6 +470,21 @@ ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 			throw std::runtime_error("clickhouse_fdw: unexpected type " +
 					std::to_string(valtype) + " type for : " + col->Type()->GetName());
 	}
+}
+
+void
+ch_binary_insert_columns(ch_binary_insert_state *state)
+{
+	Block block;
+	auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
+	for (size_t i = 0; i < state->outdesc->natts; ++i)
+	{
+		Form_pg_attribute att = TupleDescAttr(state->outdesc, i);
+		block.AppendColumn(NameStr(att->attname), columns[i]);
+	}
+
+	Client	*client = (Client *) state->conn->client;
+	client->Insert(state->table_name, block, true);
 }
 
 void ch_binary_close(ch_binary_connection_t *conn)

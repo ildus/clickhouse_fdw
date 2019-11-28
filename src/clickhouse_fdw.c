@@ -1497,15 +1497,15 @@ create_foreign_modify(EState *estate,
 	/* make a connection and prepare an insertion state */
 	fmstate->conn = chfdw_get_connection(user);
 
-	old_mcxt = MemoryContextSwitchTo(estate->es_query_cxt);
+	old_mcxt = MemoryContextSwitchTo(PortalContext);
 	fmstate->state = fmstate->conn.methods->prepare_insert(fmstate->conn.conn,
 			rri, target_attrs, query, table_name);
+	MemoryContextSwitchTo(old_mcxt);
 
 	/* Create context for per-query temp workspace. */
-	fmstate->temp_cxt = AllocSetContextCreate(CurrentMemoryContext,
+	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
 	                    "clickhouse_fdw temporary data",
 	                    ALLOCSET_SMALL_SIZES);
-	MemoryContextSwitchTo(old_mcxt);
 
 	/* Set up remote query information. */
 	fmstate->query = query;

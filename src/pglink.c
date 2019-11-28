@@ -662,7 +662,6 @@ static void *
 binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 		char *query, char *table_name)
 {
-	void *res;
 	ch_binary_insert_state *state = NULL;
 	MemoryContext	tempcxt,
 					oldcxt;
@@ -679,17 +678,19 @@ binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
 	state->memcxt = tempcxt;
 	state->callback.func = ch_binary_insert_state_free;
 	state->callback.arg = state;
+	state->conn = conn;
+	state->table_name = pstrdup(table_name);
 	MemoryContextRegisterResetCallback(tempcxt, &state->callback);
 
 	/* time for c++ stuff */
-	ch_binary_prepare_insert(conn, table_name, state);
+	ch_binary_prepare_insert(conn, query, state);
 
 	/* buffers */
 	state->values = (Datum *) palloc0(sizeof(Datum) * state->len);
 	state->nulls = (bool *) palloc0(sizeof(bool) * state->len);
 	MemoryContextSwitchTo(oldcxt);
 
-	return res;
+	return state;
 }
 
 static void
@@ -707,10 +708,15 @@ binary_insert_tuple(void *istate, TupleTableSlot *slot)
 		MemoryContextSwitchTo(old_mcxt);
 	}
 
-	ch_binary_do_output_convertion(state, slot);
+	if (slot)
+	{
+		ch_binary_do_output_convertion(state, slot);
 
-	for (size_t i = 0; i < state->outdesc->natts; i++)
-		ch_binary_column_append_data(state, i);
+		for (size_t i = 0; i < state->outdesc->natts; i++)
+			ch_binary_column_append_data(state, i);
+	}
+	else
+		ch_binary_insert_columns(state);
 }
 
 #define STR_TYPES_COUNT 16

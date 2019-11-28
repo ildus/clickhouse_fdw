@@ -418,7 +418,7 @@ ch_binary_do_output_convertion(ch_binary_insert_state *insert_state,
 
 	for (size_t i = 0; i < insert_state->outdesc->natts; i++)
 	{
-		ch_convert_output_state *cstate = insert_state->conversion_states[i];
+		ch_convert_output_state *cstate = &((ch_convert_output_state *) insert_state->conversion_states)[i];
 		AttrNumber attnum = cstate->attnum;
 		out_values[i] = slot_getattr(slot, attnum, &out_nulls[i]);
 		if (!out_nulls[i] && cstate->func)
