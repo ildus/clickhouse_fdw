@@ -245,7 +245,23 @@ ch_binary_insert_state_free(void *c)
 {
 	auto *state = (ch_binary_insert_state *) c;
 	if (state->columns)
+	{
+		/* try to send empty block that sets proper ClickHouse state */
+		if (!state->success)
+		{
+			try {
+				Client	*client = (Client *) state->conn->client;
+				client->Insert(state->table_name, Block(), true);
+			}
+			catch (const std::exception &e)
+			{
+				// just ignore, next query will fail
+				elog(NOTICE, "clickhouse_fdw: could not send empty packet");
+			}
+		}
+
 		delete (std::vector<clickhouse::ColumnRef> *) state->columns;
+	}
 }
 
 void
@@ -297,7 +313,6 @@ ch_binary_prepare_insert(void *conn, char *query, ch_binary_insert_state *state)
 					throw std::runtime_error("could not init tuple descriptor");
 			}
 
-			state->columns = (void *) vec;
 			return true;
 		});
 	}
@@ -308,6 +323,9 @@ ch_binary_prepare_insert(void *conn, char *query, ch_binary_insert_state *state)
 
 		elog(ERROR, "clickhouse_fdw: error while insert preparation - %s", e.what());
 	}
+
+	if (vec != nullptr)
+		state->columns = (void *) vec;
 }
 
 static void
@@ -482,32 +500,12 @@ column_append(ch_binary_insert_state *state, size_t colidx)
 void
 ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 {
-	char *error = NULL;
 	try {
 		column_append(state, colidx);
 	}
 	catch (const std::exception& e)
 	{
-		error = strdup(e.what());
-	}
-
-	if (error)
-	{
-		/* move error to postgres memcontext */
-		char *perror = pstrdup(error);
-		free(error);
-
-		/* try to send empty block */
-		try {
-			Client	*client = (Client *) state->conn->client;
-			client->Insert(state->table_name, Block(), true);
-		}
-		catch (const std::exception &e)
-		{
-			// just ignore, next query will fail
-			elog(NOTICE, "clickhouse_fdw: could not send empty packet");
-		}
-		elog(ERROR, "clickhouse_fdw: could not append data to column - %s", perror);
+		elog(ERROR, "clickhouse_fdw: could not append data to column - %s", e.what());
 	}
 }
 

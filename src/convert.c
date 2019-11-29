@@ -376,23 +376,24 @@ ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc)
 		ch_convert_output_state *curstate = &states[i];
 
 		Form_pg_attribute attout = TupleDescAttr(outdesc, i);
-		char	   *attname;
+		char	   *outattname;
 		Oid			atttypid;
 		int			j;
 
-		attname = NameStr(attout->attname);
+		outattname = NameStr(attout->attname);
 		curstate->outtype = attout->atttypid;
 
 		for (j = 0; j < indesc->natts; j++)
 		{
 			Form_pg_attribute attin = TupleDescAttr(indesc, j);
+			char	   *inattname = NameStr(attin->attname);
 
 			if (attin->attisdropped)
 				continue;
 
 			curstate->intype = attin->atttypid;
 
-			if (strcmp(attname, NameStr(attin->attname)) == 0)
+			if (inattname[0] == '\0' || strcmp(outattname, inattname) == 0)
 			{
 				init_output_convert_state(curstate);
 				curstate->attnum = (AttrNumber) (j + 1);
@@ -405,7 +406,7 @@ ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc)
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg_internal("clickhouse_fdw: could not create conversion map"),
 					 errdetail("Attribute \"%s\" of type %s does not exist in type %s.",
-							   attname,
+							   outattname,
 							   format_type_be(indesc->tdtypeid),
 							   format_type_be(outdesc->tdtypeid))));
 	}

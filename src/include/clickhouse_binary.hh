@@ -54,6 +54,7 @@ typedef struct {
 
 	Datum	*values;
 	bool	*nulls;
+	bool	 success;
 
 	ch_binary_connection_t *conn;
 } ch_binary_insert_state;

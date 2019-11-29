@@ -49,6 +49,15 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.null_ints (
  
 (1 row)
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.complex (
+    c1 Int32, c2 Date, c3 DateTime, c4 String, c5 FixedString(10), c6 LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
 /* ints */
 INSERT INTO ints
@@ -115,6 +124,7 @@ SELECT * FROM floats ORDER BY c1;
 
 /* check nullable */
 INSERT INTO null_ints SELECT i, case WHEN i % 2 = 0 THEN NULL ELSE i END FROM generate_series(1, 10) i;
+INSERT INTO null_ints(c1) SELECT i FROM generate_series(11, 13) i;
 SELECT * FROM null_ints ORDER BY c1;
  c1 | c2 
 ----+----
@@ -128,12 +138,34 @@ SELECT * FROM null_ints ORDER BY c1;
   8 |   
   9 |  9
  10 |   
-(10 rows)
+ 11 |   
+ 12 |   
+ 13 |   
+(13 rows)
+
+SELECT * FROM null_ints ORDER BY c1;
+ c1 | c2 
+----+----
+  1 |  1
+  2 |   
+  3 |  3
+  4 |   
+  5 |  5
+  6 |   
+  7 |  7
+  8 |   
+  9 |  9
+ 10 |   
+ 11 |   
+ 12 |   
+ 13 |   
+(13 rows)
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 5 other objects
+NOTICE:  drop cascades to 6 other objects
 DETAIL:  drop cascades to server loopback
+drop cascades to foreign table complex
 drop cascades to foreign table floats
 drop cascades to foreign table ints
 drop cascades to foreign table null_ints

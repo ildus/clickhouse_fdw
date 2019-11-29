@@ -24,6 +24,11 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.null_ints (
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.complex (
+    c1 Int32, c2 Date, c3 DateTime, c4 String, c5 FixedString(10), c6 LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+
 IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
 
 /* ints */
@@ -51,7 +56,15 @@ SELECT * FROM floats ORDER BY c1;
 
 /* check nullable */
 INSERT INTO null_ints SELECT i, case WHEN i % 2 = 0 THEN NULL ELSE i END FROM generate_series(1, 10) i;
+INSERT INTO null_ints(c1) SELECT i FROM generate_series(11, 13) i;
 SELECT * FROM null_ints ORDER BY c1;
+SELECT * FROM null_ints ORDER BY c1;
+
+/* check dates and strings */
+INSERT INTO complex VALUES
+	(1, '1990-06-01', '1990-06-02 10:01:02', 't1', 'fix_t1', 'low1'),
+	(2, '1990-06-02', '1990-06-03 10:01:02', 't2', 'fix_t2', 'low2');
+SELECT * FROM complex ORDER BY c1;
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 DROP EXTENSION clickhouse_fdw CASCADE;

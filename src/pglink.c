@@ -716,7 +716,10 @@ binary_insert_tuple(void *istate, TupleTableSlot *slot)
 			ch_binary_column_append_data(state, i);
 	}
 	else
+	{
 		ch_binary_insert_columns(state);
+		state->success = true;
+	}
 }
 
 #define STR_TYPES_COUNT 16
