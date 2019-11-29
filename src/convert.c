@@ -386,6 +386,10 @@ ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc)
 		for (j = 0; j < indesc->natts; j++)
 		{
 			Form_pg_attribute attin = TupleDescAttr(indesc, j);
+
+			if (attin->attisdropped)
+				continue;
+
 			curstate->intype = attin->atttypid;
 
 			if (strcmp(attname, NameStr(attin->attname)) == 0)

@@ -257,9 +257,11 @@ void Client::Impl::Insert(const std::string& table_name, const Block& block,
 
     // Send data.
     SendData(block);
+
     // Send empty block as marker of
     // end of data.
-    SendData(Block());
+	if (block.GetColumnCount() > 0)
+		SendData(Block());
 
     // Wait for EOS.
     while (ReceivePacket()) {

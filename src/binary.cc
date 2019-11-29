@@ -233,6 +233,8 @@ get_corr_postgres_type(const TypeRef &type)
 			return array_type;
 		}
 		case Type::Code::Tuple: return RECORDOID;
+		case Type::Code::Nullable:
+			return get_corr_postgres_type(type->As<NullableType>()->GetNestedType());
 		default:
 			throw std::runtime_error("clickhouse_fdw: unsupported column type " + type->GetName());
 	}
@@ -247,8 +249,7 @@ ch_binary_insert_state_free(void *c)
 }
 
 void
-ch_binary_prepare_insert(void *conn, char *query,
-		ch_binary_insert_state *state)
+ch_binary_prepare_insert(void *conn, char *query, ch_binary_insert_state *state)
 {
 	std::vector<clickhouse::ColumnRef> *vec = nullptr;
 
@@ -273,21 +274,27 @@ ch_binary_prepare_insert(void *conn, char *query,
 
 			for (size_t i = 0; i < state->len; i++)
 			{
+				bool error = false;
 				clickhouse::ColumnRef	col = sample_block[i];
+
+				Oid pgtype = get_corr_postgres_type(col->Type());
 				vec->push_back(clickhouse::CreateColumnByType(col->Type()->GetName()));
+				const char *colname = sample_block.GetColumnName(i).c_str();
 
 				/* we can't afford long jumps outside of this function */
 				PG_TRY();
 				{
 					TupleDescInitEntry(state->outdesc, (AttrNumber) i + 1,
-						sample_block.GetColumnName(i).c_str(),
-						get_corr_postgres_type(col->Type()), -1, 0);
+						colname, pgtype, -1, 0);
 				}
 				PG_CATCH();
 				{
-					throw std::runtime_error("could not init tuple descriptor");
+					error = true;
 				}
 				PG_END_TRY();
+
+				if (error)
+					throw std::runtime_error("could not init tuple descriptor");
 			}
 
 			state->columns = (void *) vec;
@@ -389,7 +396,7 @@ column_append(ch_binary_insert_state *state, size_t colidx)
 			switch (col->Type()->GetCode())
 			{
 				case Type::Code::Float32:
-					col->As<ColumnFloat32>()->Append((float) val);
+					col->As<ColumnFloat32>()->Append(DatumGetFloat4(val));
 					break;
 				default:
 					throw std::runtime_error("unexpected column "
@@ -402,7 +409,7 @@ column_append(ch_binary_insert_state *state, size_t colidx)
 			switch (col->Type()->GetCode())
 			{
 				case Type::Code::Float64:
-					col->As<ColumnFloat64>()->Append((double) val);
+					col->As<ColumnFloat64>()->Append(DatumGetFloat8(val));
 					break;
 				default:
 					throw std::runtime_error("unexpected column "
@@ -475,28 +482,54 @@ column_append(ch_binary_insert_state *state, size_t colidx)
 void
 ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 {
+	char *error = NULL;
 	try {
 		column_append(state, colidx);
 	}
 	catch (const std::exception& e)
 	{
-		elog(ERROR, "clickhouse_fdw: could not append data to column - %s", e.what());
+		error = strdup(e.what());
+	}
+
+	if (error)
+	{
+		/* move error to postgres memcontext */
+		char *perror = pstrdup(error);
+		free(error);
+
+		/* try to send empty block */
+		try {
+			Client	*client = (Client *) state->conn->client;
+			client->Insert(state->table_name, Block(), true);
+		}
+		catch (const std::exception &e)
+		{
+			// just ignore, next query will fail
+			elog(NOTICE, "clickhouse_fdw: could not send empty packet");
+		}
+		elog(ERROR, "clickhouse_fdw: could not append data to column - %s", perror);
 	}
 }
 
 void
 ch_binary_insert_columns(ch_binary_insert_state *state)
 {
-	Block block;
-	auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
-	for (size_t i = 0; i < state->outdesc->natts; ++i)
-	{
-		Form_pg_attribute att = TupleDescAttr(state->outdesc, i);
-		block.AppendColumn(NameStr(att->attname), columns[i]);
-	}
+	try {
+		Block block;
+		auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
+		for (size_t i = 0; i < state->outdesc->natts; ++i)
+		{
+			Form_pg_attribute att = TupleDescAttr(state->outdesc, i);
+			block.AppendColumn(NameStr(att->attname), columns[i]);
+		}
 
-	Client	*client = (Client *) state->conn->client;
-	client->Insert(state->table_name, block, true);
+		Client	*client = (Client *) state->conn->client;
+		client->Insert(state->table_name, block, true);
+	}
+	catch (const std::exception& e)
+	{
+		elog(ERROR, "clickhouse_fdw: could not insert columns - %s", e.what());
+	}
 }
 
 void ch_binary_close(ch_binary_connection_t *conn)
