@@ -1,4 +1,5 @@
 CREATE EXTENSION clickhouse_fdw;
+SET datestyle = 'ISO';
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression', driver 'binary');
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 
@@ -63,7 +64,7 @@ SELECT * FROM null_ints ORDER BY c1;
 /* check dates and strings */
 INSERT INTO complex VALUES
 	(1, '1990-06-01', '1990-06-02 10:01:02', 't1', 'fix_t1', 'low1'),
-	(2, '1990-06-02', '1990-06-03 10:01:02', 't2', 'fix_t2', 'low2');
+	(2, '1990-06-02', '1990-06-03 10:01:02', 5, 'fix_t2', 'low2');
 SELECT * FROM complex ORDER BY c1;
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
