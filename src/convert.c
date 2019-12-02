@@ -383,21 +383,31 @@ ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc)
 		outattname = NameStr(attout->attname);
 		curstate->outtype = attout->atttypid;
 
-		for (j = 0; j < indesc->natts; j++)
+		if (NameStr(indesc->attrs[0].attname)[0] == '\0')
 		{
-			Form_pg_attribute attin = TupleDescAttr(indesc, j);
-			char	   *inattname = NameStr(attin->attname);
-
-			if (attin->attisdropped)
-				continue;
-
+			Form_pg_attribute attin = TupleDescAttr(indesc, i);
 			curstate->intype = attin->atttypid;
-
-			if (inattname[0] == '\0' || strcmp(outattname, inattname) == 0)
+			init_output_convert_state(curstate);
+			curstate->attnum = (AttrNumber) (i + 1);
+		}
+		else
+		{
+			for (j = 0; j < indesc->natts; j++)
 			{
-				init_output_convert_state(curstate);
-				curstate->attnum = (AttrNumber) (j + 1);
-				break;
+				Form_pg_attribute attin = TupleDescAttr(indesc, j);
+				char	   *inattname = NameStr(attin->attname);
+
+				if (attin->attisdropped)
+					continue;
+
+				curstate->intype = attin->atttypid;
+
+				if (strcmp(outattname, inattname) == 0)
+				{
+					init_output_convert_state(curstate);
+					curstate->attnum = (AttrNumber) (j + 1);
+					break;
+				}
 			}
 		}
 
