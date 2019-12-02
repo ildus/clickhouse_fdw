@@ -9,7 +9,7 @@ RUN if [ "${CHECK_CODE}" = "clang" ] ; then \
 
 RUN if [ "${CHECK_CODE}" = "false" ] ; then \
 	echo 'http://dl-3.alpinelinux.org/alpine/edge/main' > /etc/apk/repositories; \
-	apk --no-cache add curl python3 gcc clang g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git gdb sudo musl-dbg; \
+	apk --no-cache add curl python3 gcc clang llvm g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git gdb sudo musl-dbg; \
 	sed -e 's/# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: ALL/g' -i /etc/sudoers; \
 	sed -e 's/^wheel:\(.*\)/wheel:\1,postgres/g' -i /etc/group; \
 	fi
