@@ -18,8 +18,10 @@ ENV LANG=C.UTF-8 PGDATA=/pg/data CHECK_CODE=${CHECK_CODE}
 
 RUN mkdir -p ${PGDATA} && \
 	mkdir /pg/src && \
+	mkdir -p /usr/local/lib/postgresql/bitcode && \
 	chown postgres:postgres ${PGDATA} && \
 	chmod a+rwx /usr/local/lib/postgresql && \
+	chmod a+rwx /usr/local/lib/postgresql/bitcode && \
 	chmod a+rwx /usr/local/share/postgresql/extension && \
 	mkdir -p /usr/local/share/doc/postgresql/contrib && \
 	chmod a+rwx /usr/local/share/doc/postgresql/contrib
