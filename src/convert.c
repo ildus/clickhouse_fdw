@@ -8,6 +8,7 @@
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#include "utils/arrayaccess.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "executor/tuptable.h"
@@ -53,6 +54,12 @@ typedef struct ch_convert_output_state {
 	Oid				outtype;
 	AttrNumber		attnum;
 	out_convert_func	func;
+
+	// array
+	Oid			innertype; /* if intype is array */
+	int16		typlen;
+	bool		typbyval;
+	char		typalign;
 
 	// generic
 	CoercionPathType	ctype;
@@ -411,6 +418,15 @@ ch_binary_make_tuple_map(TupleDesc indesc, TupleDesc outdesc)
 			}
 		}
 
+		curstate->innertype = get_element_type(curstate->outtype);
+		if (curstate->innertype != InvalidOid)
+		{
+			curstate->outtype = ANYARRAYOID;
+			get_typlenbyvalalign(curstate->innertype, &curstate->typlen,
+					&curstate->typbyval, &curstate->typalign);
+		}
+
+
 		if (curstate->attnum == 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
@@ -436,7 +452,37 @@ ch_binary_do_output_convertion(ch_binary_insert_state *insert_state,
 		ch_convert_output_state *cstate = &((ch_convert_output_state *) insert_state->conversion_states)[i];
 		AttrNumber attnum = cstate->attnum;
 		out_values[i] = slot_getattr(slot, attnum, &out_nulls[i]);
-		if (!out_nulls[i] && cstate->func)
-			out_values[i] = cstate->func(cstate, out_values[i]);
+		if (!out_nulls[i])
+		{
+			if (cstate->func)
+				out_values[i] = cstate->func(cstate, out_values[i]);
+			else if (cstate->outtype == ANYARRAYOID)
+			{
+				AnyArrayType *v = DatumGetAnyArrayP(out_values[i]);
+				ch_binary_array_t	*slot;
+				array_iter	iter;
+
+				if (AARR_NDIM(v) != 1)
+					elog(ERROR, "clickhouse_fdw: inserted array should have one dimension");
+
+				slot = palloc(sizeof(ch_binary_array_t));
+				slot->len = ArrayGetNItems(AARR_NDIM(v), AARR_DIMS(v));
+				slot->datums = palloc(sizeof(Datum) * slot->len);
+				slot->nulls = palloc(sizeof(bool) * slot->len);
+				slot->item_type = cstate->innertype;
+
+				array_iter_setup(&iter, v);
+				for (size_t j = 0; j < slot->len; j++)
+				{
+					Datum		itemvalue;
+					bool		isnull;
+
+					/* Get source element, checking for NULL */
+					slot->datums[j] = array_iter_next(&iter, &isnull, i,
+						cstate->typlen, cstate->typbyval, cstate->typalign);
+				}
+				out_values[i] = PointerGetDatum(slot);
+			}
+		}
 	}
 }

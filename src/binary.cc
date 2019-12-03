@@ -329,15 +329,9 @@ ch_binary_prepare_insert(void *conn, char *query, ch_binary_insert_state *state)
 }
 
 static void
-column_append(ch_binary_insert_state *state, size_t colidx)
+column_append(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 {
 	bool nullable = false;
-	auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
-	auto col = columns[colidx];
-
-	Datum	val = state->values[colidx];
-	Oid		valtype = state->outdesc->attrs[colidx].atttypid;
-	bool	isnull = state->nulls[colidx];
 
 	if (col->Type()->GetCode() == Type::Code::Nullable)
 		nullable = true;
@@ -491,9 +485,32 @@ column_append(ch_binary_insert_state *state, size_t colidx)
 			}
 			break;
 		}
+		case ANYARRAYOID:
+		{
+			auto arr = (ch_binary_array_t *) DatumGetPointer(val);
+
+			switch (col->Type()->GetCode())
+			{
+				case Type::Array:
+				{
+					auto arrcol = col->As<ColumnArray>();
+					auto nested = clickhouse::CreateColumnByType(
+							col->Type()->As<clickhouse::ArrayType>()->GetItemType()->GetName());
+					for (size_t i = 0; i < arr->len; i++)
+						column_append(nested, arr->datums[i], arr->item_type, arr->nulls[i]);
+					arrcol->Append(nested);
+				}
+				break;
+					default:
+						throw std::runtime_error("unexpected column "
+								"type for array: " + col->Type()->GetName());
+			}
+		}
 		default:
+		{
 			throw std::runtime_error("unexpected type " +
 					std::to_string(valtype) + " type for : " + col->Type()->GetName());
+		}
 	}
 }
 
@@ -501,7 +518,15 @@ void
 ch_binary_column_append_data(ch_binary_insert_state *state, size_t colidx)
 {
 	try {
-		column_append(state, colidx);
+		bool nullable = false;
+		auto columns = *(std::vector<clickhouse::ColumnRef> *) state->columns;
+		auto col = columns[colidx];
+
+		Datum	val = state->values[colidx];
+		Oid		valtype = state->outdesc->attrs[colidx].atttypid;
+		bool	isnull = state->nulls[colidx];
+
+		column_append(col, val, valtype, isnull);
 	}
 	catch (const std::exception& e)
 	{
