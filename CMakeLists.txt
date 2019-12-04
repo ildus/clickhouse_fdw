@@ -56,6 +56,7 @@ LIST(APPEND REGRESS_TESTS
 	istore
 	istore_binary
 	binary_queries
+	binary_inserts
 	functions
 	engines
 )

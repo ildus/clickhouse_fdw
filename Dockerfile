@@ -8,8 +8,7 @@ RUN if [ "${CHECK_CODE}" = "clang" ] ; then \
 	fi
 
 RUN if [ "${CHECK_CODE}" = "false" ] ; then \
-	echo 'http://dl-3.alpinelinux.org/alpine/edge/main' > /etc/apk/repositories; \
-	apk --no-cache add curl python3 gcc g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git gdb sudo musl-dbg; \
+	apk --no-cache add curl python3 gcc clang llvm g++ make musl-dev openssl-dev cmake curl-dev util-linux-dev git gdb sudo musl-dbg; \
 	sed -e 's/# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: ALL/g' -i /etc/sudoers; \
 	sed -e 's/^wheel:\(.*\)/wheel:\1,postgres/g' -i /etc/group; \
 	fi
@@ -18,8 +17,10 @@ ENV LANG=C.UTF-8 PGDATA=/pg/data CHECK_CODE=${CHECK_CODE}
 
 RUN mkdir -p ${PGDATA} && \
 	mkdir /pg/src && \
+	mkdir -p /usr/local/lib/postgresql/bitcode && \
 	chown postgres:postgres ${PGDATA} && \
 	chmod a+rwx /usr/local/lib/postgresql && \
+	chmod a+rwx /usr/local/lib/postgresql/bitcode && \
 	chmod a+rwx /usr/local/share/postgresql/extension && \
 	mkdir -p /usr/local/share/doc/postgresql/contrib && \
 	chmod a+rwx /usr/local/share/doc/postgresql/contrib

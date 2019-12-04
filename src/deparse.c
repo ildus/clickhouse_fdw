@@ -35,6 +35,7 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#include "lib/stringinfo.h"
 
 #if PG_VERSION_NUM >= 120000
 #include "access/table.h"
@@ -1502,16 +1503,19 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 /*
  * deparse remote INSERT statement
  */
-void
+char *
 chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
                  Index rtindex, Relation rel,
                  List *targetAttrs)
 {
 	bool    first;
 	ListCell   *lc;
+	StringInfoData	table_name;
 
+	initStringInfo(&table_name);
 	appendStringInfoString(buf, "INSERT INTO ");
-	deparseRelation(buf, rel);
+	deparseRelation(&table_name, rel);
+	appendStringInfoString(buf, table_name.data);
 
 	if (targetAttrs)
 	{
@@ -1531,6 +1535,8 @@ chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
 		}
 		appendStringInfoChar(buf, ')');
 	}
+
+	return table_name.data;
 }
 
 /*

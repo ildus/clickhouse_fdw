@@ -75,7 +75,10 @@ public:
 
     void SendCancel();
 
-    void Insert(const std::string& table_name, const Block& block);
+    void Insert(const std::string& table_name, const Block& block,
+			bool prepared);
+
+	void PrepareInsert(Query query);
 
     void Ping();
 
@@ -97,12 +100,14 @@ private:
     bool ReceiveHello();
 
     /// Reads data packet form input stream.
-    bool ReceiveData();
+    bool ReceiveData(bool log = false);
 
     /// Reads exception packet form input stream.
     bool ReceiveException(bool rethrow = false);
 
     void WriteBlock(const Block& block, CodedOutputStream* output);
+
+	bool ReceiveSamplePacket(uint64_t* server_packet);
 
 private:
     void Disconnect() {
@@ -203,57 +208,129 @@ void Client::Impl::ExecuteQuery(Query query) {
     }
 }
 
-void Client::Impl::Insert(const std::string& table_name, const Block& block) {
-    if (options_.ping_before_query) {
-        RetryGuard([this]() { Ping(); });
-    }
+void Client::Impl::Insert(const std::string& table_name, const Block& block,
+		bool prepared) {
 
-    std::vector<std::string> fields;
-    fields.reserve(block.GetColumnCount());
+	if (!prepared)
+	{
+		if (options_.ping_before_query) {
+			RetryGuard([this]() { Ping(); });
+		}
 
-    // Enumerate all fields
-    for (unsigned int i = 0; i < block.GetColumnCount(); i++) {
-        fields.push_back(block.GetColumnName(i));
-    }
+		std::vector<std::string> fields;
+		fields.reserve(block.GetColumnCount());
 
-    std::stringstream fields_section;
+		// Enumerate all fields
+		for (unsigned int i = 0; i < block.GetColumnCount(); i++) {
+			fields.push_back(block.GetColumnName(i));
+		}
 
-    for (auto elem = fields.begin(); elem != fields.end(); ++elem) {
-        if (std::distance(elem, fields.end()) == 1) {
-            fields_section << *elem;
-        } else {
-            fields_section << *elem << ",";
-        }
-    }
+		std::stringstream fields_section;
 
-    SendQuery("INSERT INTO " + table_name + " ( " + fields_section.str() + " ) VALUES");
+		for (auto elem = fields.begin(); elem != fields.end(); ++elem) {
+			if (std::distance(elem, fields.end()) == 1) {
+				fields_section << *elem;
+			} else {
+				fields_section << *elem << ",";
+			}
+		}
 
-    uint64_t server_packet;
-    // Receive data packet.
-    while (true) {
-        bool ret = ReceivePacket(&server_packet);
+		SendQuery("INSERT INTO " + table_name + " ( " + fields_section.str() + " ) VALUES");
 
-        if (!ret) {
-            throw std::runtime_error("fail to receive data packet");
-        }
-        if (server_packet == ServerCodes::Data) {
-            break;
-        }
-        if (server_packet == ServerCodes::Progress) {
-            continue;
-        }
-    }
+		uint64_t server_packet;
+
+		// Receive data packet.
+		while (true) {
+			bool ret = ReceivePacket(&server_packet);
+
+			if (!ret) {
+				throw std::runtime_error("fail to receive data packet");
+			}
+			if (server_packet == ServerCodes::Data) {
+				break;
+			}
+			if (server_packet == ServerCodes::Progress) {
+				continue;
+			}
+		}
+	}
 
     // Send data.
     SendData(block);
+
     // Send empty block as marker of
     // end of data.
-    SendData(Block());
+	if (block.GetColumnCount() > 0)
+		SendData(Block());
 
     // Wait for EOS.
     while (ReceivePacket()) {
         ;
     }
+}
+
+/* More detailed insertion, get a sample block and use it to construct blocks */
+void Client::Impl::PrepareInsert(Query query)
+{
+    EnsureNull en(static_cast<QueryEvents*>(&query), &events_);
+
+    if (options_.ping_before_query) {
+        RetryGuard([this]() { Ping(); });
+    }
+
+    SendQuery(query.GetText());
+
+    // Receive data packet.
+    uint64_t server_packet;
+	bool ret = ReceiveSamplePacket(&server_packet);
+
+	if (!ret) {
+		throw std::runtime_error("fail to receive data packet");
+	}
+}
+
+bool Client::Impl::ReceiveSamplePacket(uint64_t* server_packet) {
+    uint64_t packet_type = 0;
+
+	while (true)
+	{
+		if (!input_.ReadVarint64(&packet_type))
+			break;
+
+		if (server_packet) {
+			*server_packet = packet_type;
+		}
+
+		switch (packet_type) {
+		case ServerCodes::Data: {
+			if (!ReceiveData()) {
+				throw std::runtime_error("can't read data packet from input stream");
+			}
+			return true;
+		}
+
+		case ServerCodes::Exception: {
+			ReceiveException(true);
+			return false;
+		}
+
+		case ServerCodes::Progress: continue;
+
+		case ServerCodes::Log: {
+			if (!ReceiveData(true)) {
+				throw std::runtime_error("can't read log packet from input stream");
+			}
+			continue;
+		}
+
+		default:
+			throw std::runtime_error("unexpected package type " +
+					std::to_string((int)packet_type) + " for insert query");
+			break;
+		}
+	}
+
+    return false;
 }
 
 void Client::Impl::Ping() {
@@ -456,7 +533,7 @@ bool Client::Impl::ReadBlock(Block* block, CodedInputStream* input) {
     return true;
 }
 
-bool Client::Impl::ReceiveData() {
+bool Client::Impl::ReceiveData(bool log) {
     Block block;
 
     if (REVISION >= DBMS_MIN_REVISION_WITH_TEMPORARY_TABLES) {
@@ -480,7 +557,8 @@ bool Client::Impl::ReceiveData() {
         }
     }
 
-    if (events_) {
+	/* Now we just ignore log blocks */
+    if (events_ && !log) {
         events_->OnData(block);
         if (!events_->OnDataCancelable(block)) {
             SendCancel();
@@ -757,8 +835,13 @@ void Client::Select(const Query& query) {
     Execute(query);
 }
 
-void Client::Insert(const std::string& table_name, const Block& block) {
-    impl_->Insert(table_name, block);
+void Client::Insert(const std::string& table_name, const Block& block,
+		bool prepared) {
+    impl_->Insert(table_name, block, prepared);
+}
+
+void Client::PrepareInsert(const std::string &insert_query, InsertCallback cb) {
+    impl_->PrepareInsert(Query(insert_query).OnInsertData(cb));
 }
 
 void Client::Ping() {

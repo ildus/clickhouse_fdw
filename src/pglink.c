@@ -13,6 +13,7 @@
 #include "utils/uuid.h"
 #include "utils/fmgroids.h"
 #include "access/htup_details.h"
+#include "access/tupdesc.h"
 #include <sys/stat.h>
 #include <fcntl.h>
  #include <unistd.h>
@@ -27,14 +28,16 @@ static void http_disconnect(void *conn);
 static ch_cursor *http_simple_query(void *conn, const char *query);
 static void http_simple_insert(void *conn, const char *query);
 static void http_cursor_free(void *);
-static void **http_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
-	Datum *values, bool *nulls);
+static void **http_fetch_row(ch_cursor *, List *, TupleDesc, Datum *, bool *);
+static void *http_prepare_insert(void *, ResultRelInfo *, List *, char *, char *);
+static void http_insert_tuple(void *, TupleTableSlot *);
 
 static libclickhouse_methods http_methods = {
 	.disconnect=http_disconnect,
 	.simple_query=http_simple_query,
-	.simple_insert=http_simple_insert,
-	.fetch_row=http_fetch_row
+	.fetch_row=http_fetch_row,
+	.prepare_insert=http_prepare_insert,
+	.insert_tuple=http_insert_tuple
 };
 
 static void binary_disconnect(void *conn);
@@ -43,12 +46,16 @@ static void binary_cursor_free(void *cursor);
 static void binary_simple_insert(void *conn, const char *query);
 static void **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc,
 		Datum *values, bool *nulls);
+static void binary_insert_tuple(void *, TupleTableSlot *slot);
+static void *binary_prepare_insert(void *, ResultRelInfo *, List *,
+		char *query, char *table_name);
 
 static libclickhouse_methods binary_methods = {
 	.disconnect=binary_disconnect,
 	.simple_query=binary_simple_query,
-	.simple_insert=binary_simple_insert,
-	.fetch_row=binary_fetch_row
+	.fetch_row=binary_fetch_row,
+	.prepare_insert=binary_prepare_insert,
+	.insert_tuple=binary_insert_tuple
 };
 
 static int http_progress_callback(void *clientp, double dltotal, double dlnow,
@@ -301,6 +308,156 @@ chfdw_http_fetch_raw_data(ch_cursor *cursor)
 	return cstring_to_text_with_len(state->data, state->maxpos + 1);
 }
 
+/*
+ * extend_insert_query
+ *		Construct values part of INSERT query
+ */
+static void
+extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
+{
+	int			pindex = 0;
+	bool first = true;
+
+	if (state->sql.len == 0)
+		appendStringInfoString(&state->sql, state->sql_begin);
+
+	/* get following parameters from slot */
+	if (slot != NULL && state->target_attrs != NIL)
+	{
+		ListCell   *lc;
+
+		foreach (lc, state->target_attrs)
+		{
+			int			attnum = lfirst_int(lc);
+			Datum		value;
+			Oid		    type;
+			bool		isnull;
+
+			value = slot_getattr(slot, attnum, &isnull);
+			type = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid;
+
+			if (!first)
+				appendStringInfoChar(&state->sql, '\t');
+			first = false;
+
+			if (isnull)
+			{
+				appendStringInfoString(&state->sql, "\\N");
+				pindex++;
+				continue;
+			}
+
+			switch (type)
+			{
+			case BOOLOID:
+			case INT2OID:
+			case INT4OID:
+				appendStringInfo(&state->sql, "%d", DatumGetInt32(value));
+			break;
+			case INT8OID:
+				appendStringInfo(&state->sql, INT64_FORMAT, DatumGetInt64(value));
+			break;
+			case FLOAT4OID:
+				appendStringInfo(&state->sql, "%f", DatumGetFloat4(value));
+			break;
+			case FLOAT8OID:
+				appendStringInfo(&state->sql, "%f", DatumGetFloat8(value));
+			break;
+			case NUMERICOID:
+			{
+				Datum  valueDatum;
+				float8 f;
+
+				valueDatum = DirectFunctionCall1(numeric_float8, value);
+				f = DatumGetFloat8(valueDatum);
+				appendStringInfo(&state->sql, "%f", f);
+			}
+			break;
+			case BPCHAROID:
+			case VARCHAROID:
+			case TEXTOID:
+			case JSONOID:
+			case NAMEOID:
+			case BITOID:
+			case BYTEAOID:
+			{
+				char   *str = NULL;
+				bool	tl = false;
+				Oid		typoutput = InvalidOid;
+
+				getTypeOutputInfo(type, &typoutput, &tl);
+				str = OidOutputFunctionCall(typoutput, value);
+				appendStringInfo(&state->sql, "%s", str);
+			}
+			break;
+			case DATEOID:
+			{
+				/* we expect Date on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_date_out, value));
+				appendStringInfoString(&state->sql, extval);
+				pfree(extval);
+				break;
+			}
+			case TIMEOID:
+			{
+				/* we expect DateTime on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_time_out, value));
+				appendStringInfo(&state->sql, "0001-01-01 %s", extval);
+				pfree(extval);
+				break;
+			}
+			case TIMESTAMPOID:
+			case TIMESTAMPTZOID:
+			{
+				/* we expect DateTime on other side */
+				char *extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
+				appendStringInfoString(&state->sql, extval);
+				pfree(extval);
+				break;
+			}
+			default:
+				ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+				                errmsg("cannot convert constant value to clickhouse value"),
+				                errhint("Constant value data type: %u", type)));
+			}
+			pindex++;
+		}
+		appendStringInfoChar(&state->sql, '\n');
+
+		Assert(pindex == state->p_nums);
+	}
+}
+
+static void *
+http_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
+		char *query, char *table_name)
+{
+	ch_http_insert_state *state = palloc0(sizeof(ch_http_insert_state));
+
+	initStringInfo(&state->sql);
+	state->sql_begin = psprintf("%s FORMAT TSV\n", query);
+	state->target_attrs = target_attrs;
+	state->p_nums = list_length(state->target_attrs);
+	state->conn = conn;
+
+	return state;
+}
+
+static void
+http_insert_tuple(void *istate, TupleTableSlot *slot)
+{
+	ch_http_insert_state *state = istate;
+
+	extend_insert_query(state, slot);
+
+	if ((slot == NULL && state->sql.len > 0)
+			|| state->sql.len > (MaxAllocSize / 2 /* 512MB */))
+	{
+		http_simple_insert(state->conn, state->sql.data);
+		resetStringInfo(&state->sql);
+	}
+}
+
 /*** BINARY PROTOCOL ***/
 
 ch_connection
@@ -364,7 +521,9 @@ binary_simple_query(void *conn, const char *query)
 	state = (ch_binary_read_state_t *) palloc0(sizeof(ch_binary_read_state_t));
 	cursor->query = pstrdup(query);
 	cursor->read_state = state;
+	cursor->columns_count = resp->columns_count;
 	ch_binary_read_state_init(cursor->read_state, resp);
+	cursor->conversion_states = palloc0(sizeof(uintptr_t) * cursor->columns_count);
 
 	cursor->memcxt = tempcxt;
 	cursor->callback.func = binary_cursor_free;
@@ -381,224 +540,6 @@ binary_simple_query(void *conn, const char *query)
 	}
 
 	return cursor;
-}
-
-static Datum
-convert_datum(Datum val, Oid intype, Oid outtype)
-{
-	/*
-	Oid		valtype = types_map[coltype];
-
-	Assert(rowval != NULL);
-	switch (coltype)
-	{
-		case chb_Array:
-			{
-				size_t		i;
-				Datum	   *out_datums;
-				ch_binary_array_t *arr = rowval;
-				Oid			elmtype = types_map[arr->coltype];
-				int			lb = 1;
-				ArrayType  *aout;
-				int16		typlen;
-				bool		typbyval;
-				char		typalign;
-
-				if (elmtype == InvalidOid)
-					* TODO: support more complex arrays. But first check that
-					 * ClickHouse supports them (thigs like multidimensional
-					 * arrays and such *
-					elog(ERROR, "clickhouse_fdw: array too complex for conversion");
-
-				valtype = get_array_type(elmtype);
-				if (valtype == InvalidOid)
-					elog(ERROR, "clickhouse_fdw: could not find array type for %d", elmtype);
-
-				if (arr->len == 0)
-					ret = PointerGetDatum(construct_empty_array(elmtype));
-				else
-				{
-					out_datums = palloc(sizeof(Datum) * arr->len);
-
-					for (i = 0; i < arr->len; ++i)
-						out_datums[i] = make_datum(arr->values[i], arr->coltype, InvalidOid);
-
-					get_typlenbyvalalign(elmtype, &typlen, &typbyval, &typalign);
-					aout = construct_array(out_datums, arr->len, elmtype,
-						typlen, typbyval, typalign);
-					ret = PointerGetDatum(aout);
-				}
-			}
-			break;
-		case chb_Tuple:
-			{
-				Datum		result;
-				HeapTuple	htup;
-				Datum	   *tuple_values;
-				bool	   *tuple_nulls;
-				TupleDesc	desc;
-				size_t		i;
-
-				ch_binary_tuple_t *tuple = rowval;
-
-				if (tuple->len == 0)
-					elog(ERROR, "clickhouse_fdw: returned tuple is empty");
-
-				desc = CreateTemplateTupleDescCompat(tuple->len);
-				tuple_values = palloc(sizeof(Datum) * desc->natts);
-
-				* TODO: support NULLs in tuple *
-				tuple_nulls = palloc0(sizeof(bool) * desc->natts);
-
-				for (i = 0; i < desc->natts; ++i)
-				{
-					ch_binary_coltype	coltype = tuple->coltypes[i];
-					Oid elmtype = types_map[coltype];
-
-					if (coltype == chb_Array)
-					{
-						ch_binary_array_t *arr = tuple->values[i];
-						elmtype = types_map[arr->coltype];
-						elmtype = get_array_type(elmtype);
-					}
-
-					if (elmtype == InvalidOid)
-						elog(ERROR, "clickhouse_fdw: tuple too complex for conversion");
-
-					TupleDescInitEntry(desc, (AttrNumber) i + 1, "",
-									   elmtype, -1, 0);
-
-					tuple_values[i] = make_datum(tuple->values[i], coltype, InvalidOid);
-				}
-
-				desc = BlessTupleDesc(desc);
-
-				htup = heap_form_tuple(desc, tuple_values, tuple_nulls);
-				pfree(tuple_values);
-				pfree(tuple_nulls);
-
-			}
-			break;
-		default:
-			elog(ERROR, "clickhouse_fdw: %d type from ClickHouse is not supported", coltype);
-	}
-	*/
-
-	Assert(intype != InvalidOid);
-	Assert(outtype != InvalidOid);
-
-	if (intype == RECORDOID)
-	{
-		/* we've got a tuple */
-		ch_binary_tuple_t	*slot = (ch_binary_tuple_t *) DatumGetPointer(val);
-		CustomObjectDef	*cdef = chfdw_check_for_custom_type(outtype);
-
-		if (cdef || outtype == RECORDOID || outtype == TEXTOID)
-		{
-			val = heap_copy_tuple_as_datum(slot->tup, slot->desc);
-
-			if (cdef && cdef->rowfunc != InvalidOid)
-			{
-				/* there is convertor from row to outtype */
-				val = OidFunctionCall1(cdef->rowfunc, val);
-			}
-			else if (outtype == TEXTOID)
-			{
-				/* a lot of allocations, not so efficient */
-				val = CStringGetTextDatum(DatumGetCString(OidFunctionCall1(F_RECORD_OUT, val)));
-			}
-		}
-		else
-		{
-			bool			pinned = false;
-			TupleDesc		pgdesc;
-			TypeCacheEntry *typentry;
-			TupleConversionMap *tupmap;
-			HeapTuple		temptup;
-
-			typentry = lookup_type_cache(outtype,
-										 TYPECACHE_TUPDESC |
-										 TYPECACHE_DOMAIN_BASE_INFO);
-
-			if (typentry->typtype == TYPTYPE_DOMAIN)
-				pgdesc = lookup_rowtype_tupdesc_noerror(typentry->domainBaseType,
-													  typentry->domainBaseTypmod,
-													  false);
-			else
-			{
-				if (typentry->tupDesc == NULL)
-					ereport(ERROR,
-							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("type %s is not composite",
-									format_type_be(outtype))));
-
-				pinned = true;
-				pgdesc = typentry->tupDesc;
-				PinTupleDesc(pgdesc);
-			}
-
-			tupmap = convert_tuples_by_position(slot->desc, pgdesc,
-				"clickhouse_fdw: could not map tuple to returned type");
-
-			if (tupmap)
-			{
-				temptup = execute_attr_map_tuple(slot->tup, tupmap);
-				pfree(tupmap);
-			}
-			else
-				temptup = slot->tup;
-
-			val = heap_copy_tuple_as_datum(temptup, pgdesc);
-			if (pinned)
-				ReleaseTupleDesc(pgdesc);
-		}
-	}
-	else if (intype != outtype)
-	{
-		Oid			castfunc;
-		CoercionPathType ctype;
-
-		if (intype == TEXTOID)
-		{
-			Type		baseType;
-			Oid			baseTypeId;
-			int32		typmod = -1;
-
-			baseTypeId = getBaseTypeAndTypmod(outtype, &typmod);
-			if (baseTypeId != INTERVALOID)
-				typmod = -1;
-
-			baseType = typeidType(baseTypeId);
-			val = stringTypeDatum(baseType, TextDatumGetCString(val), typmod);
-			ReleaseSysCache(baseType);
-		}
-		else if (outtype == BOOLOID && intype == INT2OID)
-		{
-			int16 val = DatumGetInt16(val);
-			val = BoolGetDatum(val);
-		}
-		else
-		{
-			/* try to convert */
-			ctype = find_coercion_pathway(outtype, intype,
-										  COERCION_EXPLICIT,
-										  &castfunc);
-			switch (ctype)
-			{
-				case COERCION_PATH_FUNC:
-					val = OidFunctionCall1(castfunc, val);
-					break;
-				case COERCION_PATH_RELABELTYPE:
-					/* all good */
-					break;
-				default:
-					elog(ERROR, "clickhouse_fdw: could not cast value from %s to %s",
-							format_type_be(intype), format_type_be(outtype));
-			}
-		}
-	}
-
-	return val;
 }
 
 static void **
@@ -624,7 +565,7 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 	{
 		if (state->resp->columns_count == 1 && state->nulls[0])
 		{
-			/* SELECT NULL, nulls array already contains nulls */
+			nulls[0] = true;
 			goto ok;
 		}
 		else
@@ -650,14 +591,48 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 		{
 			int		i = lfirst_int(lc);
 			bool	isnull = state->nulls[j];
+			intptr_t	convstate;
+
 
 			if (isnull)
 				values[i - 1] = (Datum) 0;
 			else
 			{
-				Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
-				values[i - 1] = convert_datum(state->values[j],
-						state->coltypes[j], outtype);
+again:
+				convstate = cursor->conversion_states[j];
+				switch (convstate)
+				{
+					case 0:
+					{
+						MemoryContext old_mcxt;
+
+						Oid outtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+						void *s;
+
+						/*
+						 * now we're should be in temporary memory context,
+						 * so make sure conversion states outlive it.
+						 */
+						old_mcxt = MemoryContextSwitchTo(cursor->memcxt);
+						s = ch_binary_init_convert_state(state->values[j],
+								state->coltypes[j], outtype);
+						MemoryContextSwitchTo(old_mcxt);
+
+						if (s == NULL)
+							/* no conversion but state is initalized */
+							cursor->conversion_states[j] = 1;
+						else
+							cursor->conversion_states[j] = (uintptr_t) s;
+						goto again;
+					}
+					case 1:
+						/* no conversion */
+						values[i - 1] = state->values[j];
+						break;
+					default:
+						values[i - 1] = ch_binary_convert_datum((void *) convstate,
+								state->values[j]);
+				}
 			}
 
 			nulls[i - 1] = isnull;
@@ -673,14 +648,78 @@ static void
 binary_cursor_free(void *c)
 {
 	ch_cursor *cursor = c;
+	for (size_t i = 0; i < cursor->columns_count; i++)
+	{
+		if (cursor->conversion_states[i] > 1)
+			ch_binary_free_convert_state((void *) cursor->conversion_states[i]);
+	}
+
 	ch_binary_read_state_free(cursor->read_state);
 	ch_binary_response_free(cursor->query_response);
 }
 
-static void
-binary_simple_insert(void *conn, const char *query)
+static void *
+binary_prepare_insert(void *conn, ResultRelInfo *rri, List *target_attrs,
+		char *query, char *table_name)
 {
-	elog(ERROR, "clickhouse_fdw: insertion is not implemented for binary protocol yet");
+	ch_binary_insert_state *state = NULL;
+	MemoryContext	tempcxt,
+					oldcxt;
+
+	if (table_name == NULL)
+		elog(ERROR, "expected table name");
+
+	tempcxt = AllocSetContextCreate(CurrentMemoryContext,
+		"clickhouse_fdw binary insert state", ALLOCSET_DEFAULT_SIZES);
+
+	/* prepare cleanup */
+	oldcxt = MemoryContextSwitchTo(tempcxt);
+	state = (ch_binary_insert_state *) palloc0(sizeof(ch_binary_insert_state));
+	state->memcxt = tempcxt;
+	state->callback.func = ch_binary_insert_state_free;
+	state->callback.arg = state;
+	state->conn = conn;
+	state->table_name = pstrdup(table_name);
+	MemoryContextRegisterResetCallback(tempcxt, &state->callback);
+
+	/* time for c++ stuff */
+	ch_binary_prepare_insert(conn, query, state);
+
+	/* buffers */
+	state->values = (Datum *) palloc0(sizeof(Datum) * state->len);
+	state->nulls = (bool *) palloc0(sizeof(bool) * state->len);
+	MemoryContextSwitchTo(oldcxt);
+
+	return state;
+}
+
+static void
+binary_insert_tuple(void *istate, TupleTableSlot *slot)
+{
+	ch_binary_insert_state *state = istate;
+
+	if (state->conversion_states == NULL)
+	{
+		MemoryContext	old_mcxt;
+
+		old_mcxt = MemoryContextSwitchTo(state->memcxt);
+		state->conversion_states = ch_binary_make_tuple_map(
+				slot->tts_tupleDescriptor, state->outdesc);
+		MemoryContextSwitchTo(old_mcxt);
+	}
+
+	if (slot)
+	{
+		ch_binary_do_output_convertion(state, slot);
+
+		for (size_t i = 0; i < state->outdesc->natts; i++)
+			ch_binary_column_append_data(state, i);
+	}
+	else
+	{
+		ch_binary_insert_columns(state);
+		state->success = true;
+	}
 }
 
 #define STR_TYPES_COUNT 16

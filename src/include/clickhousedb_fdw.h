@@ -15,9 +15,11 @@
 #include "lib/stringinfo.h"
 #include "utils/relcache.h"
 #include "catalog/pg_operator.h"
+#include "nodes/execnodes.h"
 
 #if PG_VERSION_NUM < 120000
 #include "optimizer/var.h"
+#include "access/htup_details.h"
 #else
 #include "optimizer/optimizer.h"
 #include "nodes/pathnodes.h"
@@ -35,6 +37,8 @@ typedef struct ch_cursor
 	char	*query;
 	double	 request_time;
 	double	 total_time;
+	size_t   columns_count;
+	uintptr_t	*conversion_states; /* for binary */
 } ch_cursor;
 
 typedef void (*disconnect_method)(void *conn);
@@ -44,14 +48,18 @@ typedef void (*simple_insert_method)(void *conn, const char *query);
 typedef void (*cursor_free_method)(ch_cursor *cursor);
 typedef void **(*cursor_fetch_row_method)(ch_cursor *cursor, List *attrs,
 	TupleDesc tupdesc, Datum *values, bool *nulls);
+typedef void *(*prepare_insert_method)(void *conn, ResultRelInfo *, List *,
+		char *, char *);
+typedef void (*insert_tuple_method)(void *state, TupleTableSlot *slot);
 
 typedef struct
 {
 	disconnect_method			disconnect;
 	simple_query_method			simple_query;
-	simple_insert_method		simple_insert;
 	cursor_free_method			cursor_free;
 	cursor_fetch_row_method		fetch_row;
+	prepare_insert_method		prepare_insert;
+	insert_tuple_method			insert_tuple;
 } libclickhouse_methods;
 
 typedef struct {
@@ -196,7 +204,7 @@ extern void chfdw_classify_conditions(PlannerInfo *root,
 extern bool chfdw_is_foreign_expr(PlannerInfo *root,
                             RelOptInfo *baserel,
                             Expr *expr);
-extern void chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
+extern char *chfdw_deparse_insert_sql(StringInfo buf, RangeTblEntry *rte,
                              Index rtindex, Relation rel,
                              List *targetAttrs);
 extern Expr *chfdw_find_em_expr(EquivalenceClass *ec, RelOptInfo *rel);

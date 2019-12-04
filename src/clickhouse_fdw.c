@@ -34,6 +34,7 @@
 #include "parser/parsetree.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/palloc.h"
 #include "utils/rel.h"
 
 #if PG_VERSION_NUM >= 120000
@@ -90,7 +91,9 @@ enum FdwModifyPrivateIndex
 	/* SQL statement to execute remotely (as a String node) */
 	FdwModifyPrivateInsertSQL,
 	/* Integer list of target attribute numbers for INSERT/UPDATE */
-	FdwModifyPrivateTargetAttnums
+	FdwModifyPrivateTargetAttnums,
+	/* Deparsed name of the result table */
+	FdwModifyPrivateTableName
 };
 
 
@@ -137,17 +140,9 @@ typedef struct CHFdwModifyState
 	/* for remote query execution */
 	ch_connection	conn;		/* connection for the scan */
 
-	/* constructed query */
-	char		   *sql_begin;	/* beginning part of constructed sql */
-	StringInfoData	sql;
-
 	/* extracted fdw_private data */
 	char	   *query;			/* text of INSERT/UPDATE/DELETE command */
-	List	   *target_attrs;	/* list of target attribute numbers */
-
-	/* info about parameters for prepared statement */
-	int			p_nums;			/* number of parameters to transmit */
-	FmgrInfo   *p_flinfo;		/* output conversion functions for them */
+	void	   *state;			/* internal state for a connection */
 
 	/* working memory context */
 	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
@@ -230,10 +225,10 @@ static CHFdwModifyState *create_foreign_modify(EState *estate,
         CmdType operation,
         Plan *subplan,
         char *query,
-        List *target_attrs);
+        List *target_attrs,
+		char *table_name);
 static void prepare_foreign_modify(TupleTableSlot *slot,
                                    CHFdwModifyState *fmstate);
-static const char **extend_insert_query(CHFdwModifyState *fmstate, TupleTableSlot *slot);
 static void finish_foreign_modify(CHFdwModifyState *fmstate);
 static void prepare_query_params(PlanState *node,
                                  List *fdw_exprs,
@@ -1176,10 +1171,12 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	/*
 	 * Construct the SQL command string.
 	 */
+	char *table_name;
+
 	switch (operation)
 	{
 	case CMD_INSERT:
-		chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
+		table_name = chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
 		break;
 	case CMD_UPDATE:
 		elog(ERROR, "ClickHouse does not support updates");
@@ -1197,7 +1194,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	 * Build the fdw_private list that will be available to the executor.
 	 * Items in the list must match enum FdwModifyPrivateIndex, above.
 	 */
-	return list_make2(makeString(sql.data), targetAttrs);
+	return list_make3(makeString(sql.data), targetAttrs, makeString(table_name));
 }
 
 /*
@@ -1215,7 +1212,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	char	   *query;
 	List	   *target_attrs = NULL;
 	RangeTblEntry *rte;
-
+	char	   *table_name;
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  resultRelInfo->ri_FdwState
@@ -1227,6 +1224,7 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	/* Deconstruct fdw_private data. */
 	query = strVal(list_nth(fdw_private, FdwModifyPrivateInsertSQL));
 	target_attrs = (List *) list_nth(fdw_private, FdwModifyPrivateTargetAttnums);
+	table_name = strVal(list_nth(fdw_private, FdwModifyPrivateTableName));
 
 	/* Find RTE. */
 	rte = rt_fetch(resultRelInfo->ri_RangeTableIndex,
@@ -1239,7 +1237,8 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	                                mtstate->operation,
 	                                mtstate->mt_plans[subplan_index]->plan,
 	                                query,
-	                                target_attrs);
+	                                target_attrs,
+									table_name);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1275,6 +1274,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	List	   *retrieved_attrs = NIL;
 	bool		doNothing = false;
 	StringInfoData	sql;
+	char	   *table_name;
 
 	/* We transmit all columns that are defined in the foreign table. */
 	for (attnum = 1; attnum <= tupdesc->natts; attnum++)
@@ -1303,7 +1303,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	}
 
 	initStringInfo(&sql);
-	chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
+	table_name = chfdw_deparse_insert_sql(&sql, rte, resultRelation, rel, targetAttrs);
 
 	/* Construct an execution state. */
 	fmstate = create_foreign_modify(mtstate->ps.state,
@@ -1312,7 +1312,8 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                CMD_INSERT,
 	                                NULL,
 	                                sql.data,
-	                                targetAttrs);
+	                                targetAttrs,
+									table_name);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1327,16 +1328,15 @@ clickhouseExecForeignInsert(EState *estate,
                             TupleTableSlot *slot,
                             TupleTableSlot *planSlot)
 {
+	MemoryContext oldcontext;
+
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
-	extend_insert_query(fmstate, slot);
+	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
 
-	if (fmstate->sql.len > (MaxAllocSize / 2 /* 512MB */))
-	{
-		fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
-		resetStringInfo(&fmstate->sql);
-	}
+	fmstate->conn.methods->insert_tuple(fmstate->state, slot);
 
+	MemoryContextSwitchTo(oldcontext);
 	MemoryContextReset(fmstate->temp_cxt);
 
 	return slot;
@@ -1350,12 +1350,17 @@ static void
 clickhouseEndForeignInsert(EState *estate,
                            ResultRelInfo *resultRelInfo)
 {
+	MemoryContext oldcontext;
+
 	CHFdwModifyState *fmstate = (CHFdwModifyState *) resultRelInfo->ri_FdwState;
 
 	if (fmstate)
 	{
-		if (fmstate->sql.len > 0)
-			fmstate->conn.methods->simple_insert(fmstate->conn.conn, fmstate->sql.data);
+		/* flush */
+		oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
+		fmstate->conn.methods->insert_tuple(fmstate->state, NULL);
+		MemoryContextSwitchTo(oldcontext);
+		MemoryContextReset(fmstate->temp_cxt);
 
 		/* Destroy the execution state */
 		finish_foreign_modify(fmstate);
@@ -1457,15 +1462,14 @@ estimate_path_cost_size(double *p_rows, int *p_width,
 static CHFdwModifyState *
 create_foreign_modify(EState *estate,
                       RangeTblEntry *rte,
-                      ResultRelInfo *resultRelInfo,
+                      ResultRelInfo *rri,
                       CmdType operation,
                       Plan *subplan,
                       char *query,
-                      List *target_attrs)
+                      List *target_attrs,
+					  char *table_name)
 {
 	CHFdwModifyState *fmstate;
-	Relation	rel = resultRelInfo->ri_RelationDesc;
-	TupleDesc	tupdesc = RelationGetDescr(rel);
 	Oid			userid;
 	ForeignTable *table;
 	UserMapping *user;
@@ -1473,6 +1477,8 @@ create_foreign_modify(EState *estate,
 	Oid			typefnoid;
 	bool		isvarlena;
 	ListCell   *lc;
+	MemoryContext	old_mcxt;
+	Relation	rel = rri->ri_RelationDesc;
 
 	/* Begin constructing CHFdwModifyState. */
 	fmstate = (CHFdwModifyState *) palloc0(sizeof(CHFdwModifyState));
@@ -1488,170 +1494,22 @@ create_foreign_modify(EState *estate,
 	table = GetForeignTable(RelationGetRelid(rel));
 	user = GetUserMapping(userid, table->serverid);
 
+	/* make a connection and prepare an insertion state */
 	fmstate->conn = chfdw_get_connection(user);
 
-	/* Set up remote query information. */
-	fmstate->query = query;
-	fmstate->target_attrs = target_attrs;
-
-	/* Init query prefix */
-	initStringInfo(&fmstate->sql);
-	fmstate->sql_begin = psprintf("%s FORMAT TSV\n", query);
+	old_mcxt = MemoryContextSwitchTo(PortalContext);
+	fmstate->state = fmstate->conn.methods->prepare_insert(fmstate->conn.conn,
+			rri, target_attrs, query, table_name);
+	MemoryContextSwitchTo(old_mcxt);
 
 	/* Create context for per-query temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
-	                    "postgres_fdw temporary data",
+	                    "clickhouse_fdw temporary data",
 	                    ALLOCSET_SMALL_SIZES);
 
-	/* Prepare for output conversion of parameters used in prepared stmt. */
-	n_params = list_length(fmstate->target_attrs) + 1;
-	fmstate->p_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * n_params);
-	fmstate->p_nums = 0;
-
-	if (operation == CMD_INSERT)
-	{
-		/* Set up for remaining transmittable parameters */
-		foreach (lc, fmstate->target_attrs)
-		{
-			int			attnum = lfirst_int(lc);
-			Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
-
-			Assert(!attr->attisdropped);
-
-			getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-			fmgr_info(typefnoid, &fmstate->p_flinfo[fmstate->p_nums]);
-			fmstate->p_nums++;
-		}
-	}
-
-	Assert(fmstate->p_nums <= n_params);
+	/* Set up remote query information. */
+	fmstate->query = query;
 	return fmstate;
-}
-
-/*
- * extend_insert_query
- *		Construct values part of INSERT query
- */
-static const char **
-extend_insert_query(CHFdwModifyState *fmstate, TupleTableSlot *slot)
-{
-	int			pindex = 0;
-	MemoryContext oldcontext;
-	bool first = true;
-
-	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
-
-	if (fmstate->sql.len == 0)
-		appendStringInfoString(&fmstate->sql, fmstate->sql_begin);
-
-	/* get following parameters from slot */
-	if (slot != NULL && fmstate->target_attrs != NIL)
-	{
-		ListCell   *lc;
-
-		foreach (lc, fmstate->target_attrs)
-		{
-			int			attnum = lfirst_int(lc);
-			Datum		value;
-			Oid		    type;
-			bool		isnull;
-
-			value = slot_getattr(slot, attnum, &isnull);
-			type = TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid;
-
-			if (!first)
-				appendStringInfoChar(&fmstate->sql, '\t');
-			first = false;
-
-			if (isnull)
-			{
-				appendStringInfoString(&fmstate->sql, "\\N");
-				pindex++;
-				continue;
-			}
-
-			switch (type)
-			{
-			case BOOLOID:
-			case INT2OID:
-			case INT4OID:
-				appendStringInfo(&fmstate->sql, "%d", DatumGetInt32(value));
-			break;
-			case INT8OID:
-				appendStringInfo(&fmstate->sql, INT64_FORMAT, DatumGetInt64(value));
-			break;
-			case FLOAT4OID:
-				appendStringInfo(&fmstate->sql, "%f", DatumGetFloat4(value));
-			break;
-			case FLOAT8OID:
-				appendStringInfo(&fmstate->sql, "%f", DatumGetFloat8(value));
-			break;
-			case NUMERICOID:
-			{
-				Datum  valueDatum;
-				float8 f;
-
-				valueDatum = DirectFunctionCall1(numeric_float8, value);
-				f = DatumGetFloat8(valueDatum);
-				appendStringInfo(&fmstate->sql, "%f", f);
-			}
-			break;
-			case BPCHAROID:
-			case VARCHAROID:
-			case TEXTOID:
-			case JSONOID:
-			case NAMEOID:
-			case BITOID:
-			case BYTEAOID:
-			{
-				char   *str = NULL;
-				bool	tl = false;
-				Oid		typoutput = InvalidOid;
-
-				getTypeOutputInfo(type, &typoutput, &tl);
-				str = OidOutputFunctionCall(typoutput, value);
-				appendStringInfo(&fmstate->sql, "%s", str);
-			}
-			break;
-			case DATEOID:
-			{
-				/* we expect Date on other side */
-				char *extval = DatumGetCString(DirectFunctionCall1(ch_date_out, value));
-				appendStringInfoString(&fmstate->sql, extval);
-				pfree(extval);
-				break;
-			}
-			case TIMEOID:
-			{
-				/* we expect DateTime on other side */
-				char *extval = DatumGetCString(DirectFunctionCall1(ch_time_out, value));
-				appendStringInfo(&fmstate->sql, "0001-01-01 %s", extval);
-				pfree(extval);
-				break;
-			}
-			case TIMESTAMPOID:
-			case TIMESTAMPTZOID:
-			{
-				/* we expect DateTime on other side */
-				char *extval = DatumGetCString(DirectFunctionCall1(ch_timestamp_out, value));
-				appendStringInfoString(&fmstate->sql, extval);
-				pfree(extval);
-				break;
-			}
-			default:
-				ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-				                errmsg("cannot convert constant value to clickhouse value"),
-				                errhint("Constant value data type: %u", type)));
-			}
-			pindex++;
-		}
-		appendStringInfoChar(&fmstate->sql, '\n');
-	}
-
-	Assert(pindex == fmstate->p_nums);
-	MemoryContextSwitchTo(oldcontext);
-
-	return NULL;
 }
 
 /*
