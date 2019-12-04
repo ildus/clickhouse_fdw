@@ -30,6 +30,11 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.complex (
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
+    c1 Int32, c2 Array(Int32)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+
 IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
 
 /* ints */
@@ -66,6 +71,13 @@ INSERT INTO complex VALUES
 	(1, '1990-06-01', '1990-06-02 10:01:02', 't1', 'fix_t1', 'low1'),
 	(2, '1990-06-02', '1990-06-03 10:01:02', 5, 'fix_t2', 'low2');
 SELECT * FROM complex ORDER BY c1;
+
+/* check arrays */
+INSERT INTO arrays VALUES
+	(1, ARRAY[1,2]),
+	(2, ARRAY[3,4,5]),
+	(3, ARRAY[6,4]);
+SELECT * FROM arrays ORDER BY c1;
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 DROP EXTENSION clickhouse_fdw CASCADE;

@@ -43,6 +43,14 @@ void ColumnArray::Append(ColumnRef column) {
     }
 }
 
+void ColumnArray::AppendOffset(size_t n) {
+    if (offsets_->Size() == 0) {
+        offsets_->Append(n);
+    } else {
+        offsets_->Append((*offsets_)[offsets_->Size() - 1] + n);
+    }
+}
+
 bool ColumnArray::Load(CodedInputStream* input, size_t rows) {
     if (!offsets_->Load(input, rows)) {
         return false;

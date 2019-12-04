@@ -494,17 +494,19 @@ column_append(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 				case Type::Array:
 				{
 					auto arrcol = col->As<ColumnArray>();
-					auto nested = clickhouse::CreateColumnByType(
-							col->Type()->As<clickhouse::ArrayType>()->GetItemType()->GetName());
+
+					arrcol->AppendOffset(arr->len);
 					for (size_t i = 0; i < arr->len; i++)
-						column_append(nested, arr->datums[i], arr->item_type, arr->nulls[i]);
-					arrcol->Append(nested);
+						column_append(arrcol->Nested(), arr->datums[i],
+								arr->item_type, arr->nulls[i]);
+
+					break;
 				}
-				break;
-					default:
-						throw std::runtime_error("unexpected column "
-								"type for array: " + col->Type()->GetName());
+				default:
+					throw std::runtime_error("unexpected column "
+							"type for array: " + col->Type()->GetName());
 			}
+			break;
 		}
 		default:
 		{

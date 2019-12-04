@@ -459,29 +459,28 @@ ch_binary_do_output_convertion(ch_binary_insert_state *insert_state,
 			else if (cstate->outtype == ANYARRAYOID)
 			{
 				AnyArrayType *v = DatumGetAnyArrayP(out_values[i]);
-				ch_binary_array_t	*slot;
+				ch_binary_array_t	*arr;
 				array_iter	iter;
 
 				if (AARR_NDIM(v) != 1)
 					elog(ERROR, "clickhouse_fdw: inserted array should have one dimension");
 
-				slot = palloc(sizeof(ch_binary_array_t));
-				slot->len = ArrayGetNItems(AARR_NDIM(v), AARR_DIMS(v));
-				slot->datums = palloc(sizeof(Datum) * slot->len);
-				slot->nulls = palloc(sizeof(bool) * slot->len);
-				slot->item_type = cstate->innertype;
+				arr = palloc(sizeof(ch_binary_array_t));
+				arr->len = ArrayGetNItems(AARR_NDIM(v), AARR_DIMS(v));
+				arr->datums = palloc(sizeof(Datum) * arr->len);
+				arr->nulls = palloc(sizeof(bool) * arr->len);
+				arr->item_type = cstate->innertype;
 
 				array_iter_setup(&iter, v);
-				for (size_t j = 0; j < slot->len; j++)
+				for (size_t j = 0; j < arr->len; j++)
 				{
-					Datum		itemvalue;
-					bool		isnull;
-
-					/* Get source element, checking for NULL */
-					slot->datums[j] = array_iter_next(&iter, &isnull, i,
+					arr->datums[j] = array_iter_next(&iter, &arr->nulls[j], i,
 						cstate->typlen, cstate->typbyval, cstate->typalign);
 				}
-				out_values[i] = PointerGetDatum(slot);
+				out_values[i] = PointerGetDatum(arr);
+
+				/* hack: mark as unified array */
+				TupleDescAttr(insert_state->outdesc, i)->atttypid = ANYARRAYOID;
 			}
 		}
 	}
