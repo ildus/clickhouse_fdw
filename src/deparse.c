@@ -2596,7 +2596,7 @@ deparseIntervalOp(Node *first, Node *second, deparse_expr_cxt *context, bool plu
 }
 
 static Oid
-findIStoreFunction(Oid isoid, char *name)
+findFunction(Oid typoid, char *name)
 {
 	int			i;
 	Oid			result = InvalidOid;
@@ -2613,7 +2613,7 @@ findIStoreFunction(Oid isoid, char *name)
 	{
 		proctup = &catlist->members[i]->tuple;
 		procform = (Form_pg_proc) GETSTRUCT(proctup);
-		if (procform->proargtypes.values[0] == isoid)
+		if (procform->proargtypes.values[0] == typoid)
 #if PG_VERSION_NUM < 120000
 			result = HeapTupleGetOid(proctup);
 #else
@@ -2690,8 +2690,8 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 				if (IsA(arg, Const))
 				{
 					Const	   *constval = (Const *) arg;
-					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
-					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
+					Oid			akeys = findFunction(constval->consttype, "akeys");
+					Oid			avalues = findFunction(constval->consttype, "avals");
 
 					/* vals[nullif(indexOf(keys,toString(arg)), 0)] */
 					appendStringInfoChar(buf, '(');
@@ -2730,8 +2730,8 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 				else if (IsA(arg, Const))
 				{
 					Const	   *constval = (Const *) arg;
-					Oid			akeys = findIStoreFunction(constval->consttype, "akeys");
-					Oid			avalues = findIStoreFunction(constval->consttype, "avals");
+					Oid			akeys = findFunction(constval->consttype, "akeys");
+					Oid			avalues = findFunction(constval->consttype, "avals");
 
 					/* ([val1, val2][nullif(indexOf([key1, key2], arg), 0]) */
 					appendStringInfoChar(buf, '(');
@@ -2748,6 +2748,7 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 				goto cleanup;
 			}
 			break;
+			default: /* keep compiler quiet */ ;
 		}
 	}
 
