@@ -1924,7 +1924,7 @@ ch_timestamp_out(PG_FUNCTION_ARGS)
 }
 
 static void
-deparseArray(Datum arr, deparse_expr_cxt *context)
+deparseArray(Datum arr, deparse_expr_cxt *context, bool quoteStr)
 {
 	StringInfo	buf = context->buf;
 	AnyArrayType *array = DatumGetAnyArrayP(arr);
@@ -1986,10 +1986,6 @@ deparseArray(Datum arr, deparse_expr_cxt *context)
 			case FLOAT8OID:
 			case NUMERICOID:
 			{
-				/*
-				 * No need to quote unless it's a special value such as 'NaN'.
-				 * See comments in get_const_expr().
-				 */
 				if (strspn(extval, "0123456789+-eE.") == strlen(extval))
 				{
 					if (extval[0] == '+' || extval[0] == '-')
@@ -2008,7 +2004,7 @@ deparseArray(Datum arr, deparse_expr_cxt *context)
 					appendStringInfoString(buf, "false");
 				break;
 			default:
-				deparseStringLiteral(buf, extval, true);
+				deparseStringLiteral(buf, extval, quoteStr);
 				break;
 			}
 			pfree(extval);
@@ -2072,7 +2068,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	}
 	else if (typoutput == F_ARRAY_OUT)
 	{
-		deparseArray(node->constvalue, context);
+		deparseArray(node->constvalue, context, true);
 		return;
 	}
 	else
@@ -2693,14 +2689,14 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					Oid			akeys = findFunction(constval->consttype, "akeys");
 					Oid			avalues = findFunction(constval->consttype, "avals");
 
-					/* vals[nullif(indexOf(keys,toString(arg)), 0)] */
+					/* vals[nullif(indexOf(keys,arg), 0)] */
 					appendStringInfoChar(buf, '(');
-					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
+					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context, false);
 					appendStringInfoString(buf, "[nullif(indexOf(");
-					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
-					appendStringInfoString(buf, ", toString(");
+					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context, false);
+					appendStringInfoString(buf, ", ");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")), 0)])");
+					appendStringInfoString(buf, "), 0)])");
 				}
 				else
 					elog(ERROR, "clickhouse_fdw supports hstore fetchval only for consts");
@@ -2735,9 +2731,9 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 
 					/* ([val1, val2][nullif(indexOf([key1, key2], arg), 0]) */
 					appendStringInfoChar(buf, '(');
-					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
+					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context, true);
 					appendStringInfoString(buf, "[indexOf(");
-					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
+					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context, true);
 					appendStringInfoString(buf, ", ");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
 					appendStringInfoString(buf, ")])");
