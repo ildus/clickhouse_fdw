@@ -2690,9 +2690,9 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					Oid			avalues = findFunction(constval->consttype, "avals");
 
 					/* vals[nullif(indexOf(keys,arg), 0)] */
-					appendStringInfoChar(buf, '(');
+					appendStringInfoString(buf, "(cast('");
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context, false);
-					appendStringInfoString(buf, "[nullif(indexOf(");
+					appendStringInfoString(buf, "', 'Array(Int64)')[nullif(indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context, false);
 					appendStringInfoString(buf, ", ");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
