@@ -3149,7 +3149,11 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 		appendStringInfoChar(buf, ',');
 
 		if (node->aggfilter)
+		{
+			appendStringInfoString(buf, "((");
 			deparseExpr((Expr *) node->aggfilter, context);
+			appendStringInfoString(buf, ") > 0)");
+		}
 
 		if (sign_count_filter)
 		{
