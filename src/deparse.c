@@ -3251,11 +3251,16 @@ deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context)
 	ListCell   *lc;
 	bool		first;
 
-	appendStringInfoString(buf, "CAST(");
-	deparseExpr(node->arg, context);
-	appendStringInfoString(buf, " AS ");
-	appendStringInfoString(buf, deparse_type_name(node->resulttype, 0));
-	appendStringInfoChar(buf, ')');
+	if (node->resulttype == INTERVALOID)
+		deparseExpr(node->arg, context);
+	else
+	{
+		appendStringInfoString(buf, "CAST(");
+		deparseExpr(node->arg, context);
+		appendStringInfoString(buf, " AS ");
+		appendStringInfoString(buf, deparse_type_name(node->resulttype, 0));
+		appendStringInfoChar(buf, ')');
+	}
 }
 
 static void
