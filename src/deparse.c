@@ -667,7 +667,7 @@ ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
 
 	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(type_oid));
 	if (!HeapTupleIsValid(tuple))
-		elog(ERROR, "cache lookup failed for type %u", type_oid);
+		elog(ERROR, "clickhouse_fdw: cache lookup failed for type %u", type_oid);
 
 	typeform = (Form_pg_type) GETSTRUCT(tuple);
 
@@ -686,7 +686,7 @@ ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
 		ReleaseSysCache(tuple);
 		tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(array_base_type));
 		if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for type %u", type_oid);
+			elog(ERROR, "clickhouse_fdw: cache lookup failed for type %u", type_oid);
 
 		typeform = (Form_pg_type) GETSTRUCT(tuple);
 		type_oid = array_base_type;
