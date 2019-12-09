@@ -3258,7 +3258,15 @@ deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context)
 		appendStringInfoString(buf, "CAST(");
 		deparseExpr(node->arg, context);
 		appendStringInfoString(buf, " AS ");
+
+		if (node->resultcollid == 1)
+			appendStringInfoString(buf, "Nullable(");
+
 		appendStringInfoString(buf, deparse_type_name(node->resulttype, 0));
+
+		if (node->resultcollid == 1)
+			appendStringInfoChar(buf, ')');
+
 		appendStringInfoChar(buf, ')');
 	}
 }
@@ -3275,12 +3283,24 @@ deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context)
 	first = true;
 	foreach (lc, node->args)
 	{
+		Expr *arg = lfirst(lc);
+
 		if (!first)
 			appendStringInfoString(buf, ", ");
 
-		first = false;
+		/* first arg should be nullable */
+		if (IsA(arg, CoerceViaIO))
+		{
+			CoerceViaIO *vio = (CoerceViaIO *) arg;
 
-		deparseExpr(lfirst(lc), context);
+			if (first)
+				vio->resultcollid = 1;
+			else
+				vio->resultcollid = InvalidOid;
+		}
+
+		first = false;
+		deparseExpr(arg, context);
 	}
 	appendStringInfoChar(buf, ')');
 }
