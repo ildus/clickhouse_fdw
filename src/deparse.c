@@ -158,6 +158,7 @@ static void appendAggOrderBy(List *orderList, List *targetList,
 static CustomObjectDef *appendFunctionName(Oid funcid, deparse_expr_cxt *context);
 static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 					   deparse_expr_cxt *context);
+static void deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context);
 static void deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context);
 static void deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context);
 
@@ -777,6 +778,9 @@ ch_format_type_extended(Oid type_oid, int32 typemod, bits16 flags)
 				buf = printTypmod("FixedString", typemod, typeform->typmodout);
 			else
 				buf = pstrdup("String");
+			break;
+		case TEXTOID:
+			buf = pstrdup("String");
 			break;
 	}
 
@@ -1798,11 +1802,8 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 		deparseMinMaxExpr((MinMaxExpr *) node, context);
 		break;
 	case T_CoerceViaIO:
-	{
-		CoerceViaIO *vio = (CoerceViaIO *) node;
-		deparseExpr(vio->arg, context);
+		deparseCoerceViaIO((CoerceViaIO *) node, context);
 		break;
-	}
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
 		     (int) nodeTag(node));
@@ -2698,9 +2699,9 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
 					appendStringInfoString(buf, "[nullif(indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
-					appendStringInfoString(buf, ", toString(");
+					appendStringInfoChar(buf, ',');
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")), 0)])");
+					appendStringInfoString(buf, "), 0)])");
 				}
 				else
 					elog(ERROR, "clickhouse_fdw supports hstore fetchval only for consts");
@@ -3241,6 +3242,20 @@ deparseCaseWhen(CaseWhen *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *lc;
+}
+
+static void
+deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+	bool		first;
+
+	appendStringInfoString(buf, "CAST(");
+	deparseExpr(node->arg, context);
+	appendStringInfoString(buf, " AS ");
+	appendStringInfoString(buf, deparse_type_name(node->resulttype, 0));
+	appendStringInfoChar(buf, ')');
 }
 
 static void
