@@ -59,6 +59,38 @@ SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
  2
 (2 rows)
 
+EXPLAIN (VERBOSE, COSTS OFF)
+	SELECT a, sum(b) FROM t1 WHERE a IN (1,2,3) GROUP BY a;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(b))
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT a, sum(b) FROM regression.t1 WHERE ((a IN (1,2,3))) GROUP BY a
+(4 rows)
+
+SELECT a, sum(b) FROM t1 WHERE a IN (1,2,3) GROUP BY a;
+ a | sum 
+---+-----
+ 2 |   2
+ 1 |   1
+(2 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF)
+	SELECT a, sum(b) FROM t1 WHERE a NOT IN (1,2,3) GROUP BY a;
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(b))
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT a, sum(b) FROM regression.t1 WHERE ((a NOT IN (1,2,3))) GROUP BY a
+(4 rows)
+
+SELECT a, sum(b) FROM t1 WHERE a NOT IN (1,2,3) GROUP BY a;
+ a | sum 
+---+-----
+(0 rows)
+
 EXPLAIN (VERBOSE, COSTS OFF) SELECT argMin(a, b) FROM t1;
                       QUERY PLAN                      
 ------------------------------------------------------

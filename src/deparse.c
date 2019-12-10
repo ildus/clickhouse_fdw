@@ -77,6 +77,7 @@ typedef struct deparse_expr_cxt
 	void		*func_arg;		/* custom function context args */
 	CHFdwRelationInfo *fpinfo;	/* fdw relation info */
 	bool		interval_op;
+	bool		array_as_tuple;
 } deparse_expr_cxt;
 
 #define REL_ALIAS_PREFIX	"r"
@@ -921,7 +922,8 @@ chfdw_deparse_select_stmt_for_rel(StringInfo buf, PlannerInfo *root, RelOptInfo 
 	context.scanrel = IS_UPPER_REL(rel) ? fpinfo->outerrel : rel;
 	context.params_list = params_list;
 	context.func = NULL;
-	context.interval_op = NULL;
+	context.interval_op = false;
+	context.array_as_tuple = false;
 
 	/* Construct SELECT clause */
 	deparseSelectSql(tlist, is_subquery, retrieved_attrs, &context);
@@ -1400,6 +1402,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			context.params_list = params_list;
 			context.func = NULL;
 			context.interval_op = false;
+			context.array_as_tuple = false;
 
 			appendStringInfoChar(buf, '(');
 			appendConditions(fpinfo->joinclauses, &context);
@@ -1957,7 +1960,11 @@ deparseArray(Datum arr, deparse_expr_cxt *context)
 	array_iter_setup(&iter, array);
 	first = true;
 
-	appendStringInfoChar(buf, '[');
+	if (context->array_as_tuple)
+		appendStringInfoChar(buf, '(');
+	else
+		appendStringInfoChar(buf, '[');
+
 	for (i = 0; i < nitems; i++)
 	{
 		Datum		elt;
@@ -2015,7 +2022,10 @@ deparseArray(Datum arr, deparse_expr_cxt *context)
 			pfree(extval);
 		}
 	}
-	appendStringInfoChar(buf, ']');
+	if (context->array_as_tuple)
+		appendStringInfoChar(buf, ')');
+	else
+		appendStringInfoChar(buf, ']');
 }
 
 /*
@@ -2868,6 +2878,24 @@ deparseDistinctExpr(DistinctExpr *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, ')');
 }
 
+static void deparseAsIn(ScalarArrayOpExpr *node, deparse_expr_cxt *context, int optype)
+{
+	StringInfo	buf = context->buf;
+	Expr *arg1 = linitial(node->args);
+	Expr *arg2 = lsecond(node->args);
+
+	deparseExpr(arg1, context);
+	if (optype == 1)
+		appendStringInfoString(buf, " IN ");
+	else
+		appendStringInfoString(buf, " NOT IN ");
+
+	Assert(IsA(arg2, Const));
+	context->array_as_tuple = true;
+	deparseExpr(arg2, context);
+	context->array_as_tuple = false;
+}
+
 /*
  * Deparse given ScalarArrayOpExpr expression.  To avoid problems
  * around priority of operations, we always parenthesize the arguments.
@@ -2892,48 +2920,64 @@ deparseScalarArrayOpExpr(ScalarArrayOpExpr *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, '(');
 	if (node->useOr)
 	{
-		if (optype == 1)
-			appendStringInfoString(buf, "has(");
-		else
-			appendStringInfoString(buf, "not has(");
-
-		/* Deparse right operand. */
 		arg2 = lsecond(node->args);
-		deparseExpr(arg2, context);
-		appendStringInfoChar(buf, ',');
 
-		/* Deparse left operand. */
-		arg1 = linitial(node->args);
-		deparseExpr(arg1, context);
+		/* very narrow case for = ANY(ARRAY) */
+		if (optype == 1 && IsA(arg2, Const))
+			deparseAsIn(node, context, optype);
+		else
+		{
+			if (optype == 1)
+				appendStringInfoString(buf, "has(");
+			else
+				appendStringInfoString(buf, "not has(");
 
-		/* Close function call */
-		appendStringInfoChar(buf, ')');
+			/* Deparse right operand. */
+			deparseExpr(arg2, context);
+			appendStringInfoChar(buf, ',');
+
+			/* Deparse left operand. */
+			arg1 = linitial(node->args);
+			deparseExpr(arg1, context);
+
+			/* Close function call */
+			appendStringInfoChar(buf, ')');
+		}
 	}
 	else
 	{
-		appendStringInfoString(buf, "countEqual(");
-
-		/* Deparse right operand. */
 		arg2 = lsecond(node->args);
-		deparseExpr(arg2, context);
-		appendStringInfoChar(buf, ',');
 
-		/* Deparse left operand. */
-		arg1 = linitial(node->args);
-		deparseExpr(arg1, context);
-
-		/* Close function call */
-		if (optype == 1)
+		/* very narrow case for <> ALL(ARRAY) */
+		if (optype == 2 && IsA(arg2, Const))
+			deparseAsIn(node, context, optype);
+		else
 		{
-			appendStringInfoString(buf, ") = length(");
+			appendStringInfoString(buf, "countEqual(");
 
-			/* Deparse right operand again */
+			/* Deparse right operand. */
+			arg2 = lsecond(node->args);
 			deparseExpr(arg2, context);
-			appendStringInfoChar(buf, ')');
-		} else {
-			appendStringInfoString(buf, ") = 0");
+			appendStringInfoChar(buf, ',');
+
+			/* Deparse left operand. */
+			arg1 = linitial(node->args);
+			deparseExpr(arg1, context);
+
+			/* Close function call */
+			if (optype == 1)
+			{
+				appendStringInfoString(buf, ") = length(");
+
+				/* Deparse right operand again */
+				deparseExpr(arg2, context);
+				appendStringInfoChar(buf, ')');
+			} else {
+				appendStringInfoString(buf, ") = 0");
+			}
 		}
 	}
+
 	appendStringInfoChar(buf, ')');
 }
 
