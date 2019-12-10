@@ -22,6 +22,10 @@ $$);
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
 CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
 
+EXPLAIN (VERBOSE, COSTS OFF)
+	SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
+SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
+
 EXPLAIN (VERBOSE, COSTS OFF) SELECT argMin(a, b) FROM t1;
 SELECT argMin(a, b) FROM t1;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT argMax(a, b) FROM t1;

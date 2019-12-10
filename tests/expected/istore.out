@@ -290,12 +290,12 @@ SELECT sum(val + 10) FROM t5;
 (1 row)
 
 EXPLAIN (VERBOSE) SELECT sum(val) FILTER (WHERE val > 6) FROM t5;
-                             QUERY PLAN                              
----------------------------------------------------------------------
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
  Foreign Scan  (cost=1.00..-0.90 rows=1 width=8)
    Output: (sum(val) FILTER (WHERE (val > 6)))
    Relations: Aggregate on (t5)
-   Remote SQL: SELECT sumIf(val * Sign,(val > 6)) FROM regression.t5
+   Remote SQL: SELECT sumIf(val * Sign,(((val > 6)) > 0)) FROM regression.t5
 (4 rows)
 
 SELECT sum(val) FILTER (WHERE val > 6) FROM t5;
@@ -350,12 +350,12 @@ SELECT count(val + 10) FROM t5;
 (1 row)
 
 EXPLAIN (VERBOSE) SELECT count(val) FILTER (WHERE val > 6) FROM t5;
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
  Foreign Scan  (cost=1.00..-0.90 rows=1 width=8)
    Output: (count(val) FILTER (WHERE (val > 6)))
    Relations: Aggregate on (t5)
-   Remote SQL: SELECT sumIf(Sign,(val > 6) AND (val) IS NOT NULL) FROM regression.t5
+   Remote SQL: SELECT sumIf(Sign,(((val > 6)) > 0) AND (val) IS NOT NULL) FROM regression.t5
 (4 rows)
 
 SELECT count(val) FILTER (WHERE val > 6) FROM t5;
@@ -395,12 +395,12 @@ SELECT avg(val + 10) FROM t5;
 (1 row)
 
 EXPLAIN (VERBOSE) SELECT avg(val) FILTER (WHERE val > 6) FROM t5;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
  Foreign Scan  (cost=1.00..-0.90 rows=1 width=32)
    Output: (avg(val) FILTER (WHERE (val > 6)))
    Relations: Aggregate on (t5)
-   Remote SQL: SELECT sumIf(val * Sign,(val > 6)) / sumIf(Sign,(val > 6) AND val IS NOT NULL) FROM regression.t5
+   Remote SQL: SELECT sumIf(val * Sign,(((val > 6)) > 0)) / sumIf(Sign,(val > 6) AND val IS NOT NULL) FROM regression.t5
 (4 rows)
 
 SELECT avg(val) FILTER (WHERE val > 6) FROM t5;

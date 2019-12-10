@@ -42,6 +42,23 @@ $$);
 
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
 CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
+EXPLAIN (VERBOSE, COSTS OFF)
+	SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: COALESCE((a)::text, (b)::text, (c)::text), a, b, c
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT COALESCE(CAST(a AS Nullable(String)), CAST(b AS Nullable(String)), CAST(c AS String)), a, b, c FROM regression.t1 GROUP BY a, b, c
+(4 rows)
+
+SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
+ coalesce 
+----------
+ 1
+ 2
+(2 rows)
+
 EXPLAIN (VERBOSE, COSTS OFF) SELECT argMin(a, b) FROM t1;
                       QUERY PLAN                      
 ------------------------------------------------------

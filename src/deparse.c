@@ -3297,7 +3297,7 @@ deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context)
 		{
 			CoerceViaIO *vio = (CoerceViaIO *) arg;
 
-			if (first)
+			if (arg != llast(node->args))
 				vio->resultcollid = 1;
 			else
 				vio->resultcollid = InvalidOid;
