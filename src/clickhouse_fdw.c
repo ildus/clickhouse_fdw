@@ -160,6 +160,7 @@ typedef struct
  */
 PG_FUNCTION_INFO_V1(clickhousedb_fdw_handler);
 PG_FUNCTION_INFO_V1(clickhousedb_raw_query);
+PG_FUNCTION_INFO_V1(clickhousedb_mock);
 extern PGDLLEXPORT void _PG_init(void);
 static double time_used = 0;
 
@@ -2565,4 +2566,10 @@ clickhousedb_fdw_handler(PG_FUNCTION_ARGS)
 	routine->ImportForeignSchema = clickhouseImportForeignSchema;
 
 	PG_RETURN_POINTER(routine);
+}
+
+Datum
+clickhousedb_mock(PG_FUNCTION_ARGS)
+{
+	elog(ERROR, "clickhouse_fdw: mocked function should be pushed down");
 }

@@ -16,7 +16,6 @@ RETURNS VOID
 AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT;
 
-
 CREATE FOREIGN DATA WRAPPER clickhouse_fdw
 	HANDLER clickhousedb_fdw_handler
 	VALIDATOR clickhousedb_fdw_validator;

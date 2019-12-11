@@ -2696,25 +2696,56 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 			break;
 			case CF_HSTORE_FETCHVAL:
 			{
-				Node *arg = linitial(node->args);
+				bool done = false;
 
-				if (IsA(arg, Const))
+				Expr *arg1 = linitial(node->args);
+				Expr *arg2 = list_nth(node->args, 1);
+
+				if (IsA(arg1, Const))
 				{
-					Const	   *constval = (Const *) arg;
+					Const	   *constval = (Const *) arg1;
 					Oid			akeys = findFunction(constval->consttype, "akeys");
 					Oid			avalues = findFunction(constval->consttype, "avals");
 
-					/* vals[nullif(indexOf(keys,toString(arg)), 0)] */
+					/* vals[nullif(indexOf(keys,toString(arg1)), 0)] */
 					appendStringInfoChar(buf, '(');
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
 					appendStringInfoString(buf, "[nullif(indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
 					appendStringInfoChar(buf, ',');
-					deparseExpr((Expr *) list_nth(node->args, 1), context);
+					deparseExpr(arg2, context);
 					appendStringInfoString(buf, "), 0)])");
+					done = true;
 				}
-				else
-					elog(ERROR, "clickhouse_fdw supports hstore fetchval only for consts");
+				else if (IsA(arg1, FuncExpr))
+				{
+					FuncExpr *fexpr = (FuncExpr *) arg1;
+					CustomObjectDef *fdef = chfdw_check_for_custom_function(fexpr->funcid);
+					if (fdef->cf_type == CF_REGION_MAP)
+					{
+						appendStringInfoString(buf, "nullif(dictGet('regions', 'region', (toUInt32(");
+						deparseExpr(linitial(fexpr->args), context);
+						appendStringInfoString(buf, "),");
+						deparseExpr(arg2, context);
+						appendStringInfoString(buf, ")), '')");
+						done = true;
+					}
+					else if (fdef->cf_type == CF_REGION_MAPFB)
+					{
+						appendStringInfoString(buf, "coalesce(nullif(dictGet('regions', 'region', (toUInt32(");
+						deparseExpr(linitial(fexpr->args), context);
+						appendStringInfoString(buf, "),");
+						deparseExpr(arg2, context);
+						appendStringInfoString(buf, ")), ''), nullIf(dictGet('regions', 'region', (toUInt32(0), ");
+						deparseExpr(arg2, context);
+						appendStringInfoString(buf, ")), ''))");
+						done = true;
+					}
+				}
+
+				if (!done)
+					elog(ERROR, "clickhouse_fdw supports hstore fetchval "
+							"only for scalars");
 
 				goto cleanup;
 			}
