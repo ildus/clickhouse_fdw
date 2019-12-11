@@ -2249,7 +2249,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 
 		appendStringInfoString(buf, "cast(");
 		deparseExpr((Expr *) linitial(node->args), context);
-		appendStringInfo(buf, ", '%s')",
+		appendStringInfo(buf, ", 'Nullable(%s)')",
 						 deparse_type_name(rettype, coercedTypmod));
 		return;
 	}
