@@ -3336,17 +3336,9 @@ deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context)
 	{
 		appendStringInfoString(buf, "CAST(");
 		deparseExpr(node->arg, context);
-		appendStringInfoString(buf, " AS ");
-
-		if (node->resultcollid == 1)
-			appendStringInfoString(buf, "Nullable(");
-
+		appendStringInfoString(buf, " AS Nullable(");
 		appendStringInfoString(buf, deparse_type_name(node->resulttype, 0));
-
-		if (node->resultcollid == 1)
-			appendStringInfoChar(buf, ')');
-
-		appendStringInfoChar(buf, ')');
+		appendStringInfoString(buf, "))");
 	}
 }
 
@@ -3366,17 +3358,6 @@ deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context)
 
 		if (!first)
 			appendStringInfoString(buf, ", ");
-
-		/* first arg should be nullable */
-		if (IsA(arg, CoerceViaIO))
-		{
-			CoerceViaIO *vio = (CoerceViaIO *) arg;
-
-			if (arg != llast(node->args))
-				vio->resultcollid = 1;
-			else
-				vio->resultcollid = InvalidOid;
-		}
 
 		first = false;
 		deparseExpr(arg, context);
