@@ -2249,7 +2249,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 
 		appendStringInfoString(buf, "cast(");
 		deparseExpr((Expr *) linitial(node->args), context);
-		appendStringInfo(buf, ", '%s')",
+		appendStringInfo(buf, ", 'Nullable(%s)')",
 						 deparse_type_name(rettype, coercedTypmod));
 		return;
 	}
@@ -3112,6 +3112,9 @@ deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context)
 	bool		first = true;
 	ListCell   *lc;
 
+	if (node->elements == NIL)
+		appendStringInfoString(buf, "CAST(");
+
 	appendStringInfoString(buf, "[");
 	foreach(lc, node->elements)
 	{
@@ -3124,8 +3127,8 @@ deparseArrayExpr(ArrayExpr *node, deparse_expr_cxt *context)
 
 	/* If the array is empty, we need an explicit cast to the array type. */
 	if (node->elements == NIL)
-		appendStringInfo(buf, "::%s",
-						 deparse_type_name(node->array_typeid, -1));
+		appendStringInfo(buf, ", '%s')",
+			deparse_type_name(node->array_typeid, -1));
 }
 
 /*
