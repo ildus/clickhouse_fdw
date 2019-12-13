@@ -3270,6 +3270,16 @@ deparseAggref(Aggref *node, deparse_expr_cxt *context)
 static void
 deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 {
+#define DEPARSE_WRAPPED(node) \
+do { \
+	bool isnull = (IsA(node, Const) && ((Const *) (node))->constisnull); \
+	if (conv && !isnull) \
+		appendStringInfoString(buf, conv); \
+	deparseExpr(node, context); \
+	if (conv && !isnull) \
+		appendStringInfoChar(buf, ')'); \
+} while (0)
+
 	StringInfo	buf = context->buf;
 	ListCell   *lc;
 	char	   *conv = NULL;
@@ -3297,21 +3307,13 @@ deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 		appendStringInfoString(buf, " WHEN ");
 		deparseExpr(arg->expr, context);
 		appendStringInfoString(buf, " THEN ");
-		if (conv)
-			appendStringInfoString(buf, conv);
-		deparseExpr(arg->result, context);
-		if (conv)
-			appendStringInfoChar(buf, ')');
+		DEPARSE_WRAPPED(arg->result);
 	}
 
 	if (node->defresult)
 	{
 		appendStringInfoString(buf, " ELSE ");
-		if (conv)
-			appendStringInfoString(buf, conv);
-		deparseExpr(node->defresult, context);
-		if (conv)
-			appendStringInfoChar(buf, ')');
+		DEPARSE_WRAPPED(node->defresult);
 	}
 
 	if (conv)
