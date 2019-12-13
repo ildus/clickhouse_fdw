@@ -3272,15 +3272,6 @@ deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *lc;
-	char	   *conv = NULL;
-
-	if (node->casetype == INT2OID ||
-		node->casetype == INT4OID ||
-		node->casetype == INT8OID)
-	{
-		conv = ch_format_type_extended(node->casetype, 0, 0);
-		conv = psprintf("to%s(", conv);
-	}
 
 	appendStringInfoString(buf, "CASE");
 	if (node->arg)
@@ -3297,25 +3288,14 @@ deparseCaseExpr(CaseExpr *node, deparse_expr_cxt *context)
 		appendStringInfoString(buf, " WHEN ");
 		deparseExpr(arg->expr, context);
 		appendStringInfoString(buf, " THEN ");
-		if (conv)
-			appendStringInfoString(buf, conv);
 		deparseExpr(arg->result, context);
-		if (conv)
-			appendStringInfoChar(buf, ')');
 	}
 
 	if (node->defresult)
 	{
 		appendStringInfoString(buf, " ELSE ");
-		if (conv)
-			appendStringInfoString(buf, conv);
 		deparseExpr(node->defresult, context);
-		if (conv)
-			appendStringInfoChar(buf, ')');
 	}
-
-	if (conv)
-		pfree(conv);
 	appendStringInfoString(buf, " END");
 }
 
