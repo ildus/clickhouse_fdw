@@ -225,6 +225,8 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 					entry->cf_type = CF_REGION_MAPFB;
 					strcpy(entry->custom_name, "dictGet");
 				}
+				else if (strcmp(proname, "dictget") == 0)
+					strcpy(entry->custom_name, "dictGet");
 				else
 					strcpy(entry->custom_name, proname);
 			}

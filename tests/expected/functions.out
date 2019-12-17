@@ -40,8 +40,50 @@ $$);
  
 (1 row)
 
+SELECT clickhousedb_raw_query($$
+	drop dictionary if exists regression.t3_dict
+$$);
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	create table regression.t3 (a Int32, b Nullable(Int32))
+	engine = MergeTree()
+	order by a');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3_map (key1 Int32, key2 String,
+        val String) engine=TinyLog();');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
 CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
+CREATE FOREIGN TABLE t3 (a int, b int) SERVER loopback;
+CREATE FOREIGN TABLE t3_map (key1 int, key2 text, val text) SERVER loopback;
+INSERT INTO t3 SELECT i, i + 1 FROM generate_series(1, 10) i;
+INSERT INTO t3_map SELECT i, 'key'|| i::text, 'val' || i::text FROM generate_series(1, 10) i;
+SELECT clickhousedb_raw_query($$
+	create dictionary regression.t3_dict
+    (key1 Int32, key2 String, val String)
+    primary key key1, key2
+    source(clickhouse(host '127.0.0.1' port 9000 db 'regression' table 't3_map' user 'default' password ''))
+    layout(complex_key_hashed())
+    lifetime(10);
+$$);
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- check coalesce((cast as Nullable...
 EXPLAIN (VERBOSE, COSTS OFF)
 	SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
                                                                        QUERY PLAN                                                                        
@@ -59,6 +101,7 @@ SELECT coalesce(a::text, b::text, c::text) FROM t1 GROUP BY a, b, c;
  2
 (2 rows)
 
+-- check IN functions
 EXPLAIN (VERBOSE, COSTS OFF)
 	SELECT a, sum(b) FROM t1 WHERE a IN (1,2,3) GROUP BY a;
                                      QUERY PLAN                                      
@@ -91,6 +134,7 @@ SELECT a, sum(b) FROM t1 WHERE a NOT IN (1,2,3) GROUP BY a;
 ---+-----
 (0 rows)
 
+-- check argMin, argMax
 EXPLAIN (VERBOSE, COSTS OFF) SELECT argMin(a, b) FROM t1;
                       QUERY PLAN                      
 ------------------------------------------------------
@@ -283,6 +327,61 @@ SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORD
   0
 (1 row)
 
+--- check dictGet
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(a, ('key'::text || (a)::text)))), (sum(b))
+   Sort Key: t3.a
+   ->  Foreign Scan
+         Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(a, ('key'::text || (a)::text)))), (sum(b))
+         Relations: Aggregate on (t3)
+         Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))))
+(7 rows)
+
+SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
+ a  |  val  | sum 
+----+-------+-----
+  1 | val1  |   2
+  2 | val2  |   3
+  3 | val3  |   4
+  4 | val4  |   5
+  5 | val5  |   6
+  6 | val6  |   7
+  7 | val7  |   8
+  8 | val8  |   9
+  9 | val9  |  10
+ 10 | val10 |  11
+(10 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
+                                                                                                                     QUERY PLAN                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(1, ('key'::text || (a)::text)))), (sum(b))
+   Sort Key: t3.a
+   ->  Foreign Scan
+         Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(1, ('key'::text || (a)::text)))), (sum(b))
+         Relations: Aggregate on (t3)
+         Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))))
+(7 rows)
+
+SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
+ a  | val  | sum 
+----+------+-----
+  1 | val1 |   2
+  2 |      |   3
+  3 |      |   4
+  4 |      |   5
+  5 |      |   6
+  6 |      |   7
+  7 |      |   8
+  8 |      |   9
+  9 |      |  10
+ 10 |      |  11
+(10 rows)
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
@@ -291,7 +390,9 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 5 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table t1
 drop cascades to foreign table t2
+drop cascades to foreign table t3
+drop cascades to foreign table t3_map

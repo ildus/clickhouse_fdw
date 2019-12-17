@@ -36,7 +36,7 @@ pkg_check_modules(UUID_LIB uuid REQUIRED)
 
 add_library(clickhouse_fdw MODULE ${src})
 set_property(TARGET clickhouse_fdw PROPERTY POSITION_INDEPENDENT_CODE 1)
-target_compile_features(clickhouse_fdw PRIVATE c_std_11)
+set_property(TARGET clickhouse_fdw PROPERTY C_STANDARD 11)
 
 separate_arguments(PGSQL_LDFLAGS UNIX_COMMAND "${PGSQL_LDFLAGS}")
 target_link_libraries(clickhouse_fdw PRIVATE ${CURL_LDFLAGS} ${UUID_LIB_LDFLAGS} clickhouse-cpp-lib-static stdc++ ${PGSQL_LDFLAGS})

@@ -162,6 +162,7 @@ static Node *deparseSortGroupClause(Index ref, List *tlist, bool force_colno,
 static void deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context);
 static void deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context);
 static void deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context);
+static void deparseRowExpr(RowExpr *node, deparse_expr_cxt *context);
 
 /*
  * Helper functions
@@ -603,6 +604,14 @@ foreign_expr_walker(Node *node,
 		if (!foreign_expr_walker((Node *) me->arg, glob_cxt, &inner_cxt))
 			return false;
 	}
+	break;
+	case T_RowExpr:
+	{
+		RowExpr	*me = (RowExpr *) node;
+		if (!foreign_expr_walker((Node *) me->args, glob_cxt, &inner_cxt))
+			return false;
+	}
+	break;
 	case T_CaseTestExpr:
 	break;
 	default:
@@ -1807,6 +1816,9 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_CoerceViaIO:
 		deparseCoerceViaIO((CoerceViaIO *) node, context);
 		break;
+	case T_RowExpr:
+		deparseRowExpr((RowExpr *) node, context);
+		break;
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
 		     (int) nodeTag(node));
@@ -2042,7 +2054,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	StringInfo	buf = context->buf;
 	Oid			typoutput;
 	bool		typIsVarlena;
-	char	   *extval;
+	char	   *extval = NULL;
 	bool		closebr = false;
 
 	if (node->constisnull)
@@ -2050,6 +2062,9 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		appendStringInfoString(buf, "NULL");
 		return;
 	}
+
+	if (showtype > 0)
+		appendStringInfoString(buf, "cast(");
 
 	getTypeOutputInfo(node->consttype,
 	                  &typoutput, &typIsVarlena);
@@ -2079,12 +2094,12 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		sec = 86400 /* sec in day */ * ival->day + (int64) (ival->time / 1000000);
 		pg_lltoa(sec, bufint8);
 		appendStringInfoString(buf, bufint8);
-		return;
+		goto cleanup;
 	}
 	else if (typoutput == F_ARRAY_OUT)
 	{
 		deparseArray(node->constvalue, context);
-		return;
+		goto cleanup;
 	}
 	else
 	{
@@ -2160,7 +2175,13 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		appendStringInfoChar(buf, ')');
 
 cleanup:
-	pfree(extval);
+	if (showtype > 0)
+		appendStringInfo(buf, " as %s)",
+						 deparse_type_name(node->consttype,
+										   node->consttypmod));
+	if (extval)
+		pfree(extval);
+
 }
 
 /*
@@ -3326,6 +3347,31 @@ deparseCaseWhen(CaseWhen *node, deparse_expr_cxt *context)
 {
 	StringInfo	buf = context->buf;
 	ListCell   *lc;
+}
+
+static void
+deparseRowExpr(RowExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+	ListCell   *lc;
+
+	bool		first = true;
+
+	appendStringInfoChar(buf, '(');
+	foreach(lc, node->args)
+	{
+		CaseWhen	*arg = lfirst(lc);
+
+		if (!first)
+			appendStringInfoChar(buf, ',');
+
+		first = false;
+		if (IsA(lfirst(lc), Const))
+			deparseConst((Const *) lfirst(lc), context, 1);
+		else
+			deparseExpr(lfirst(lc), context);
+	}
+	appendStringInfoChar(buf, ')');
 }
 
 static void
