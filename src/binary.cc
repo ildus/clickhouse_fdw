@@ -803,26 +803,26 @@ nested:
 			size_t	len = arr->Size();
 			auto	slot = (ch_binary_array_t *) exc_palloc(sizeof(ch_binary_array_t));
 
-			*valtype = get_array_type(get_corr_postgres_type(arr->Type()));
-			if (*valtype == InvalidOid)
+			Oid		item_type = get_corr_postgres_type(arr->Type());
+			Oid		array_type = get_array_type(item_type);
+
+			if (array_type == InvalidOid)
 				throw std::runtime_error(std::string("clickhouse_fdw: could not") +
-						" find array type for " + std::to_string(*valtype));
+						" find array type for " + std::to_string(item_type));
 
 			slot->len = len;
-
-			/* keep real type of the array */
-			slot->array_type = *valtype;
+			slot->array_type = array_type;
+			slot->item_type = item_type;
 
 			if (len > 0)
 			{
 				bool		item_isnull;
 
-				slot->datums = (Datum *) exc_palloc(sizeof(Datum) * len);
+				slot->datums = (Datum *) exc_palloc0(sizeof(Datum) * len);
+				slot->nulls = (bool *) exc_palloc0(sizeof(bool) * len);
+
 				for (size_t i = 0; i < len; ++i)
-				{
-					slot->datums[i] = make_datum(arr, i, &slot->item_type, &item_isnull);
-					Assert(!item_isnull);
-				}
+					slot->datums[i] = make_datum(arr, i, &slot->item_type, &slot->nulls[i]);
 			}
 
 			/* this one will need additional work, since we just return raw slot */

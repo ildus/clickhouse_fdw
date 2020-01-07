@@ -3,6 +3,7 @@
 #include "funcapi.h"
 #include "access/tupdesc.h"
 #include "catalog/pg_type_d.h"
+#include "catalog/pg_type.h"
 #include "utils/typcache.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -29,7 +30,6 @@ typedef struct ch_convert_state {
 
 	// record
 	TupleConversionMap	*tupmap;
-	bool			pinned;
 	CustomObjectDef	*cdef;
 	TupleDesc		indesc;		/* for RECORD */
 	TupleDesc		outdesc;	/* for RECORD */
@@ -41,8 +41,9 @@ typedef struct ch_convert_state {
 	char		typalign;
 
 	// text
-	Type		baseType;
 	int32		typmod;
+	Oid			typinput;
+	Oid			typioparam;
 
 	// generic
 	CoercionPathType	ctype;
@@ -155,8 +156,8 @@ convert_array(ch_convert_state *state, Datum val)
 static Datum
 convert_remote_text(ch_convert_state *state, Datum val)
 {
-	val = stringTypeDatum(state->baseType, TextDatumGetCString(val), state->typmod);
-	return val;
+	return OidInputFunctionCall(state->typinput, TextDatumGetCString(val),
+			state->typioparam, state->typmod);
 }
 
 /*
@@ -245,13 +246,14 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 		{
 			TypeCacheEntry	   *typentry;
 			HeapTuple			temptup;
+			TupleDesc			tupdesc;
 
 			typentry = lookup_type_cache(outtype,
 										 TYPECACHE_TUPDESC |
 										 TYPECACHE_DOMAIN_BASE_INFO);
 
 			if (typentry->typtype == TYPTYPE_DOMAIN)
-				state->outdesc = lookup_rowtype_tupdesc_noerror(typentry->domainBaseType,
+				tupdesc = lookup_rowtype_tupdesc_noerror(typentry->domainBaseType,
 													  typentry->domainBaseTypmod,
 													  false);
 			else
@@ -262,13 +264,13 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 							 errmsg("type %s is not composite",
 									format_type_be(outtype))));
 
-				state->pinned = true;
-				state->outdesc = typentry->tupDesc;
-				PinTupleDesc(state->outdesc);
+				tupdesc = typentry->tupDesc;
+				PinTupleDesc(tupdesc);
 			}
-
+			state->outdesc = CreateTupleDescCopy(tupdesc);
 			state->tupmap = convert_tuples_by_position(state->indesc, state->outdesc,
 				"clickhouse_fdw: could not map tuple to returned type");
+			ReleaseTupleDesc(tupdesc);
 		}
 	}
 	else if (intype != outtype)
@@ -280,13 +282,18 @@ ch_binary_init_convert_state(Datum val, Oid intype, Oid outtype)
 		{
 			Type		baseType;
 			Oid			baseTypeId;
+			Form_pg_type typform;
 
 			baseTypeId = getBaseTypeAndTypmod(outtype, &state->typmod);
 			if (baseTypeId != INTERVALOID)
 				state->typmod = -1;
 
-			state->baseType = typeidType(baseTypeId);
+			baseType = typeidType(baseTypeId);
+			typform = (Form_pg_type) GETSTRUCT(baseType);
+			state->typinput = typform->typinput;
+			state->typioparam = getTypeIOParam(baseType);
 			state->func = convert_remote_text;
+			ReleaseSysCache(baseType);
 		}
 		else if (outtype == BOOLOID && intype == INT2OID)
 		{
@@ -333,13 +340,6 @@ void
 ch_binary_free_convert_state(void *s)
 {
 	ch_convert_state *state = s;
-
-	if (state->pinned)
-		ReleaseTupleDesc(state->outdesc);
-
-	if (state->baseType)
-		ReleaseSysCache(state->baseType);
-
 	pfree(state);
 }
 

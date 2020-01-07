@@ -37,7 +37,7 @@ typedef struct {
 
 typedef struct {
 	Datum  *datums;
-	bool   *nulls;	/* used only for insertion */
+	bool   *nulls;
 	size_t	len;
 	Oid		item_type;	/* used on selects */
 	Oid		array_type;	/* used on selects */
