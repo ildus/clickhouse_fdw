@@ -45,6 +45,9 @@
 
 #define MAXINT8LEN		25
 
+/* variable counter */
+static uint32 var_counter = 0;
+
 /*
  * Global context for foreign_expr_walker's search of an expression tree.
  */
@@ -995,6 +998,8 @@ deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
 	PlannerInfo *root = context->root;
 	CHFdwRelationInfo *fpinfo = (CHFdwRelationInfo *) foreignrel->fdw_private;
 
+	/* reset var counter */
+	var_counter = 0;
 	elog(DEBUG2, "> %s:%d", __FUNCTION__, __LINE__);
 	/*
 	 * Construct SELECT list
@@ -2232,6 +2237,13 @@ deparseSubscriptingRef(SubscriptingRef *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, ')');
 }
 
+static char *
+get_alias_name()
+{
+	var_counter++;
+	return psprintf("_tmp%d", var_counter++);
+}
+
 /*
  * Deparse a function call.
  */
@@ -2377,6 +2389,9 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		if (!IsA(linitial(node->args), Var))
 			elog(ERROR, "clickhouse_fdw supports simple accumulate with column as first parameter");
 
+		if (list_length(node->args) == 1)
+			elog(ERROR, "clickhouse_fdw supports accumulate only with max_key parameter");
+
 		if (bms_is_member(var->varno, relids) && var->varlevelsup == 0)
 			rte = planner_rt_fetch(var->varno, context->root);
 		else
@@ -2396,6 +2411,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		colname = cinfo->colname;
 		if (cinfo->coltype == CF_ISTORE_ARR)
 		{
+			char *max_key_alias = get_alias_name();
 			char *colkey = psprintf("%s_keys", colname);
 			char *colval = psprintf("%s_values", colname);
 
@@ -2408,15 +2424,14 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 				ADD_REL_QUALIFIER(buf, var->varno);
 
 			appendStringInfoString(buf, colkey);
-			appendStringInfoString(buf, "[1] <= (");
+			appendStringInfoString(buf, "[1] <= (coalesce(");
 			deparseExpr((Expr *) list_nth(node->args, 1), context);
-			appendStringInfoString(buf, "), arrayMap(x -> ");
+			appendStringInfo(buf, ", 0) as %s), arrayMap(x -> ", max_key_alias);
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] + x - 1, arrayEnumerate(arrayResize(emptyArrayInt32(), (");
-			deparseExpr((Expr *) list_nth(node->args, 1), context);
-			appendStringInfoString(buf, ") - ");
+			appendStringInfo(buf, "%s) - ", max_key_alias);
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
@@ -2430,8 +2445,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
-			appendStringInfoString(buf, "[1] <= (");
-			deparseExpr((Expr *) list_nth(node->args, 1), context);
+			appendStringInfo(buf, "[1] <= (%s", max_key_alias);
 			appendStringInfoString(buf, "), arrayCumSum(arrayMap(x ->");
 
 			if (context->func && context->func->cf_type == CF_ISTORE_SUM
@@ -2451,8 +2465,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colkey);
 			appendStringInfoString(buf, "[1] + x - 1)]), arrayEnumerate(arrayResize(emptyArrayInt32(), (");
-			deparseExpr((Expr *) list_nth(node->args, 1), context);
-			appendStringInfoString(buf, ") - ");
+			appendStringInfo(buf, "%s) - ", max_key_alias);
 			appendStringInfoString(buf, colkey);
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
