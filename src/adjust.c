@@ -230,16 +230,6 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 					strcpy(entry->custom_name, "argMax");
 				else if (strcmp(proname, "argmin") == 0)
 					strcpy(entry->custom_name, "argMin");
-				else if (strcmp(proname, "region_map") == 0)
-				{
-					entry->cf_type = CF_REGION_MAP;
-					strcpy(entry->custom_name, "dictGet");
-				}
-				else if (strcmp(proname, "region_mapfb") == 0)
-				{
-					entry->cf_type = CF_REGION_MAPFB;
-					strcpy(entry->custom_name, "dictGet");
-				}
 				else if (strcmp(proname, "dictget") == 0)
 					strcpy(entry->custom_name, "dictGet");
 				else

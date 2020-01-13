@@ -2735,8 +2735,6 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 			break;
 			case CF_HSTORE_FETCHVAL:
 			{
-				bool done = false;
-
 				Expr *arg1 = linitial(node->args);
 				Expr *arg2 = list_nth(node->args, 1);
 
@@ -2754,35 +2752,8 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					appendStringInfoChar(buf, ',');
 					deparseExpr(arg2, context);
 					appendStringInfoString(buf, "), 0)])");
-					done = true;
 				}
-				else if (IsA(arg1, FuncExpr))
-				{
-					FuncExpr *fexpr = (FuncExpr *) arg1;
-					CustomObjectDef *fdef = chfdw_check_for_custom_function(fexpr->funcid);
-					if (fdef->cf_type == CF_REGION_MAP)
-					{
-						appendStringInfoString(buf, "nullif(dictGet('regions', 'region', (toUInt32(");
-						deparseExpr(linitial(fexpr->args), context);
-						appendStringInfoString(buf, "),");
-						deparseExpr(arg2, context);
-						appendStringInfoString(buf, ")), '')");
-						done = true;
-					}
-					else if (fdef->cf_type == CF_REGION_MAPFB)
-					{
-						appendStringInfoString(buf, "coalesce(nullif(dictGet('regions', 'region', (toUInt32(");
-						deparseExpr(linitial(fexpr->args), context);
-						appendStringInfoString(buf, "),");
-						deparseExpr(arg2, context);
-						appendStringInfoString(buf, ")), ''), nullIf(dictGet('regions', 'region', (toUInt32(0), ");
-						deparseExpr(arg2, context);
-						appendStringInfoString(buf, ")), ''))");
-						done = true;
-					}
-				}
-
-				if (!done)
+				else
 					elog(ERROR, "clickhouse_fdw supports hstore fetchval "
 							"only for scalars");
 
