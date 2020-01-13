@@ -166,6 +166,7 @@ static void deparseCoerceViaIO(CoerceViaIO *node, deparse_expr_cxt *context);
 static void deparseCoalesceExpr(CoalesceExpr *node, deparse_expr_cxt *context);
 static void deparseMinMaxExpr(MinMaxExpr *node, deparse_expr_cxt *context);
 static void deparseRowExpr(RowExpr *node, deparse_expr_cxt *context);
+static void deparseNullIfExpr(NullIfExpr *node, deparse_expr_cxt *context);
 
 /*
  * Helper functions
@@ -395,6 +396,7 @@ foreign_expr_walker(Node *node,
 	}
 	break;
 	case T_OpExpr:
+	case T_NullIfExpr:
 	case T_DistinctExpr:	/* struct-equivalent to OpExpr */
 	{
 		OpExpr	   *oe = (OpExpr *) node;
@@ -1788,6 +1790,9 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 	case T_DistinctExpr:
 		deparseDistinctExpr((DistinctExpr *) node, context);
 		break;
+	case T_NullIfExpr:
+		deparseNullIfExpr((NullIfExpr *) node, context);
+		break;
 	case T_ScalarArrayOpExpr:
 		deparseScalarArrayOpExpr((ScalarArrayOpExpr *) node, context);
 		break;
@@ -2939,6 +2944,20 @@ deparseDistinctExpr(DistinctExpr *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, '(');
 	deparseExpr(linitial(node->args), context);
 	appendStringInfoString(buf, " IS DISTINCT FROM ");
+	deparseExpr(lsecond(node->args), context);
+	appendStringInfoChar(buf, ')');
+}
+
+static void
+deparseNullIfExpr(NullIfExpr *node, deparse_expr_cxt *context)
+{
+	StringInfo	buf = context->buf;
+
+	Assert(list_length(node->args) == 2);
+
+	appendStringInfoString(buf, "NULLIF(");
+	deparseExpr(linitial(node->args), context);
+	appendStringInfoChar(buf, ',');
 	deparseExpr(lsecond(node->args), context);
 	appendStringInfoChar(buf, ')');
 }

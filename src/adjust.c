@@ -65,6 +65,15 @@ create_custom_columns_cache(void)
 	return hash_create("clickhouse_fdw custom functions", 20, &ctl, HASH_ELEM | HASH_BLOBS);
 }
 
+inline static void
+init_custom_entry(CustomObjectDef *entry)
+{
+	entry->cf_type = CF_USUAL;
+	entry->custom_name[0] = '\0';
+	entry->context = NULL;
+	entry->rowfunc = InvalidOid;
+}
+
 CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 {
 	CustomObjectDef	*entry;
@@ -97,9 +106,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 
 		entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_ENTER, NULL);
 		entry->cf_oid = funcid;
-		entry->cf_type = CF_USUAL;
-		entry->custom_name[0] = '\0';
-		entry->context = NULL;
+		init_custom_entry(entry);
 
 		if (funcid == F_TIMESTAMPTZ_TRUNC || funcid == F_TIMESTAMP_TRUNC)
 		{
@@ -158,6 +165,14 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 					entry->custom_name[0] = '\1';	/* complex */
 				}
 				else if (strcmp(NameStr(procform->proname), "slice") == 0)
+				{
+					entry->cf_type = CF_UNSHIPPABLE;
+					entry->custom_name[0] = '\0';	/* complex */
+				}
+			}
+			else if (strcmp(extname, "country") == 0)
+			{
+				if (strcmp(NameStr(procform->proname), "country_common_name") == 0)
 				{
 					entry->cf_type = CF_UNSHIPPABLE;
 					entry->custom_name[0] = '\0';	/* complex */
@@ -283,9 +298,7 @@ CustomObjectDef *chfdw_check_for_custom_type(Oid typeoid)
 		HeapTuple	tp;
 
 		entry = hash_search(custom_objects_cache, (void *) &typeoid, HASH_ENTER, NULL);
-		entry->cf_type = CF_USUAL;
-		entry->custom_name[0] = '\0';
-		entry->rowfunc = InvalidOid;
+		init_custom_entry(entry);
 
 		tp = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeoid));
 		if (HeapTupleIsValid(tp))
@@ -353,7 +366,7 @@ CustomObjectDef *chfdw_check_for_custom_operator(Oid opoid, Form_pg_operator for
 	if (!entry)
 	{
 		entry = hash_search(custom_objects_cache, (void *) &opoid, HASH_ENTER, NULL);
-		entry->cf_type = CF_USUAL;
+		init_custom_entry(entry);
 
 		if (opoid == F_TIMESTAMPTZ_PL_INTERVAL)
 			entry->cf_type = CF_TIMESTAMPTZ_PL_INTERVAL;
