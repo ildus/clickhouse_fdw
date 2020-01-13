@@ -3105,24 +3105,16 @@ deparseNullTest(NullTest *node, deparse_expr_cxt *context)
 	if (node->argisrow || !type_is_rowtype(exprType((Node *) node->arg)))
 	{
 		if (node->nulltesttype == IS_NULL)
-		{
 			appendStringInfoString(buf, " IS NULL)");
-		}
 		else
-		{
 			appendStringInfoString(buf, " IS NOT NULL)");
-		}
 	}
 	else
 	{
 		if (node->nulltesttype == IS_NULL)
-		{
 			appendStringInfoString(buf, " IS NOT DISTINCT FROM NULL)");
-		}
 		else
-		{
 			appendStringInfoString(buf, " IS DISTINCT FROM NULL)");
-		}
 	}
 }
 
@@ -3482,11 +3474,9 @@ appendAggOrderBy(List *orderList, List *targetList, deparse_expr_cxt *context)
 		TypeCacheEntry *typentry;
 
 		if (!first)
-		{
 			appendStringInfoString(buf, ", ");
-		}
-		first = false;
 
+		first = false;
 		sortexpr = deparseSortGroupClause(srt->tleSortGroupRef, targetList,
 		                                  false, context);
 		sortcoltype = exprType(sortexpr);
@@ -3494,13 +3484,9 @@ appendAggOrderBy(List *orderList, List *targetList, deparse_expr_cxt *context)
 		typentry = lookup_type_cache(sortcoltype,
 		                             TYPECACHE_LT_OPR | TYPECACHE_GT_OPR);
 		if (srt->sortop == typentry->lt_opr)
-		{
 			appendStringInfoString(buf, " ASC");
-		}
 		else
-		{
 			appendStringInfoString(buf, " DESC");
-		}
 	}
 }
 
@@ -3517,9 +3503,7 @@ appendGroupByClause(List *tlist, deparse_expr_cxt *context)
 
 	/* Nothing to be done, if there's no GROUP BY clause in the query. */
 	if (!query->groupClause)
-	{
 		return;
-	}
 
 	appendStringInfoString(buf, " GROUP BY ");
 
@@ -3534,9 +3518,8 @@ appendGroupByClause(List *tlist, deparse_expr_cxt *context)
 		SortGroupClause *grp = (SortGroupClause *) lfirst(lc);
 
 		if (!first)
-		{
 			appendStringInfoString(buf, ", ");
-		}
+
 		first = false;
 
 		deparseSortGroupClause(grp->tleSortGroupRef, tlist, true, context);
@@ -3703,18 +3686,14 @@ is_subquery_var(Var *node, RelOptInfo *foreignrel, int *relno, int *colno)
 	 * subqueries, so the Var isn't a subquery output column.
 	 */
 	if (!IS_JOIN_REL(foreignrel))
-	{
 		return false;
-	}
 
 	/*
 	 * If the Var doesn't belong to any lower subqueries, it isn't a subquery
 	 * output column.
 	 */
 	if (!bms_is_member(node->varno, fpinfo->lower_subquery_rels))
-	{
 		return false;
-	}
 
 	if (bms_is_member(node->varno, outerrel->relids))
 	{
