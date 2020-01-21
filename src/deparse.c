@@ -2346,6 +2346,8 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			appendStringInfoString(buf, "toISOYear");
 		else if (strcmp(parttype, "week") == 0)
 			appendStringInfoString(buf, "toISOWeek");
+		else if (strcmp(parttype, "epoch") == 0)
+			appendStringInfoString(buf, "toUnixTimestamp");
 		else
 			elog(ERROR, "date_part cannot be exported for: %s", parttype);
 

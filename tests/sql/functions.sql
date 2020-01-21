@@ -92,6 +92,9 @@ SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+
 --- check dictGet
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
 SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;

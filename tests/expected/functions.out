@@ -327,6 +327,25 @@ SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORD
   0
 (1 row)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (date_part('epoch'::text, timezone('UTC'::text, c)))
+   Sort Key: (date_part('epoch'::text, timezone('UTC'::text, t2.c)))
+   ->  Foreign Scan
+         Output: (date_part('epoch'::text, timezone('UTC'::text, c)))
+         Relations: Aggregate on (t2)
+         Remote SQL: SELECT toUnixTimestamp(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toUnixTimestamp(toTimeZone(c, 'UTC')))
+(7 rows)
+
+SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+     d1     
+------------
+ 1546336800
+ 1546423200
+(2 rows)
+
 --- check dictGet
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
                                                                                                       QUERY PLAN                                                                                                      
