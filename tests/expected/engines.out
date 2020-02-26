@@ -32,6 +32,15 @@ SELECT clickhousedb_raw_query('
 (1 row)
 
 SELECT clickhousedb_raw_query('
+	create table regression.t3 (a int, b Array(Int32), c Array(Int32))
+	engine = MergeTree()
+	order by a');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
 	insert into regression.t1 select number % 10, number from numbers(1, 100);');
  clickhousedb_raw_query 
 ------------------------
@@ -46,9 +55,26 @@ SELECT clickhousedb_raw_query('
 (1 row)
 
 SELECT clickhousedb_raw_query('
+	insert into regression.t3 select number % 10,
+		[number % 10, number % 10 + 1], [1, 1] from numbers(1, 100);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
 	create materialized view regression.t1_aggr
 		engine=AggregatingMergeTree()
 		order by a populate as select a, sumState(b) as b from regression.t1 group by a;');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	create materialized view regression.t3_aggr
+		engine=AggregatingMergeTree()
+		order by a populate as select a, sumMapState(b, c) as b from regression.t3 group by a;');
  clickhousedb_raw_query 
 ------------------------
  
@@ -81,6 +107,25 @@ FDW options: (table_name 't1_aggr', engine 'MaterializedView')
  b      | integer |           | not null |         | (aggregatefunction 'sum') | plain   |              | 
 Server: loopback
 FDW options: (table_name 't2', engine 'AggregatingMergeTree')
+
+\d+ t3
+                                         Foreign table "public.t3"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ a      | integer   |           | not null |         |             | plain    |              | 
+ b      | integer[] |           | not null |         |             | extended |              | 
+ c      | integer[] |           | not null |         |             | extended |              | 
+Server: loopback
+FDW options: (table_name 't3', engine 'MergeTree')
+
+\d+ t3_aggr
+                                               Foreign table "public.t3_aggr"
+ Column |   Type    | Collation | Nullable | Default |         FDW options          | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+------------------------------+----------+--------------+-------------
+ a      | integer   |           | not null |         |                              | plain    |              | 
+ b      | integer[] |           | not null |         | (aggregatefunction 'sumMap') | extended |              | 
+Server: loopback
+FDW options: (table_name 't3_aggr', engine 'MaterializedView')
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b) FROM t1 GROUP BY a;
                           QUERY PLAN                          
@@ -162,7 +207,7 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 4 other objects
+NOTICE:  drop cascades to 6 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table t1
 drop cascades to foreign table t1_aggr
