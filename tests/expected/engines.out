@@ -226,6 +226,54 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(accumulate(b)) FROM t3_aggr GROUP BY 
    Remote SQL: SELECT a, sumMap((mapFill((finalizeAggregation(b) as _tmp1).1, _tmp1.2) as _tmp3).1, arrayCumSum(_tmp3.2)) FROM regression.t3_aggr GROUP BY a
 (4 rows)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(sum_up(b)) FROM t3_aggr GROUP BY a;
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(sum_up(b)))
+   Relations: Aggregate on (t3_aggr)
+   Remote SQL: SELECT a, sum(arraySum((finalizeAggregation(b) as _tmp1).2)) FROM regression.t3_aggr GROUP BY a
+(4 rows)
+
+SELECT a, sum(sum_up(b)) FROM t3_aggr GROUP BY a;
+ a | sum 
+---+-----
+ 0 |  20
+ 4 |  20
+ 3 |  20
+ 2 |  20
+ 5 |  20
+ 1 |  20
+ 6 |  20
+ 7 |  20
+ 9 |  20
+ 8 |  20
+(10 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(sum_up(b, 5)) FROM t3_aggr GROUP BY a;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(sum_up(b, 5)))
+   Relations: Aggregate on (t3_aggr)
+   Remote SQL: SELECT a, sum(arraySum(arrayFilter((v, k) -> k <= (5),(finalizeAggregation(b) as _tmp1).2, _tmp1.1))) FROM regression.t3_aggr GROUP BY a
+(4 rows)
+
+SELECT a, sum(sum_up(b, 5)) FROM t3_aggr GROUP BY a;
+ a | sum 
+---+-----
+ 0 |  20
+ 4 |  20
+ 3 |  20
+ 2 |  20
+ 5 |  10
+ 1 |  20
+ 6 |  10
+ 7 |  10
+ 9 |  10
+ 8 |  10
+(10 rows)
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
