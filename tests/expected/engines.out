@@ -1,4 +1,5 @@
 CREATE EXTENSION clickhouse_fdw;
+CREATE EXTENSION istore;
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('drop database if exists regression');
@@ -56,7 +57,7 @@ SELECT clickhousedb_raw_query('
 
 SELECT clickhousedb_raw_query('
 	insert into regression.t3 select number % 10,
-		[number % 10, number % 10 + 1], [1, 1] from numbers(1, 100);');
+		[1, number % 10 + 1], [1, 1] from numbers(1, 100);');
  clickhousedb_raw_query 
 ------------------------
  
@@ -199,6 +200,32 @@ SELECT a, sum(b) FROM t2 GROUP BY a ORDER BY a;
  9 | 540
 (10 rows)
 
+/* istore tests */
+ALTER TABLE t3_aggr ALTER COLUMN b SET DATA TYPE istore;
+SELECT sum(b) FROM t3_aggr;
+                                                      sum                                                       
+----------------------------------------------------------------------------------------------------------------
+ "1"=>"110", "2"=>"10", "3"=>"10", "4"=>"10", "5"=>"10", "6"=>"10", "7"=>"10", "8"=>"10", "9"=>"10", "10"=>"10"
+(1 row)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT sum(b) FROM t3_aggr;
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Foreign Scan
+   Output: (sum(b))
+   Relations: Aggregate on (t3_aggr)
+   Remote SQL: SELECT sumMapMerge(b) FROM regression.t3_aggr
+(4 rows)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(accumulate(b)) FROM t3_aggr GROUP BY a;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum(accumulate(b)))
+   Relations: Aggregate on (t3_aggr)
+   Remote SQL: SELECT a, sumMap((mapFill((finalizeAggregation(b) as _tmp1).1, _tmp1.2) as _tmp3).1, arrayCumSum(_tmp3.2)) FROM regression.t3_aggr GROUP BY a
+(4 rows)
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 
@@ -212,3 +239,6 @@ DETAIL:  drop cascades to server loopback
 drop cascades to foreign table t1
 drop cascades to foreign table t1_aggr
 drop cascades to foreign table t2
+drop cascades to foreign table t3
+drop cascades to foreign table t3_aggr
+DROP EXTENSION IF EXISTS istore CASCADE;

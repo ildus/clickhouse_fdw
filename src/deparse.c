@@ -2516,13 +2516,13 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		}
 		else if (cinfo->coltype == CF_ISTORE_COL)
 		{
-			/* mapFill((finalizeAggregation(col) as t1).1, t1.2, <max_key>) as t2).1,
+			/* (mapFill((finalizeAggregation(col) as t1).1, t1.2, <max_key>) as t2).1,
 			 * arrayCumSum(t2.2) */
 
 			char *alias1 = get_alias_name();
 			char *alias2 = get_alias_name();
 
-			appendStringInfoString(buf, "mapFill(finalizeAggregation(");
+			appendStringInfoString(buf, "(mapFill((finalizeAggregation(");
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
 			appendStringInfoString(buf, colname);

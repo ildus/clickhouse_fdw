@@ -1,4 +1,5 @@
 CREATE EXTENSION clickhouse_fdw;
+CREATE EXTENSION istore;
 CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
 CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
 
@@ -64,3 +65,4 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(accumulate(b)) FROM t3_aggr GROUP BY 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
+DROP EXTENSION IF EXISTS istore CASCADE;
