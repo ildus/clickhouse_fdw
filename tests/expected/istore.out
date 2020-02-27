@@ -166,22 +166,22 @@ SELECT dt, sum(a) FROM t2 GROUP BY dt ORDER BY dt;
 (2 rows)
 
 EXPLAIN (VERBOSE) SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Sort  (cost=-0.89..-0.89 rows=1 width=12)
    Output: dt, (sum((a -> 1)))
    Sort Key: t2.dt
    ->  Foreign Scan  (cost=1.00..-0.90 rows=1 width=12)
          Output: dt, (sum((a -> 1)))
          Relations: Aggregate on (t2)
-         Remote SQL: SELECT dt, sum(a_values[indexOf(a_keys,1)]) FROM regression.t2 GROUP BY dt
+         Remote SQL: SELECT dt, sum(a_values[nullif(indexOf(a_keys,1), 0)]) FROM regression.t2 GROUP BY dt
 (7 rows)
 
 SELECT dt, sum(a->1) FROM t2 GROUP BY dt ORDER BY dt;
      dt     | sum 
 ------------+-----
  10-10-2019 |  22
- 10-11-2019 |   0
+ 10-11-2019 |    
 (2 rows)
 
 EXPLAIN (VERBOSE) SELECT dt, sum(a) FROM t3 GROUP BY dt ORDER BY dt;

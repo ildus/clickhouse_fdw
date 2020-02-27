@@ -277,7 +277,7 @@ typedef struct CustomObjectDef
 	custom_object_type		cf_type;
 	char					custom_name[NAMEDATALEN];	/* \0 - no custom name, \1 - many names */
 	Oid						rowfunc;
-	void				   *context;
+	void				   *cf_context;
 } CustomObjectDef;
 
 typedef struct CustomColumnInfo
@@ -285,7 +285,7 @@ typedef struct CustomColumnInfo
 	Oid		relid;
 	int		varattno;
 	char	colname[NAMEDATALEN];
-	bool	is_aggregation_func;
+	bool	is_AggregateFunction;
 	custom_object_type coltype;
 
 	CHRemoteTableEngine	table_engine;

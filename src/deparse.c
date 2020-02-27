@@ -61,7 +61,7 @@ typedef struct foreign_glob_cxt
 
 typedef struct foreign_loc_cxt
 {
-	bool	found_aggregation_func;
+	bool	found_AggregateFunction;	/* indicator or CH AggregateFunction fields */
 } foreign_loc_cxt;
 
 /*
@@ -176,6 +176,12 @@ static bool is_subquery_var(Var *node, RelOptInfo *foreignrel,
 static void get_relation_column_alias_ids(Var *node, RelOptInfo *foreignrel,
 							  int *relno, int *colno);
 
+static char *
+get_alias_name()
+{
+	var_counter++;
+	return psprintf("_tmp%d", var_counter++);
+}
 
 /*
  * Examine each qual clause in input_conds, and classify them into two groups,
@@ -327,8 +333,8 @@ foreign_expr_walker(Node *node,
 			rte = planner_rt_fetch(var->varno, glob_cxt->root);
 			cinfo = chfdw_get_custom_column_info(rte->relid, var->varattno);
 
-			if (cinfo && cinfo->is_aggregation_func)
-				outer_cxt->found_aggregation_func = true;
+			if (cinfo && cinfo->is_AggregateFunction)
+				outer_cxt->found_AggregateFunction = true;
 		}
 	}
 	break;
@@ -553,11 +559,11 @@ foreign_expr_walker(Node *node,
 				n = (Node *) tle->expr;
 			}
 
-			inner_cxt.found_aggregation_func = false;
+			inner_cxt.found_AggregateFunction = false;
 			if (!foreign_expr_walker(n, glob_cxt, &inner_cxt))
 				return false;
 
-			if (inner_cxt.found_aggregation_func)
+			if (inner_cxt.found_AggregateFunction)
 				agg->location = -2;
 		}
 
@@ -1630,7 +1636,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colval));
-			appendStringInfoString(buf, "[indexOf(");
+			appendStringInfoString(buf, "[nullif(indexOf(");
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colkey));
@@ -1642,7 +1648,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colval));
 
-			if (cdef->context && list_length(cdef->context) == 2)
+			if (cdef->cf_context && list_length(cdef->cf_context) == 2)
 			{
 				appendStringInfoChar(buf, ',');
 				if (qualify_col)
@@ -1668,7 +1674,39 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 	}
 	else if (cinfo && cinfo->coltype == CF_ISTORE_COL)
 	{
-		elog(ERROR, "not implemented CF_ISTORE_COL");
+		char *alias_name = get_alias_name();
+
+		if (cdef && cdef->cf_type == CF_ISTORE_FETCHVAL)
+		{
+			/* ((finalizeAggregation(colname) as _tmp).2)[indexOf(_tmp.1, - we fill this part
+			 * <key>)] - should be filled later */
+
+			appendStringInfoString(buf, "((finalizeAggregation(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+
+			appendStringInfoString(buf, quote_identifier(colname));
+			appendStringInfo(buf, ") as %s).2)[nullif(indexOf(%s.1, ", alias_name, alias_name);
+		}
+		else if (cdef && cdef->cf_type == CF_ISTORE_SUM_UP)
+		{
+			appendStringInfoString(buf, "(finalizeAggregation(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colname));
+			appendStringInfo(buf, ") as %s).2", alias_name);
+
+			if (cdef->cf_context && list_length(cdef->cf_context) == 2)
+				appendStringInfo(buf, ", %s.1", alias_name);
+		}
+		else
+		{
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, varno);
+			appendStringInfoString(buf, quote_identifier(colname));
+		}
+
+		pfree(alias_name);
 	}
 	else
 	{
@@ -2242,13 +2280,6 @@ deparseSubscriptingRef(SubscriptingRef *node, deparse_expr_cxt *context)
 	appendStringInfoChar(buf, ')');
 }
 
-static char *
-get_alias_name()
-{
-	var_counter++;
-	return psprintf("_tmp%d", var_counter++);
-}
-
 /*
  * Deparse a function call.
  */
@@ -2396,9 +2427,6 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		if (!IsA(linitial(node->args), Var))
 			elog(ERROR, "clickhouse_fdw supports simple accumulate with column as first parameter");
 
-		if (list_length(node->args) == 1)
-			elog(ERROR, "clickhouse_fdw supports accumulate only with max_key parameter");
-
 		if (bms_is_member(var->varno, relids) && var->varlevelsup == 0)
 			rte = planner_rt_fetch(var->varno, context->root);
 		else
@@ -2421,6 +2449,9 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			char *max_key_alias = get_alias_name();
 			char *colkey = psprintf("%s_keys", colname);
 			char *colval = psprintf("%s_values", colname);
+
+			if (list_length(node->args) == 1)
+				elog(ERROR, "clickhouse_fdw supports accumulate only with max_key parameter");
 
 			/* first block
 			 *	if(a_keys[1] <= max_key, arrayMap(x -> a_keys[1] + x - 1,
@@ -2483,6 +2514,30 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 
 			return;
 		}
+		else if (cinfo->coltype == CF_ISTORE_COL)
+		{
+			/* (mapFill((finalizeAggregation(col) as t1).1, t1.2, <max_key>) as t2).1,
+			 * arrayCumSum(t2.2) */
+
+			char *alias1 = get_alias_name();
+			char *alias2 = get_alias_name();
+
+			appendStringInfoString(buf, "(mapFill((finalizeAggregation(");
+			if (qualify_col)
+				ADD_REL_QUALIFIER(buf, var->varno);
+			appendStringInfoString(buf, colname);
+			appendStringInfo(buf, ") as %s).1, %s.2", alias1, alias1);
+
+			if (list_length(node->args) > 1)
+			{
+				/* max key */
+				appendStringInfoChar(buf, ',');
+				deparseExpr((Expr *) list_nth(node->args, 1), context);
+			}
+			appendStringInfo(buf, ") as %s).1, arrayCumSum(%s.2)", alias2, alias2);
+
+			return;
+		}
 		else
 			elog(ERROR, "accumulate for this kind of istore not implemented");
 
@@ -2522,9 +2577,20 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			sum_up(daily_time_spent_cohort)
 			=>
 			arraySum(daily_time_spent_cohort_values)
+
+			!!!! or in case of AggregateFunction:
+			sum_up(daily_time_spent_cohort, 12)
+			=>
+			arraySum(arrayFilter((v, k) -> k <= 12,
+			(finalizeAggregation(daily_time_spent_cohort) as _tmp).2,
+			_tmp.1))
+
+			sum_up(daily_time_spent_cohort)
+			=>
+			arraySum(finalizeAggregation(daily_time_spent_cohort).2)
 		*/
 		funcdef = *cdef;
-		funcdef.context = node->args;
+		funcdef.cf_context = node->args;
 		context->func = &funcdef;
 
 		if (list_length(node->args) == 2)
@@ -2539,6 +2605,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		}
 		else
 			deparseExpr((Expr *) linitial(node->args), context);
+
 		goto end;
 	}
 
@@ -2773,11 +2840,11 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					temp = context->func;
 					context->func = cdef;
 
-					/* values[nullif(indexOf(ids, ... */
+					/* values[nullif(indexOf(ids, ...  in deparseColumnRef */
 					deparseExpr((Expr *) arg, context);
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
 					/* ... 0)] */
-					appendStringInfoString(buf, ")]");
+					appendStringInfoString(buf, "), 0)]");
 
 					context->func = temp;
 				}
@@ -2790,11 +2857,11 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					/* ([val1, val2][nullif(indexOf([key1, key2], arg), 0]) */
 					appendStringInfoChar(buf, '(');
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
-					appendStringInfoString(buf, "[indexOf(");
+					appendStringInfoString(buf, "[nullif(indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
 					appendStringInfoString(buf, ", ");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")])");
+					appendStringInfoString(buf, "), 0)])");
 				}
 				else
 					elog(ERROR, "clickhouse_fdw supports fetchval only for columns and consts");

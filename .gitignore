@@ -5,3 +5,4 @@ tests/results/*.out
 bench/bench
 compile_commands.json
 .clangd
+/bu

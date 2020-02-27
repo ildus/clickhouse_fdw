@@ -936,6 +936,9 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				}
 			}
 
+			if (is_array)
+				appendStringInfoString(&buf, "[]");
+
 			if (options != NIL)
 			{
 				bool first = true;
@@ -967,9 +970,6 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				appendStringInfoString(&buf, ")");
 				list_free_deep(options);
 			}
-
-			if (is_array)
-				appendStringInfoString(&buf, "[]");
 
 			if (!is_nullable)
 				appendStringInfoString(&buf, " NOT NULL");
