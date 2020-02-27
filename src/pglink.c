@@ -888,6 +888,23 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 					options = lappend(options, makeInteger(1));
 					options = lappend(options, makeString(func));
 					pos = pos2 + 1; /* also there is space */
+
+					if (strncmp(func, "sumMap", 6) == 0)
+					{
+						appendStringInfoString(&buf, "istore");
+						add_type = false;
+					}
+				}
+				else if (strncmp(remote_type, "SimpleAggregateFunction", strlen("SimpleAggregateFunction")) == 0)
+				{
+					char *pos2 = strstr(pos, ",");
+					if (pos2 == NULL)
+						elog(ERROR, "clickhouse_fdw: expected comma in SimpleAggregateFunction");
+
+					char *func = pnstrdup(pos + 1, strstr(pos + 1, ",") - pos - 1);
+					options = lappend(options, makeInteger(2));
+					options = lappend(options, makeString(func));
+					pos = pos2 + 1; /* also there is space */
 				}
 
 				remote_type = pos + 1;
@@ -936,6 +953,9 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 						switch intVal(val) {
 							case 1:
 								appendStringInfoString(&buf, "AggregateFunction");
+								break;
+							case 2:
+								appendStringInfoString(&buf, "SimpleAggregateFunction");
 								break;
 							default:
 								elog(ERROR, "programming error");
