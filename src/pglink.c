@@ -913,7 +913,10 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				}
 
 				if (!found)
-					elog(ERROR, "clickhouse_fdw: could not map type: %s", remote_type);
+				{
+					ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s> on %s",
+								remote_type, table_name), errdetail(query)));
+				}
 			}
 
 			if (options != NIL)
