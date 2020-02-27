@@ -40,6 +40,14 @@ SELECT clickhousedb_raw_query('
 		engine=AggregatingMergeTree()
 		order by a populate as select a, sumMapState(b, c) as b from regression.t3 group by a;');
 
+SELECT clickhousedb_raw_query('
+	create table regression.t4 (a int,
+		b AggregateFunction(sum, Int32),
+		c AggregateFunction(sumMap, Array(Int32), Array(Int32)),
+		d SimpleAggregateFunction(sum, Int64))
+	engine = AggregatingMergeTree()
+	order by a');
+
 IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
 
 \d+ t1
@@ -47,6 +55,7 @@ IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
 \d+ t2
 \d+ t3
 \d+ t3_aggr
+\d+ t4
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b) FROM t1 GROUP BY a;
 SELECT a, sum(b) FROM t1 GROUP BY a ORDER BY a;

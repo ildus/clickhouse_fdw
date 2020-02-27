@@ -820,6 +820,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		{
 			bool	is_nullable = false,
 					is_array = false,
+					is_istore = false,
 					add_type = true;
 
 			char   *remote_type = readstr(conn, dvalues[1]),
@@ -893,6 +894,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 					{
 						appendStringInfoString(&buf, "istore");
 						add_type = false;
+						is_istore = true;
 					}
 				}
 				else if (strncmp(remote_type, "SimpleAggregateFunction", strlen("SimpleAggregateFunction")) == 0)
@@ -936,7 +938,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				}
 			}
 
-			if (is_array)
+			if (is_array && !is_istore)
 				appendStringInfoString(&buf, "[]");
 
 			if (options != NIL)

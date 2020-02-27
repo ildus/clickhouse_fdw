@@ -135,6 +135,7 @@ InitChFdwOptions(void)
 		{"engine", ForeignTableRelationId, false},
 		{"driver", ForeignServerRelationId, false},
 		{"aggregatefunction", AttributeRelationId, false},
+		{"simpleaggregatefunction", AttributeRelationId, false},
 		{NULL, InvalidOid, false}
 	};
 
