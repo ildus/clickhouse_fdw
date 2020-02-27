@@ -68,6 +68,9 @@ SELECT a, sum(sum_up(b)) FROM t3_aggr GROUP BY a;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(sum_up(b, 5)) FROM t3_aggr GROUP BY a;
 SELECT a, sum(sum_up(b, 5)) FROM t3_aggr GROUP BY a;
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b->1) FROM t3_aggr GROUP BY a;
+SELECT a, sum(b->1) FROM t3_aggr GROUP BY a;
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;

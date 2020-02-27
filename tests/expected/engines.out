@@ -274,6 +274,30 @@ SELECT a, sum(sum_up(b, 5)) FROM t3_aggr GROUP BY a;
  8 |  10
 (10 rows)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT a, sum(b->1) FROM t3_aggr GROUP BY a;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: a, (sum((b -> 1)))
+   Relations: Aggregate on (t3_aggr)
+   Remote SQL: SELECT a, sum(((finalizeAggregation(b) as _tmp1).2)[nullif(indexOf(_tmp1.1, 1), 0)]) FROM regression.t3_aggr GROUP BY a
+(4 rows)
+
+SELECT a, sum(b->1) FROM t3_aggr GROUP BY a;
+ a | sum 
+---+-----
+ 0 |  20
+ 4 |  10
+ 3 |  10
+ 2 |  10
+ 5 |  10
+ 1 |  10
+ 6 |  10
+ 7 |  10
+ 9 |  10
+ 8 |  10
+(10 rows)
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 

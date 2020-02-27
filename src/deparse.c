@@ -1636,7 +1636,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colval));
-			appendStringInfoString(buf, "[indexOf(");
+			appendStringInfoString(buf, "[nullif(indexOf(");
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colkey));
@@ -1686,7 +1686,7 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 				ADD_REL_QUALIFIER(buf, varno);
 
 			appendStringInfoString(buf, quote_identifier(colname));
-			appendStringInfo(buf, ") as %s).2)[indexOf(%s.1, ", alias_name, alias_name);
+			appendStringInfo(buf, ") as %s).2)[nullif(indexOf(%s.1, ", alias_name, alias_name);
 		}
 		else if (cdef && cdef->cf_type == CF_ISTORE_SUM_UP)
 		{
@@ -2840,11 +2840,11 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					temp = context->func;
 					context->func = cdef;
 
-					/* values[nullif(indexOf(ids, ... */
+					/* values[nullif(indexOf(ids, ...  in deparseColumnRef */
 					deparseExpr((Expr *) arg, context);
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
 					/* ... 0)] */
-					appendStringInfoString(buf, ")]");
+					appendStringInfoString(buf, "), 0)]");
 
 					context->func = temp;
 				}
@@ -2857,11 +2857,11 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 					/* ([val1, val2][nullif(indexOf([key1, key2], arg), 0]) */
 					appendStringInfoChar(buf, '(');
 					deparseArray(OidFunctionCall1(avalues, constval->constvalue), context);
-					appendStringInfoString(buf, "[indexOf(");
+					appendStringInfoString(buf, "[nullif(indexOf(");
 					deparseArray(OidFunctionCall1(akeys, constval->constvalue), context);
 					appendStringInfoString(buf, ", ");
 					deparseExpr((Expr *) list_nth(node->args, 1), context);
-					appendStringInfoString(buf, ")])");
+					appendStringInfoString(buf, "), 0)])");
 				}
 				else
 					elog(ERROR, "clickhouse_fdw supports fetchval only for columns and consts");
