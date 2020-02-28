@@ -1,0 +1,70 @@
+CREATE EXTENSION clickhouse_fdw;
+CREATE SERVER loopback FOREIGN DATA WRAPPER clickhouse_fdw OPTIONS(dbname 'regression');
+CREATE USER MAPPING FOR CURRENT_USER SERVER loopback;
+SELECT clickhousedb_raw_query('drop database if exists regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('create database regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	create table regression.t1 (a int, b Int8)
+	engine = MergeTree()
+	order by a');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('
+	insert into regression.t1 select number % 10, number % 10 > 5 from numbers(1, 100);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
+\d+ t1
+                                        Foreign table "public.t1"
+ Column |   Type   | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+----------+-----------+----------+---------+-------------+---------+--------------+-------------
+ a      | integer  |           | not null |         |             | plain   |              | 
+ b      | smallint |           | not null |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 't1', engine 'MergeTree')
+
+ALTER TABLE t1 ALTER COLUMN b SET DATA TYPE bool;
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT (CASE WHEN b THEN 1 ELSE 2 END) as g1, MAX(a) FROM t1 GROUP BY g1;
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: (CASE WHEN b THEN 1 ELSE 2 END), (max(a))
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT CASE WHEN b = 1 THEN toInt32(1) ELSE toInt32(2) END, max(a) FROM regression.t1 GROUP BY (CASE WHEN b = 1 THEN toInt32(1) ELSE toInt32(2) END)
+(4 rows)
+
+SELECT (CASE WHEN b THEN 1 ELSE 2 END) as g1, MAX(a) FROM t1 GROUP BY g1;
+ g1 | max 
+----+-----
+  2 |   5
+  1 |   9
+(2 rows)
+
+DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
+SELECT clickhousedb_raw_query('DROP DATABASE regression');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to server loopback
+drop cascades to foreign table t1
