@@ -2530,10 +2530,10 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 
 			if (list_length(node->args) > 1)
 			{
-				/* max key */
-				appendStringInfoString(buf, ", assumeNotNull(");
+				/* max key, for now just assume it keys are always int32 */
+				appendStringInfoString(buf, ", toInt32(assumeNotNull(");
 				deparseExpr((Expr *) list_nth(node->args, 1), context);
-				appendStringInfoChar(buf, ')');
+				appendStringInfoString(buf, "))");
 			}
 			appendStringInfo(buf, ") as %s).1, arrayCumSum(%s.2)", alias2, alias2);
 
