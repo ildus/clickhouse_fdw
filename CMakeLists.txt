@@ -59,6 +59,7 @@ LIST(APPEND REGRESS_TESTS
 	binary_inserts
 	functions
 	engines
+	deparse_checks
 )
 add_custom_target(installcheck
 	COMMAND ${PG_REGRESS} --inputdir=${PROJECT_SOURCE_DIR}/tests --outputdir=${PROJECT_SOURCE_DIR}/tests \${EXTRA_REGRESS_OPTS} ${REGRESS_TESTS})

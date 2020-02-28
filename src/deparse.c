@@ -2531,8 +2531,9 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 			if (list_length(node->args) > 1)
 			{
 				/* max key */
-				appendStringInfoChar(buf, ',');
+				appendStringInfoString(buf, ", assumeNotNull(");
 				deparseExpr((Expr *) list_nth(node->args, 1), context);
+				appendStringInfoChar(buf, ')');
 			}
 			appendStringInfo(buf, ") as %s).1, arrayCumSum(%s.2)", alias2, alias2);
 
@@ -3391,6 +3392,12 @@ do { \
 		Assert(IsA(arg, CaseWhen));
 		appendStringInfoString(buf, " WHEN ");
 		deparseExpr(arg->expr, context);
+
+		/* in simple cases like WHEN val THEN we should extend the condition
+		 * for WHEN val = 1 since there is no bool type in ClickHouse */
+		if (IsA(arg->expr, Var))
+			appendStringInfoString(buf, " = 1");
+
 		appendStringInfoString(buf, " THEN ");
 		DEPARSE_WRAPPED(arg->result);
 	}
