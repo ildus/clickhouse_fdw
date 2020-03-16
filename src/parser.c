@@ -34,7 +34,29 @@ int ch_http_read_next(ch_http_read_state *state)
 
 	while (pos < state->maxpos && data[pos] != '\t' && data[pos] != '\n')
 	{
-		state->val[len++] = data[pos++];
+		if (data[pos] == '\\')
+		{
+			// unescape some sequences
+			switch (data[pos+1]) {
+				case '\\': state->val[len] = '\\'; break;
+				case '\'': state->val[len] = '\''; break;
+				case 'n': state->val[len] = '\n'; break;
+				case 't': state->val[len] = '\t'; break;
+				case '0': state->val[len] = '\0'; break;
+				case 'r': state->val[len] = '\r'; break;
+				case 'b': state->val[len] = '\b'; break;
+				case 'f': state->val[len] = '\f'; break;
+				default:
+					goto copy;
+			}
+			len++;
+			pos += 2;
+		}
+		else
+copy:
+			state->val[len++] = data[pos++];
+
+		/* extend the value size if needed */
 		if (len == state->buflen)
 		{
 			state->buflen *= 2;

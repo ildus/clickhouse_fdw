@@ -14,7 +14,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.t1
 ');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String)
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String)
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c3 String)
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (c1 Int, c2 Int, c3 String)
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
@@ -47,7 +47,6 @@ CREATE FOREIGN TABLE ft2 (
 
 CREATE FOREIGN TABLE ft3 (
 	c1 int NOT NULL,
-	c2 int NOT NULL,
 	c3 text
 ) SERVER loopback OPTIONS (table_name 't3');
 
@@ -94,11 +93,10 @@ INSERT INTO ft2
 	       'AAA' || to_char(id, 'FM000')
 	FROM generate_series(1, 100) id;
 
-INSERT INTO ft3
-	SELECT id,
-	       id + 1,
-	       'AAA' || to_char(id, 'FM000')
-	FROM generate_series(1, 100) id;
+INSERT INTO ft3 VALUES (1, E'lf\ntab\t\b\f\r');
+SELECT c3, (c3 = E'lf\ntab\t\b\f\r') AS true FROM ft3 WHERE c1 = 1;
+INSERT INTO ft3 VALUES (2, 'lf\ntab\t\b\f\r');
+SELECT c3, (c3 = 'lf\ntab\t\b\f\r') AS true FROM ft3 WHERE c1 = 2;
 
 INSERT INTO ft4
 	SELECT id,

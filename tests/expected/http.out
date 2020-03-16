@@ -32,7 +32,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.t2 (c1 Int, c2 String)
  
 (1 row)
 
-SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c2 Int, c3 String)
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t3 (c1 Int, c3 String)
 	ENGINE = MergeTree PARTITION BY c1 % 10000 ORDER BY (c1);');
  clickhousedb_raw_query 
 ------------------------
@@ -76,7 +76,6 @@ CREATE FOREIGN TABLE ft2 (
 ) SERVER loopback OPTIONS (table_name 't2');
 CREATE FOREIGN TABLE ft3 (
 	c1 int NOT NULL,
-	c2 int NOT NULL,
 	c3 text
 ) SERVER loopback OPTIONS (table_name 't3');
 CREATE FOREIGN TABLE ft4 (
@@ -116,11 +115,21 @@ INSERT INTO ft2
 	SELECT id,
 	       'AAA' || to_char(id, 'FM000')
 	FROM generate_series(1, 100) id;
-INSERT INTO ft3
-	SELECT id,
-	       id + 1,
-	       'AAA' || to_char(id, 'FM000')
-	FROM generate_series(1, 100) id;
+INSERT INTO ft3 VALUES (1, E'lf\ntab\t\b\f\r');
+SELECT c3, (c3 = E'lf\ntab\t\b\f\r') AS true FROM ft3 WHERE c1 = 1;
+         c3         | true 
+--------------------+------
+ lf                +| t
+ tab     \x08\x0C\r | 
+(1 row)
+
+INSERT INTO ft3 VALUES (2, 'lf\ntab\t\b\f\r');
+SELECT c3, (c3 = 'lf\ntab\t\b\f\r') AS true FROM ft3 WHERE c1 = 2;
+       c3        | true 
+-----------------+------
+ lf\ntab\t\b\f\r | t
+(1 row)
+
 INSERT INTO ft4
 	SELECT id,
 	       id + 1,
@@ -162,7 +171,7 @@ ERROR:  clickhouse_fdw:Code: 81, e.displayText() = DB::Exception: Database `no s
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
-ERROR:  clickhouse_fdw:Code: 192, e.displayText() = DB::Exception: Unknown user no such user
+ERROR:  clickhouse_fdw:Code: 516, e.displayText() = DB::Exception: no such user: Authentication failed: password is incorrect or there is no user with such name
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);

@@ -1,26 +1,28 @@
 #include "postgres.h"
 
+#include "access/htup_details.h"
+#include "access/tupdesc.h"
 #include "catalog/pg_type_d.h"
 #include "funcapi.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "utils/builtins.h"
-#include "utils/timestamp.h"
+#include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
+#include "utils/timestamp.h"
 #include "utils/typcache.h"
 #include "utils/uuid.h"
-#include "utils/fmgroids.h"
-#include "access/htup_details.h"
-#include "access/tupdesc.h"
-#include <sys/stat.h>
-#include <fcntl.h>
- #include <unistd.h>
 
 #include "clickhousedb_fdw.h"
 #include "clickhouse_http.h"
 #include "clickhouse_binary.hh"
+
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static bool		initialized = false;
 
@@ -49,6 +51,8 @@ static void **binary_fetch_row(ch_cursor *cursor, List* attrs, TupleDesc tupdesc
 static void binary_insert_tuple(void *, TupleTableSlot *slot);
 static void *binary_prepare_insert(void *, ResultRelInfo *, List *,
 		char *query, char *table_name);
+
+static size_t escape_string(char *to, const char *from, size_t length);
 
 static libclickhouse_methods binary_methods = {
 	.disconnect=binary_disconnect,
@@ -381,13 +385,18 @@ extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 			case BITOID:
 			case BYTEAOID:
 			{
-				char   *str = NULL;
+				char   *strin, *strout;
+				size_t  len;
 				bool	tl = false;
 				Oid		typoutput = InvalidOid;
 
 				getTypeOutputInfo(type, &typoutput, &tl);
-				str = OidOutputFunctionCall(typoutput, value);
-				appendStringInfo(&state->sql, "%s", str);
+				strin = OidOutputFunctionCall(typoutput, value);
+				len = strlen(strin) + 1;
+				strout = palloc(len * 3 + 1);
+				escape_string(strout, strin, len);
+				appendStringInfo(&state->sql, "%s", strout);
+				pfree(strout);
 			}
 			break;
 			case DATEOID:
@@ -999,4 +1008,105 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 
 	MemoryContextDelete(cursor->memcxt);
 	return result;
+}
+
+
+/*
+ * Escaping arbitrary strings to get valid SQL literal strings.
+ *
+ * length is the length of the source string.  (Note: if a terminating NUL
+ * is encountered sooner, escape_string stops short of "length"; the behavior
+ * is thus rather like strncpy.)
+ *
+ * For safety the buffer at "to" must be at least 2*length + 1 bytes long.
+ * A terminating NUL character is added to the output string, whether the
+ * input is NUL-terminated or not.
+ *
+ * Returns the actual length of the output (not counting the terminating NUL).
+ */
+static size_t
+escape_string(char *to, const char *from, size_t length)
+{
+	const char *source = from;
+	char	   *target = to;
+	size_t		remaining = length;
+
+	while (remaining > 0 && *source != '\0')
+	{
+		char		c = *source;
+		int			len;
+		int			i;
+
+		/* Fast path for plain ASCII */
+		if (!IS_HIGHBIT_SET(c))
+		{
+			/* Apply quoting if needed */
+			if (c == '\\')
+			{
+				*target++ = c;
+				*target++ = c;
+			}
+			else if (c == '\'')
+			{
+				*target++ = '\\';
+				*target++ = c;
+			}
+			else if (c == '\n')
+			{
+				*target++ = '\\';
+				*target++ = 'n';
+			}
+			else if (c == '\t')
+			{
+				*target++ = '\\';
+				*target++ = 't';
+			}
+			else if (c == '\0')
+			{
+				*target++ = '\\';
+				*target++ = '0';
+			}
+			else if (c == '\r')
+			{
+				*target++ = '\\';
+				*target++ = 'r';
+			}
+			else if (c == '\b')
+			{
+				*target++ = '\\';
+				*target++ = 'b';
+			}
+			else if (c == '\f')
+			{
+				*target++ = '\\';
+				*target++ = 'f';
+			}
+			else
+				*target++ = c;
+
+			source++;
+			remaining--;
+			continue;
+		}
+
+		/* Slow path for possible multibyte characters */
+		len = pg_encoding_mblen(PG_SQL_ASCII, source);
+
+		/* Copy the character */
+		for (i = 0; i < len; i++)
+		{
+			if (remaining == 0 || *source == '\0')
+				break;
+			*target++ = *source++;
+			remaining--;
+		}
+
+		if (i < len)
+			elog(ERROR, "clickhouse_fdw: incomplete multibyte character");
+	}
+
+	/* Write the terminating NUL character. */
+	*target = '\0';
+
+	return target - to;
 }
