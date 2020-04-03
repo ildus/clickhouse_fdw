@@ -271,6 +271,11 @@ typedef enum {
 	CF_CH_FUNCTION		/* adapted clickhouse function */
 } custom_object_type;
 
+typedef enum {
+	CF_AGGR_FUNC = 1,
+	CF_AGGR_SIMPLE = 2
+} ch_aggregate_func_type;
+
 typedef struct CustomObjectDef
 {
 	Oid						cf_oid;
@@ -285,7 +290,7 @@ typedef struct CustomColumnInfo
 	Oid		relid;
 	int		varattno;
 	char	colname[NAMEDATALEN];
-	bool	is_AggregateFunction;
+	ch_aggregate_func_type	is_AggregateFunction;
 	custom_object_type coltype;
 
 	CHRemoteTableEngine	table_engine;

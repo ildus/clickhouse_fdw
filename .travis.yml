@@ -10,13 +10,13 @@ services:
     - docker
 
 install:
-    - docker-compose pull clickhouse
-    - docker-compose run -d clickhouse
-    - docker-compose build --build-arg CHECK_CODE=${CHECK_CODE} --build-arg PG_VERSION=${PG_VERSION} tests
+    - docker-compose -f docker-compose-extra.yml pull clickhouse
+    - docker-compose -f docker-compose-extra.yml run -d clickhouse
+    - docker-compose -f docker-compose-extra.yml  build --build-arg CHECK_CODE=${CHECK_CODE} --build-arg PG_VERSION=${PG_VERSION} tests
 
 script:
-    - docker-compose run tests
-    - docker-compose stop clickhouse
+    - docker-compose -f docker-compose-extra.yml run tests
+    - docker-compose -f docker-compose-extra.yml stop clickhouse
 
 env:
     - PG_VERSION=11  CHECK_CODE=clang

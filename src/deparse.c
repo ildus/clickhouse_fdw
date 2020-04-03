@@ -1681,7 +1681,13 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 			/* ((finalizeAggregation(colname) as _tmp).2)[indexOf(_tmp.1, - we fill this part
 			 * <key>)] - should be filled later */
 
-			appendStringInfoString(buf, "((finalizeAggregation(");
+			appendStringInfoString(buf, "((");
+
+			if (cinfo->is_AggregateFunction == CF_AGGR_FUNC)
+				appendStringInfoString(buf, "finalizeAggregation(");
+			else
+				appendStringInfoChar(buf, '(');
+
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 
@@ -1690,7 +1696,13 @@ deparseColumnRef(StringInfo buf, CustomObjectDef *cdef,
 		}
 		else if (cdef && cdef->cf_type == CF_ISTORE_SUM_UP)
 		{
-			appendStringInfoString(buf, "(finalizeAggregation(");
+			appendStringInfoChar(buf, '(');
+
+			if (cinfo->is_AggregateFunction == CF_AGGR_FUNC)
+				appendStringInfoString(buf, "finalizeAggregation(");
+			else
+				appendStringInfoChar(buf, '(');
+
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, varno);
 			appendStringInfoString(buf, quote_identifier(colname));
@@ -2517,16 +2529,26 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		else if (cinfo->coltype == CF_ISTORE_COL)
 		{
 			/* (mapFill((finalizeAggregation(col) as t1).1, t1.2, <max_key>) as t2).1,
+			 * arrayCumSum(t2.2)
+			 *
+			 * simple:
+			 * (mapFill((col as t1).1, t1.2, <max_key>) as t2).1,
 			 * arrayCumSum(t2.2) */
 
 			char *alias1 = get_alias_name();
 			char *alias2 = get_alias_name();
 
-			appendStringInfoString(buf, "(mapFill((finalizeAggregation(");
+			appendStringInfoString(buf, "(mapFill((");
+			if (cinfo->is_AggregateFunction == CF_AGGR_FUNC)
+				appendStringInfoString(buf, "finalizeAggregation(");
+			else
+				appendStringInfoChar(buf, '(');
+
 			if (qualify_col)
 				ADD_REL_QUALIFIER(buf, var->varno);
+
 			appendStringInfoString(buf, colname);
-			appendStringInfo(buf, ") as %s).1, %s.2", alias1, alias1);
+			appendStringInfo(buf, " as %s).1, %s.2", alias1, alias1);
 
 			if (list_length(node->args) > 1)
 			{
