@@ -2548,7 +2548,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 				ADD_REL_QUALIFIER(buf, var->varno);
 
 			appendStringInfoString(buf, colname);
-			appendStringInfo(buf, " as %s).1, %s.2", alias1, alias1);
+			appendStringInfo(buf, ") as %s).1, %s.2", alias1, alias1);
 
 			if (list_length(node->args) > 1)
 			{
