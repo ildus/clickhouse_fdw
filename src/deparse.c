@@ -333,7 +333,7 @@ foreign_expr_walker(Node *node,
 			rte = planner_rt_fetch(var->varno, glob_cxt->root);
 			cinfo = chfdw_get_custom_column_info(rte->relid, var->varattno);
 
-			if (cinfo && cinfo->is_AggregateFunction)
+			if (cinfo && cinfo->is_AggregateFunction == CF_AGGR_FUNC)
 				outer_cxt->found_AggregateFunction = true;
 		}
 	}
