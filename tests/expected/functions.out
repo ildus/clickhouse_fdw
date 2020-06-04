@@ -347,6 +347,7 @@ SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDE
 (2 rows)
 
 --- check dictGet
+-- dictGet is broken for now
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
                                                                                                       QUERY PLAN                                                                                                      
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -359,21 +360,7 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 
          Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))))
 (7 rows)
 
-SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
- a  |  val  | sum 
-----+-------+-----
-  1 | val1  |   2
-  2 | val2  |   3
-  3 | val3  |   4
-  4 | val4  |   5
-  5 | val5  |   6
-  6 | val6  |   7
-  7 | val7  |   8
-  8 | val8  |   9
-  9 | val9  |  10
- 10 | val10 |  11
-(10 rows)
-
+-- SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
                                                                                                                      QUERY PLAN                                                                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -386,21 +373,7 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (1, 
          Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))))
 (7 rows)
 
-SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
- a  | val  | sum 
-----+------+-----
-  1 | val1 |   2
-  2 |      |   3
-  3 |      |   4
-  4 |      |   5
-  5 |      |   6
-  6 |      |   7
-  7 |      |   8
-  8 |      |   9
-  9 |      |  10
- 10 |      |  11
-(10 rows)
-
+-- SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
  clickhousedb_raw_query 

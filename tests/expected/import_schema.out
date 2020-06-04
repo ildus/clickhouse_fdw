@@ -101,7 +101,9 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
 -- tuple
 SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
     c1 Int8,
-    c2 Tuple(Int, String, Float32)
+    c2 Tuple(Int, String, Float32),
+	c3 Nested(a Int, b Int),
+	c4 Int16
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
  clickhousedb_raw_query 
@@ -111,8 +113,24 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
 
 SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
     number,
-    (number, toString(number), number + 1.0)
+    (number, toString(number), number + 1.0),
+	[toInt32(number),1,1],
+	[toInt32(number),2,2],
+	toInt16(number)
     FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+-- datetime64
+SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
+    c1 Int32,
+    c2 DateTime64(6, ''Europe/Moscow''),
+    c3 DateTime64(10, ''Europe/Berlin''),
+	c4 DateTime64(6)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
  clickhousedb_raw_query 
 ------------------------
  
@@ -163,13 +181,27 @@ Server: loopback
 FDW options: (table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse.tuples;
-                                    Foreign table "clickhouse.tuples"
- Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
---------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
- c1     | smallint |           | not null |         |             | plain    |              | 
- c2     | text     |           | not null |         |             | extended |              | 
+                                     Foreign table "clickhouse.tuples"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint  |           | not null |         |             | plain    |              | 
+ c2     | text      |           | not null |         |             | extended |              | 
+ c3.a   | integer[] |           | not null |         |             | extended |              | 
+ c3.b   | integer[] |           | not null |         |             | extended |              | 
+ c4     | smallint  |           | not null |         |             | plain    |              | 
 Server: loopback
 FDW options: (table_name 'tuples', engine 'MergeTree')
+
+\d+ clickhouse.dt64;
+                                              Foreign table "clickhouse.dt64"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | integer                     |           | not null |         |             | plain   |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ c3     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ c4     | timestamp without time zone |           | not null |         |             | plain   |              | 
+Server: loopback
+FDW options: (table_name 'dt64', engine 'MergeTree')
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -195,10 +227,10 @@ SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
 (2 rows)
 
 SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
- c1 |    c2     
-----+-----------
-  0 | (0,'0',1)
-  1 | (1,'1',2)
+ c1 |    c2     |  c3.a   |  c3.b   | c4 
+----+-----------+---------+---------+----
+  0 | (0,'0',1) | {0,1,1} | {0,2,2} |  0
+  1 | (1,'1',2) | {1,1,1} | {1,2,2} |  1
 (2 rows)
 
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
@@ -246,13 +278,27 @@ Server: loopback_bin
 FDW options: (table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse_bin.tuples;
-                                  Foreign table "clickhouse_bin.tuples"
- Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
---------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
- c1     | smallint |           | not null |         |             | plain    |              | 
- c2     | text     |           | not null |         |             | extended |              | 
+                                   Foreign table "clickhouse_bin.tuples"
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint  |           | not null |         |             | plain    |              | 
+ c2     | text      |           | not null |         |             | extended |              | 
+ c3.a   | integer[] |           | not null |         |             | extended |              | 
+ c3.b   | integer[] |           | not null |         |             | extended |              | 
+ c4     | smallint  |           | not null |         |             | plain    |              | 
 Server: loopback_bin
 FDW options: (table_name 'tuples', engine 'MergeTree')
+
+\d+ clickhouse_bin.dt64;
+                                            Foreign table "clickhouse_bin.dt64"
+ Column |            Type             | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+-----------------------------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | integer                     |           | not null |         |             | plain   |              | 
+ c2     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ c3     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ c4     | timestamp without time zone |           | not null |         |             | plain   |              | 
+Server: loopback_bin
+FDW options: (table_name 'dt64', engine 'MergeTree')
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -278,10 +324,10 @@ SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
 (2 rows)
 
 SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
- c1 |   c2    
-----+---------
-  0 | (0,0,1)
-  1 | (1,1,2)
+ c1 |   c2    |  c3.a   |  c3.b   | c4 
+----+---------+---------+---------+----
+  0 | (0,0,1) | {0,1,1} | {0,2,2} |  0
+  1 | (1,1,2) | {1,1,1} | {1,2,2} |  1
 (2 rows)
 
 IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
@@ -335,10 +381,13 @@ FDW options: (table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse_except.tuples;
                                  Foreign table "clickhouse_except.tuples"
- Column |   Type   | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
---------+----------+-----------+----------+---------+-------------+----------+--------------+-------------
- c1     | smallint |           | not null |         |             | plain    |              | 
- c2     | text     |           | not null |         |             | extended |              | 
+ Column |   Type    | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+-----------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | smallint  |           | not null |         |             | plain    |              | 
+ c2     | text      |           | not null |         |             | extended |              | 
+ c3.a   | integer[] |           | not null |         |             | extended |              | 
+ c3.b   | integer[] |           | not null |         |             | extended |              | 
+ c4     | smallint  |           | not null |         |             | plain    |              | 
 Server: loopback
 FDW options: (table_name 'tuples', engine 'MergeTree')
 
@@ -351,18 +400,21 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 14 other objects
+NOTICE:  drop cascades to 17 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table clickhouse.arrays
+drop cascades to foreign table clickhouse.dt64
 drop cascades to foreign table clickhouse.ints
 drop cascades to foreign table clickhouse.tuples
 drop cascades to foreign table clickhouse.types
 drop cascades to foreign table clickhouse_limit.ints
 drop cascades to foreign table clickhouse_limit.types
 drop cascades to foreign table clickhouse_except.arrays
+drop cascades to foreign table clickhouse_except.dt64
 drop cascades to foreign table clickhouse_except.tuples
 drop cascades to server loopback_bin
 drop cascades to foreign table clickhouse_bin.arrays
+drop cascades to foreign table clickhouse_bin.dt64
 drop cascades to foreign table clickhouse_bin.ints
 drop cascades to foreign table clickhouse_bin.tuples
 drop cascades to foreign table clickhouse_bin.types

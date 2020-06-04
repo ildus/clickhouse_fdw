@@ -61,13 +61,27 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.arrays SELECT
 -- tuple
 SELECT clickhousedb_raw_query('CREATE TABLE regression.tuples (
     c1 Int8,
-    c2 Tuple(Int, String, Float32)
+    c2 Tuple(Int, String, Float32),
+	c3 Nested(a Int, b Int),
+	c4 Int16
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
     number,
-    (number, toString(number), number + 1.0)
+    (number, toString(number), number + 1.0),
+	[toInt32(number),1,1],
+	[toInt32(number),2,2],
+	toInt16(number)
     FROM numbers(10);');
+
+-- datetime64
+SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
+    c1 Int32,
+    c2 DateTime64(6, ''Europe/Moscow''),
+    c3 DateTime64(10, ''Europe/Berlin''),
+	c4 DateTime64(6)
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
 
 IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 
@@ -75,6 +89,7 @@ IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
 \d+ clickhouse.types;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
+\d+ clickhouse.dt64;
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
@@ -87,6 +102,7 @@ IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhou
 \d+ clickhouse_bin.types;
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
+\d+ clickhouse_bin.dt64;
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;

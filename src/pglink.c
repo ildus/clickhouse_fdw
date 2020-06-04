@@ -731,7 +731,7 @@ binary_insert_tuple(void *istate, TupleTableSlot *slot)
 	}
 }
 
-#define STR_TYPES_COUNT 16
+#define STR_TYPES_COUNT 17
 static char *str_types_map[STR_TYPES_COUNT][2] = {
 	{"Int8", "INT2"},
 	{"UInt8", "INT2"},
@@ -746,8 +746,8 @@ static char *str_types_map[STR_TYPES_COUNT][2] = {
 	{"Decimal", "NUMERIC"},
 	{"Boolean", "BOOLEAN"},
 	{"String", "TEXT"},
-	{"Date", "DATE"},
 	{"DateTime", "TIMESTAMP"},
+	{"Date", "DATE"}, // important that this one is after other Date types
 	{"UUID", "UUID"}
 };
 
@@ -758,6 +758,83 @@ readstr(ch_connection conn, char *val)
 		return TextDatumGetCString(PointerGetDatum(val));
 	else
 		return val;
+}
+
+static char *
+parse_type(char *typepart, bool *is_nullable, List **options)
+{
+	char *pos = strstr(typepart, "(");
+
+	if (pos != NULL)
+	{
+		char *insidebr = pnstrdup(pos + 1, strrchr(typepart, ')') - pos - 1);
+
+		if (strncmp(typepart, "Decimal", strlen("Decimal")) == 0)
+		{
+			if (strstr(insidebr, ",") == NULL)
+				elog(ERROR, "clickhouse_fdw: could not import Decimal field, "
+					"should be two parameters on definition");
+
+			return psprintf("NUMERIC(%s)", insidebr);
+		}
+		else if (strncmp(typepart, "FixedString", strlen("FixedString")) == 0)
+			return psprintf("VARCHAR(%s)", insidebr);
+		else if (strncmp(typepart, "Enum8", strlen("Enum8")) == 0)
+			return "TEXT";
+		else if (strncmp(typepart, "Enum16", strlen("Enum16")) == 0)
+			return "TEXT";
+		else if (strncmp(typepart, "DateTime64", strlen("DateTime64")) == 0)
+			return "TIMESTAMP";
+		else if (strncmp(typepart, "Tuple", strlen("Tuple")) == 0)
+		{
+			elog(NOTICE, "clickhouse_fdw: ClickHouse <Tuple> type was "
+				"translated to <TEXT> type, please create composite type and alter the column if needed");
+			return "TEXT";
+		}
+		else if (strncmp(typepart, "Array", strlen("Array")) == 0)
+		{
+			return psprintf("%s[]", parse_type(insidebr, NULL, options));
+		}
+		else if (strncmp(typepart, "Nullable", strlen("Nullable")) == 0)
+		{
+			if (is_nullable == NULL)
+				elog(ERROR, "clickhouse_fdw: nested Nullable is not supported");
+
+			*is_nullable = true;
+			return parse_type(insidebr, NULL, options);
+		}
+		else if (strncmp(typepart, "AggregateFunction", strlen("AggregateFunction")) == 0 ||
+				 strncmp(typepart, "SimpleAggregateFunction", strlen("SimpleAggregateFunction")) == 0)
+		{
+			char *pos2 = strstr(pos, ",");
+			if (pos2 == NULL)
+				elog(ERROR, "clickhouse_fdw: expected comma in AggregateFunction");
+
+			char *func = pnstrdup(pos + 1, strstr(pos + 1, ",") - pos - 1);
+
+			if (options != NULL)
+			{
+				int val = typepart[0] == 'A' ? 1 : 2;
+				*options = lappend(*options, makeInteger(val));
+				*options = lappend(*options, makeString(func));
+			}
+
+			if (strncmp(func, "sumMap", 6) == 0)
+				return "istore";
+
+			return parse_type(pos2 + 2, is_nullable, options);
+		}
+
+		typepart = pos + 1;
+	}
+
+	for (size_t i = 0; i < STR_TYPES_COUNT; i++)
+	{
+		if (strncmp(str_types_map[i][0], typepart, strlen(str_types_map[i][0])) == 0)
+			return pstrdup(str_types_map[i][1]);
+	}
+
+	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s>", typepart)));
 }
 
 List *
@@ -827,14 +904,9 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		while ((dvalues = (char **) conn.methods->fetch_row(table_def,
 			datts, NULL, NULL, NULL)) != NULL)
 		{
-			bool	is_nullable = false,
-					is_array = false,
-					is_istore = false,
-					add_type = true;
-
-			char   *remote_type = readstr(conn, dvalues[1]),
-				   *pos;
 			List   *options = NIL;
+			bool	is_nullable = false;
+			char   *remote_type = parse_type(readstr(conn, dvalues[1]), &is_nullable, &options);
 
 			if (!first)
 				appendStringInfoString(&buf, ",\n");
@@ -842,113 +914,9 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 
 			/* name */
 			appendStringInfo(&buf, "\t\"%s\" ", readstr(conn, dvalues[0]));
-			while ((pos = strstr(remote_type, "(")) != NULL)
-			{
-				char *brpart = pnstrdup(pos, strstr(remote_type, ")") - pos + 1);
 
-				if (strncmp(remote_type, "Decimal", strlen("Decimal")) == 0)
-				{
-					appendStringInfoString(&buf, "NUMERIC");
-					appendStringInfoString(&buf, brpart);
-					if (strstr(pos, ",") == NULL)
-						elog(ERROR, "clickhouse_fdw: could not import Decimal field, "
-							"should be two parameters on definition");
-
-					add_type = false;
-					break;
-				}
-				else if (strncmp(remote_type, "FixedString", strlen("FixedString")) == 0)
-				{
-					appendStringInfoString(&buf, "VARCHAR");
-					appendStringInfoString(&buf, brpart);
-					add_type = false;
-					break;
-				}
-				else if (strncmp(remote_type, "Enum8", strlen("Enum8")) == 0)
-				{
-					appendStringInfoString(&buf, "TEXT");
-					add_type = false;
-					break;
-				}
-				else if (strncmp(remote_type, "Enum16", strlen("Enum16")) == 0)
-				{
-					appendStringInfoString(&buf, "TEXT");
-					add_type = false;
-					break;
-				}
-				else if (strncmp(remote_type, "Tuple", strlen("Tuple")) == 0)
-				{
-					appendStringInfoString(&buf, "TEXT");
-					elog(NOTICE, "clickhouse_fdw: ClickHouse <Tuple> type was "
-						"translated to <TEXT> type, please create composite type and alter the column if needed");
-					add_type = false;
-					break;
-				}
-				else if (strncmp(remote_type, "Array", strlen("Array")) == 0)
-					is_array = true;
-				else if (strncmp(remote_type, "Nullable", strlen("Nullable")) == 0)
-					is_nullable = true;
-				else if (strncmp(remote_type, "AggregateFunction", strlen("AggregateFunction")) == 0)
-				{
-					char *pos2 = strstr(pos, ",");
-					if (pos2 == NULL)
-						elog(ERROR, "clickhouse_fdw: expected comma in AggregateFunction");
-
-					char *func = pnstrdup(pos + 1, strstr(pos + 1, ",") - pos - 1);
-					options = lappend(options, makeInteger(1));
-					options = lappend(options, makeString(func));
-					pos = pos2 + 1; /* also there is space */
-
-					if (strncmp(func, "sumMap", 6) == 0)
-					{
-						appendStringInfoString(&buf, "istore");
-						add_type = false;
-						is_istore = true;
-					}
-				}
-				else if (strncmp(remote_type, "SimpleAggregateFunction", strlen("SimpleAggregateFunction")) == 0)
-				{
-					char *pos2 = strstr(pos, ",");
-					if (pos2 == NULL)
-						elog(ERROR, "clickhouse_fdw: expected comma in SimpleAggregateFunction");
-
-					char *func = pnstrdup(pos + 1, strstr(pos + 1, ",") - pos - 1);
-					options = lappend(options, makeInteger(2));
-					options = lappend(options, makeString(func));
-					pos = pos2 + 1; /* also there is space */
-				}
-
-				remote_type = pos + 1;
-			}
-
-			if (add_type)
-			{
-				bool found = false;
-				if ((pos = strstr(remote_type, ")")) != NULL)
-				{
-					/* we need to remove that last brackets */
-					*pos = '\0';
-				}
-
-				for (size_t i = 0; i < STR_TYPES_COUNT; i++)
-				{
-					if (strcmp(str_types_map[i][0], remote_type) == 0)
-					{
-						found = true;
-						appendStringInfoString(&buf, str_types_map[i][1]);
-						break;
-					}
-				}
-
-				if (!found)
-				{
-					ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s> on %s",
-								remote_type, table_name), errdetail("%s", query)));
-				}
-			}
-
-			if (is_array && !is_istore)
-				appendStringInfoString(&buf, "[]");
+			/* type */
+			appendStringInfoString(&buf, remote_type);
 
 			if (options != NIL)
 			{
