@@ -70,6 +70,10 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT argMin(a, c) FROM t1;
 SELECT argMin(a, c) FROM t1;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT argMax(a, c) FROM t1;
 SELECT argMax(a, c) FROM t1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT uniq_exact(a) FROM t1;
+SELECT uniq_exact(a) FROM t1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
+SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
