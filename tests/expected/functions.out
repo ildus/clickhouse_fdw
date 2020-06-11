@@ -195,6 +195,36 @@ SELECT argMax(a, c) FROM t1;
       2
 (1 row)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT uniq_exact(a) FROM t1;
+                      QUERY PLAN                      
+------------------------------------------------------
+ Foreign Scan
+   Output: (uniq_exact(a))
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT uniqExact(a) FROM regression.t1
+(4 rows)
+
+SELECT uniq_exact(a) FROM t1;
+ uniq_exact 
+------------
+          2
+(1 row)
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Foreign Scan
+   Output: (uniq_exact(a) FILTER (WHERE (b > 1)))
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT uniqExactIf(a,(((b > 1)) > 0)) FROM regression.t1
+(4 rows)
+
+SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
+ uniq_exact 
+------------
+          1
+(1 row)
+
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
