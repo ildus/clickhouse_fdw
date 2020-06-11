@@ -1,7 +1,10 @@
 version: '2'
 services:
-    clickhouse:
-        image: yandex/clickhouse-server
-        ports:
-            - "8123:8123"
-            - "9000:9000"
+  clickhouse:
+    image: yandex/clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./docker/clickhouse-config.xml:/etc/clickhouse-server/config.xml
+      - ./docker/clickhouse-users.xml:/etc/clickhouse-server/users.xml
