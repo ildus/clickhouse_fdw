@@ -1,5 +1,5 @@
 #include <iostream>
-#include <endian.h>
+#include <machine/endian.h>
 #include <cassert>
 #include <stdexcept>
 
@@ -29,6 +29,21 @@ extern "C" {
 #include "clickhouse_internal.h"
 
 using namespace clickhouse;
+
+#if defined( __APPLE__) // Byte ordering on OS X
+
+    #include <libkern/OSByteOrder.h>
+    #define HOST_TO_BIG_ENDIAN_64(x) OSSwapHostToBigInt64(x)
+
+#elif BYTE_ORDER == BIG_ENDIAN
+#define HOST_TO_BIG_ENDIAN_32(x) (x)
+
+#else 
+
+#include <endian.h>
+#define HOST_TO_BIG_ENDIAN_64(x) htobe64(x)
+
+#endif
 
 
 /* palloc which will throw exceptions */
@@ -774,8 +789,8 @@ nested:
 			UInt128 val = col->As<ColumnUUID>()->At(row);
 			pg_uuid_t	*uuid_val = (pg_uuid_t *) exc_palloc(sizeof(pg_uuid_t));
 
-			val.first = htobe64(val.first);
-			val.second = htobe64(val.second);
+			val.first = HOST_TO_BIG_ENDIAN_64(val.first);
+			val.second = HOST_TO_BIG_ENDIAN_64(val.second);
 			memcpy(uuid_val->data, &val.first, 8);
 			memcpy(uuid_val->data + 8, &val.second, 8);
 
