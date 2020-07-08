@@ -117,23 +117,21 @@ INSERT INTO ftcopy VALUES
 EXPLAIN (VERBOSE) SELECT * FROM ftcopy ORDER BY c1;
 SELECT * FROM ftcopy ORDER BY c1;
 
-\set VERBOSITY terse
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 
 ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 
-SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1;  -- should fail
 
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
 
-SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should fail
+SELECT c3, c4 FROM ft1 ORDER BY c3, c1;  -- should fail
 
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);
 
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work again
 
-\set VERBOSITY default
 ANALYZE ft1;
 
 EXPLAIN (COSTS OFF) SELECT * FROM ft1 ORDER BY c3, c1 OFFSET 100 LIMIT 10;
