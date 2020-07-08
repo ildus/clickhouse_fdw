@@ -226,16 +226,13 @@ SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
 (1 row)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_trunc('day'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_trunc('day'::text, timezone('UTC'::text, t1.c)))
-   ->  Foreign Scan
-         Output: (date_trunc('day'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t1)
-         Remote SQL: SELECT toStartOfDay(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toStartOfDay(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT toStartOfDay(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toStartOfDay(toTimeZone(c, 'UTC'))) ORDER BY toStartOfDay(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
            d1           
@@ -245,16 +242,13 @@ SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER B
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_trunc('day'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_trunc('day'::text, timezone('UTC'::text, t2.c)))
-   ->  Foreign Scan
-         Output: (date_trunc('day'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t2)
-         Remote SQL: SELECT toStartOfDay(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toStartOfDay(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT toStartOfDay(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toStartOfDay(toTimeZone(c, 'UTC'))) ORDER BY toStartOfDay(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
          d1          
@@ -264,16 +258,13 @@ SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER B
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_part('day'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_part('day'::text, timezone('UTC'::text, t1.c)))
-   ->  Foreign Scan
-         Output: (date_part('day'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t1)
-         Remote SQL: SELECT toDayOfMonth(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfMonth(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT toDayOfMonth(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfMonth(toTimeZone(c, 'UTC'))) ORDER BY toDayOfMonth(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
  d1 
@@ -283,16 +274,13 @@ SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER 
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_part('day'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_part('day'::text, timezone('UTC'::text, t2.c)))
-   ->  Foreign Scan
-         Output: (date_part('day'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t2)
-         Remote SQL: SELECT toDayOfMonth(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfMonth(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT toDayOfMonth(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfMonth(toTimeZone(c, 'UTC'))) ORDER BY toDayOfMonth(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
@@ -302,16 +290,13 @@ SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER 
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_part('doy'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_part('doy'::text, timezone('UTC'::text, t2.c)))
-   ->  Foreign Scan
-         Output: (date_part('doy'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t2)
-         Remote SQL: SELECT toDayOfYear(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfYear(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT toDayOfYear(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfYear(toTimeZone(c, 'UTC'))) ORDER BY toDayOfYear(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
@@ -321,16 +306,13 @@ SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER 
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_part('dow'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_part('dow'::text, timezone('UTC'::text, t2.c)))
-   ->  Foreign Scan
-         Output: (date_part('dow'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t2)
-         Remote SQL: SELECT toDayOfWeek(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfWeek(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT toDayOfWeek(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfWeek(toTimeZone(c, 'UTC'))) ORDER BY toDayOfWeek(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
@@ -340,16 +322,13 @@ SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER 
 (2 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-                                                       QUERY PLAN                                                       
-------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_part('minute'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_part('minute'::text, timezone('UTC'::text, t2.c)))
-   ->  Foreign Scan
-         Output: (date_part('minute'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t2)
-         Remote SQL: SELECT toMinute(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toMinute(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT toMinute(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toMinute(toTimeZone(c, 'UTC'))) ORDER BY toMinute(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
@@ -358,16 +337,13 @@ SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORD
 (1 row)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: (date_part('epoch'::text, timezone('UTC'::text, c)))
-   Sort Key: (date_part('epoch'::text, timezone('UTC'::text, t2.c)))
-   ->  Foreign Scan
-         Output: (date_part('epoch'::text, timezone('UTC'::text, c)))
-         Relations: Aggregate on (t2)
-         Remote SQL: SELECT toUnixTimestamp(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toUnixTimestamp(toTimeZone(c, 'UTC')))
-(7 rows)
+   Relations: Aggregate on (t2)
+   Remote SQL: SELECT toUnixTimestamp(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toUnixTimestamp(toTimeZone(c, 'UTC'))) ORDER BY toUnixTimestamp(toTimeZone(c, 'UTC')) ASC
+(4 rows)
 
 SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
      d1     
@@ -379,29 +355,23 @@ SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDE
 --- check dictGet
 -- dictGet is broken for now
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(a, ('key'::text || (a)::text)))), (sum(b))
-   Sort Key: t3.a
-   ->  Foreign Scan
-         Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(a, ('key'::text || (a)::text)))), (sum(b))
-         Relations: Aggregate on (t3)
-         Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))))
-(7 rows)
+   Relations: Aggregate on (t3)
+   Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (a,('key' || CAST(a AS String))))) ORDER BY a ASC
+(4 rows)
 
 -- SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
    Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(1, ('key'::text || (a)::text)))), (sum(b))
-   Sort Key: t3.a
-   ->  Foreign Scan
-         Output: a, (dictget('regression.t3_dict'::text, 'val'::text, ROW(1, ('key'::text || (a)::text)))), (sum(b))
-         Relations: Aggregate on (t3)
-         Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))))
-(7 rows)
+   Relations: Aggregate on (t3)
+   Remote SQL: SELECT a, dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String)))), sum(b) FROM regression.t3 GROUP BY a, (dictGet('regression.t3_dict', 'val', (cast(1 as Int32),('key' || CAST(a AS String))))) ORDER BY a ASC
+(4 rows)
 
 -- SELECT a, dictGet('regression.t3_dict', 'val', (1, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
