@@ -136,7 +136,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
  
 (1 row)
 
-IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
 NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
 \d+ clickhouse.ints;
                                          Foreign table "clickhouse.ints"
@@ -233,7 +233,7 @@ SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
   1 | (1,'1',2) | {1,1,1} | {1,2,2} |  1
 (2 rows)
 
-IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
 \d+ clickhouse_bin.ints;
                                        Foreign table "clickhouse_bin.ints"
@@ -330,7 +330,7 @@ SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
   1 | (1,1,2) | {1,1,1} | {1,2,2} |  1
 (2 rows)
 
-IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
+IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 \d+ clickhouse_limit.ints;
                                       Foreign table "clickhouse_limit.ints"
  Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
@@ -366,7 +366,7 @@ FDW options: (table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse_limit.arrays;
 \d+ clickhouse_limit.tuples;
-IMPORT FOREIGN SCHEMA "<does not matter>" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
+IMPORT FOREIGN SCHEMA "regression" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
 NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
 \d+ clickhouse_except.ints;
 \d+ clickhouse_except.types;

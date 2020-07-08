@@ -137,7 +137,7 @@ Now create user mapping and foreign tables:
 
     CREATE USER MAPPING FOR CURRENT_USER SERVER clickhouse_svr
 		OPTIONS (user 'default', password '');
-	IMPORT FOREIGN SCHEMA "kk" FROM SERVER clickhouse_svr INTO public;
+	IMPORT FOREIGN SCHEMA "default" FROM SERVER clickhouse_svr INTO public;
 
 	SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
         bbl     | tbea  |  bav   |   insertion_date

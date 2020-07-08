@@ -35,7 +35,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 
-IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO public;
 
 /* ints */
 INSERT INTO ints

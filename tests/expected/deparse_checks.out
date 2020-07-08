@@ -29,7 +29,7 @@ SELECT clickhousedb_raw_query('
  
 (1 row)
 
-IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO public;
 \d+ t1
                                         Foreign table "public.t1"
  Column |   Type   | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 

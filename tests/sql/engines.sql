@@ -48,7 +48,7 @@ SELECT clickhousedb_raw_query('
 	engine = AggregatingMergeTree()
 	order by a');
 
-IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO public;
 
 \d+ t1
 \d+ t1_aggr

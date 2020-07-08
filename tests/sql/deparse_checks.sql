@@ -12,7 +12,7 @@ SELECT clickhousedb_raw_query('
 SELECT clickhousedb_raw_query('
 	insert into regression.t1 select number % 10, number % 10 > 5 from numbers(1, 100);');
 
-IMPORT FOREIGN SCHEMA "a" FROM SERVER loopback INTO public;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO public;
 \d+ t1
 ALTER TABLE t1 ALTER COLUMN b SET DATA TYPE bool;
 

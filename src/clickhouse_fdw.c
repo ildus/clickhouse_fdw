@@ -268,7 +268,6 @@ static bool foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
                                 Node *havingQual);
 static List *get_useful_pathkeys_for_relation(PlannerInfo *root,
         RelOptInfo *rel);
-static List *get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel);
 static void add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
         Path *epq_path);
 static void add_foreign_grouping_paths(PlannerInfo *root,
@@ -435,113 +434,6 @@ clickhouseGetForeignRelSize(PlannerInfo *root,
 }
 
 /*
- * get_useful_ecs_for_relation
- *		Determine which EquivalenceClasses might be involved in useful
- *		orderings of this relation.
- *
- * This function is in some respects a mirror image of the core function
- * pathkeys_useful_for_merging: for a regular table, we know what indexes
- * we have and want to test whether any of them are useful.  For a foreign
- * table, we don't know what indexes are present on the remote side but
- * want to speculate about which ones we'd like to use if they existed.
- *
- * This function returns a list of potentially-useful equivalence classes,
- * but it does not guarantee that an EquivalenceMember exists which contains
- * Vars only from the given relation.  For example, given ft1 JOIN t1 ON
- * ft1.x + t1.x = 0, this function will say that the equivalence class
- * containing ft1.x + t1.x is potentially useful.  Supposing ft1 is remote and
- * t1 is local (or on a different server), it will turn out that no useful
- * ORDER BY clause can be generated.  It's not our job to figure that out
- * here; we're only interested in identifying relevant ECs.
- */
-static List *
-get_useful_ecs_for_relation(PlannerInfo *root, RelOptInfo *rel)
-{
-	List	   *useful_eclass_list = NIL;
-	ListCell   *lc;
-	Relids		relids;
-
-	/*
-	 * First, consider whether any active EC is potentially useful for a merge
-	 * join against this relation.
-	 */
-	if (rel->has_eclass_joins)
-	{
-		foreach(lc, root->eq_classes)
-		{
-			EquivalenceClass *cur_ec = (EquivalenceClass *) lfirst(lc);
-
-			if (eclass_useful_for_merging(root, cur_ec, rel))
-				useful_eclass_list = lappend(useful_eclass_list, cur_ec);
-		}
-	}
-
-	/*
-	 * Next, consider whether there are any non-EC derivable join clauses that
-	 * are merge-joinable.  If the joininfo list is empty, we can exit
-	 * quickly.
-	 */
-	if (rel->joininfo == NIL)
-		return useful_eclass_list;
-
-	/* If this is a child rel, we must use the topmost parent rel to search. */
-	if (IS_OTHER_REL(rel))
-	{
-		Assert(!bms_is_empty(rel->top_parent_relids));
-		relids = rel->top_parent_relids;
-	}
-	else
-		relids = rel->relids;
-
-	/* Check each join clause in turn. */
-	foreach(lc, rel->joininfo)
-	{
-		RestrictInfo *restrictinfo = (RestrictInfo *) lfirst(lc);
-
-		/* Consider only mergejoinable clauses */
-		if (restrictinfo->mergeopfamilies == NIL)
-			continue;
-
-		/* Make sure we've got canonical ECs. */
-		update_mergeclause_eclasses(root, restrictinfo);
-
-		/*
-		 * restrictinfo->mergeopfamilies != NIL is sufficient to guarantee
-		 * that left_ec and right_ec will be initialized, per comments in
-		 * distribute_qual_to_rels.
-		 *
-		 * We want to identify which side of this merge-joinable clause
-		 * contains columns from the relation produced by this RelOptInfo. We
-		 * test for overlap, not containment, because there could be extra
-		 * relations on either side.  For example, suppose we've got something
-		 * like ((A JOIN B ON A.x = B.x) JOIN C ON A.y = C.y) LEFT JOIN D ON
-		 * A.y = D.y.  The input rel might be the joinrel between A and B, and
-		 * we'll consider the join clause A.y = D.y. relids contains a
-		 * relation not involved in the join class (B) and the equivalence
-		 * class for the left-hand side of the clause contains a relation not
-		 * involved in the input rel (C).  Despite the fact that we have only
-		 * overlap and not containment in either direction, A.y is potentially
-		 * useful as a sort column.
-		 *
-		 * Note that it's even possible that relids overlaps neither side of
-		 * the join clause.  For example, consider A LEFT JOIN B ON A.x = B.x
-		 * AND A.x = 1.  The clause A.x = 1 will appear in B's joininfo list,
-		 * but overlaps neither side of B.  In that case, we just skip this
-		 * join clause, since it doesn't suggest a useful sort order for this
-		 * relation.
-		 */
-		if (bms_overlap(relids, restrictinfo->right_ec->ec_relids))
-			useful_eclass_list = list_append_unique_ptr(useful_eclass_list,
-														restrictinfo->right_ec);
-		else if (bms_overlap(relids, restrictinfo->left_ec->ec_relids))
-			useful_eclass_list = list_append_unique_ptr(useful_eclass_list,
-														restrictinfo->left_ec);
-	}
-
-	return useful_eclass_list;
-}
-
-/*
  * get_useful_pathkeys_for_relation
  *		Determine which orderings of a relation might be useful.
  *
@@ -598,60 +490,6 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 			useful_pathkeys_list = list_make1(list_copy(root->query_pathkeys));
 			fpinfo->qp_is_pushdown_safe = true;
 		}
-	}
-
-	/*
-	 * Even if we're not using remote estimates, having the remote side do the
-	 * sort generally won't be any worse than doing it locally, and it might
-	 * be much better if the remote side can generate data in the right order
-	 * without needing a sort at all.  However, what we're going to do next is
-	 * try to generate pathkeys that seem promising for possible merge joins,
-	 * and that's more speculative.  A wrong choice might hurt quite a bit, so
-	 * bail out if we can't use remote estimates.
-	 */
-	if (!fpinfo->use_remote_estimate)
-		return useful_pathkeys_list;
-
-	/* Get the list of interesting EquivalenceClasses. */
-	useful_eclass_list = get_useful_ecs_for_relation(root, rel);
-
-	/* Extract unique EC for query, if any, so we don't consider it again. */
-	if (list_length(root->query_pathkeys) == 1)
-	{
-		PathKey    *query_pathkey = linitial(root->query_pathkeys);
-
-		query_ec = query_pathkey->pk_eclass;
-	}
-
-	/*
-	 * As a heuristic, the only pathkeys we consider here are those of length
-	 * one.  It's surely possible to consider more, but since each one we
-	 * choose to consider will generate a round-trip to the remote side, we
-	 * need to be a bit cautious here.  It would sure be nice to have a local
-	 * cache of information about remote index definitions...
-	 */
-	foreach(lc, useful_eclass_list)
-	{
-		EquivalenceClass *cur_ec = lfirst(lc);
-		Expr	   *em_expr;
-		PathKey    *pathkey;
-
-		/* If redundant with what we did above, skip it. */
-		if (cur_ec == query_ec)
-			continue;
-
-		/* If no pushable expression for this rel, skip it. */
-		em_expr = chfdw_find_em_expr_for_rel(cur_ec, rel);
-		if (em_expr == NULL || !chfdw_is_foreign_expr(root, rel, em_expr))
-			continue;
-
-		/* Looks like we can generate a pathkey, so let's do it. */
-		pathkey = make_canonical_pathkey(root, cur_ec,
-										 linitial_oid(cur_ec->ec_opfamilies),
-										 BTLessStrategyNumber,
-										 false);
-		useful_pathkeys_list = lappend(useful_pathkeys_list,
-									   list_make1(pathkey));
 	}
 
 	return useful_pathkeys_list;
@@ -2722,7 +2560,7 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	 * No work if there is no FOR UPDATE/SHARE clause and if there is no need
 	 * to add a LIMIT node
 	 */
-	if (!parse->rowMarks && !extra->limit_needed)
+	if (!extra->limit_needed)
 		return;
 
 	/* We don't support cases where there are any SRFs in the targetlist */
@@ -2740,80 +2578,6 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	fpinfo->server = ifpinfo->server;
 	fpinfo->user = ifpinfo->user;
 	merge_fdw_options(fpinfo, ifpinfo, NULL);
-
-	/*
-	 * If there is no need to add a LIMIT node, there might be a ForeignPath
-	 * in the input_rel's pathlist that implements all behavior of the query.
-	 * Note: we would already have accounted for the query's FOR UPDATE/SHARE
-	 * (if any) before we get here.
-	 */
-	if (!extra->limit_needed)
-	{
-		ListCell   *lc;
-
-		Assert(parse->rowMarks);
-
-		/*
-		 * Grouping and aggregation are not supported with FOR UPDATE/SHARE,
-		 * so the input_rel should be a base, join, or ordered relation; and
-		 * if it's an ordered relation, its input relation should be a base or
-		 * join relation.
-		 */
-		Assert(input_rel->reloptkind == RELOPT_BASEREL ||
-			   input_rel->reloptkind == RELOPT_JOINREL ||
-			   (input_rel->reloptkind == RELOPT_UPPER_REL &&
-				ifpinfo->stage == UPPERREL_ORDERED &&
-				(ifpinfo->outerrel->reloptkind == RELOPT_BASEREL ||
-				 ifpinfo->outerrel->reloptkind == RELOPT_JOINREL)));
-
-		foreach(lc, input_rel->pathlist)
-		{
-			Path	   *path = (Path *) lfirst(lc);
-
-			/*
-			 * apply_scanjoin_target_to_paths() uses create_projection_path()
-			 * to adjust each of its input paths if needed, whereas
-			 * create_ordered_paths() uses apply_projection_to_path() to do
-			 * that.  So the former might have put a ProjectionPath on top of
-			 * the ForeignPath; look through ProjectionPath and see if the
-			 * path underneath it is ForeignPath.
-			 */
-			if (IsA(path, ForeignPath) ||
-				(IsA(path, ProjectionPath) &&
-				 IsA(((ProjectionPath *) path)->subpath, ForeignPath)))
-			{
-				/*
-				 * Create foreign final path; this gets rid of a
-				 * no-longer-needed outer plan (if any), which makes the
-				 * EXPLAIN output look cleaner
-				 */
-				final_path = create_foreign_upper_path(root,
-													   path->parent,
-													   path->pathtarget,
-													   path->rows,
-													   path->startup_cost,
-													   path->total_cost,
-													   path->pathkeys,
-													   NULL,	/* no extra plan */
-													   NULL);	/* no fdw_private */
-
-				/* and add it to the final_rel */
-				add_path(final_rel, (Path *) final_path);
-
-				/* Safe to push down */
-				fpinfo->pushdown_safe = true;
-
-				return;
-			}
-		}
-
-		/*
-		 * If we get here it means no ForeignPaths; since we would already
-		 * have considered pushing down all operations for the query to the
-		 * remote server, give up on it.
-		 */
-		return;
-	}
 
 	Assert(extra->limit_needed);
 
@@ -2876,25 +2640,8 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	fpextra->limit_tuples = extra->limit_tuples;
 	fpextra->count_est = extra->count_est;
 	fpextra->offset_est = extra->offset_est;
-
-	/*
-	 * Estimate the costs of performing the final sort and the LIMIT
-	 * restriction remotely.  If has_final_sort is false, we wouldn't need to
-	 * execute EXPLAIN anymore if use_remote_estimate, since the costs can be
-	 * roughly estimated using the costs we already have for the underlying
-	 * relation, in the same way as when use_remote_estimate is false.  Since
-	 * it's pretty expensive to execute EXPLAIN, force use_remote_estimate to
-	 * false in that case.
-	 */
-	if (!fpextra->has_final_sort)
-	{
-		save_use_remote_estimate = ifpinfo->use_remote_estimate;
-		ifpinfo->use_remote_estimate = false;
-	}
-	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost, 0.1);
-
-	if (!fpextra->has_final_sort)
-		ifpinfo->use_remote_estimate = save_use_remote_estimate;
+	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost, 0);
+	ifpinfo->use_remote_estimate = false;
 
 	/*
 	 * Build the fdw_private list that will be used by postgresGetForeignPlan.

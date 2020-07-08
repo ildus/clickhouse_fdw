@@ -850,15 +850,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				   *datts = NIL;
 	char		  **row_values;
 
-	/* default settings */
-	ch_connection_details	details = {"127.0.0.1", 8123, NULL, NULL, "default"};
-
-	details.dbname = "default";
-	chfdw_extract_options(server->options, &driver, &details.host,
-		&details.port, &details.dbname, &details.username, &details.password);
-
 	query = psprintf("select name, engine, engine_full "
-			"from system.tables where database='%s' and name not like '.inner.%%'", details.dbname);
+			"from system.tables where database='%s' and name not like '.inner.%%'", stmt->remote_schema);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
 	datts = list_make2_int(1,2);
@@ -898,7 +891,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "CREATE FOREIGN TABLE %s.%s (\n",
 			stmt->local_schema, table_name);
-		query = psprintf("select name, type from system.columns where database='%s' and table='%s'", details.dbname, table_name);
+		query = psprintf("select name, type from system.columns where database='%s' and table='%s'", stmt->remote_schema, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);
 
 		while ((dvalues = (char **) conn.methods->fetch_row(table_def,

@@ -83,7 +83,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 
-IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback INTO clickhouse;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
 
 \d+ clickhouse.ints;
 \d+ clickhouse.types;
@@ -96,7 +96,7 @@ SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
 
-IMPORT FOREIGN SCHEMA "<does not matter>" FROM SERVER loopback_bin INTO clickhouse_bin;
+IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 
 \d+ clickhouse_bin.ints;
 \d+ clickhouse_bin.types;
@@ -109,14 +109,14 @@ SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
 
-IMPORT FOREIGN SCHEMA "<does not matter>" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
+IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 
 \d+ clickhouse_limit.ints;
 \d+ clickhouse_limit.types;
 \d+ clickhouse_limit.arrays;
 \d+ clickhouse_limit.tuples;
 
-IMPORT FOREIGN SCHEMA "<does not matter>" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
+IMPORT FOREIGN SCHEMA "regression" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
 
 \d+ clickhouse_except.ints;
 \d+ clickhouse_except.types;
