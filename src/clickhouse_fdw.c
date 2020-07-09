@@ -2539,11 +2539,6 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	List	   *pathkeys = NIL;
 	ChFdwPathExtraData *fpextra;
 	bool		save_use_remote_estimate = false;
-	double		rows;
-	int			width;
-
-	Cost		startup_cost;
-	Cost		total_cost;
 	List	   *fdw_private;
 	ForeignPath *final_path;
 
@@ -2640,7 +2635,6 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	fpextra->limit_tuples = extra->limit_tuples;
 	fpextra->count_est = extra->count_est;
 	fpextra->offset_est = extra->offset_est;
-	estimate_path_cost_size(&rows, &width, &startup_cost, &total_cost, 0);
 	ifpinfo->use_remote_estimate = false;
 
 	/*
@@ -2657,9 +2651,9 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	final_path = create_foreign_upper_path(root,
 										   input_rel,
 										   root->upper_targets[UPPERREL_FINAL],
-										   rows,
-										   startup_cost,
-										   total_cost,
+										   1,
+										   0,
+										   -10,
 										   pathkeys,
 										   NULL,	/* no extra plan */
 										   fdw_private);
