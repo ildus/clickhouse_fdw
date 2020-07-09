@@ -3,28 +3,7 @@
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
 
-Originally forked from: https://github.com/Percona-Lab/clickhousedb_fdw. Differences:
-
-* remove ODBC, use HTTP or binary protocols
-* fix JOINS
-* push down `CASE WHEN`
-* support `coalesce`, `date_trunc` and other specific functions
-* support query cancelation
-* use `cmake` for Makefile generation (for out for source builds and proper dependency checks)
-* support arrays and `ANY`, `ALL` functions
-* support CollapsingMergeTree engine (with `sign` column) in aggregations
-* support AggregatingMergeTree engine (add `Merge` prefix)
-* add infrastructure for adding custom behaviours in the code (for custom types)
-* code cleanup
-* many other improvements
-
-The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for one
-of the fastest column store databases; "Clickhouse". This FDW allows you to
-SELECT from, and INSERT into, a ClickHouse database from within a PostgreSQL v11 server.
-
-The FDW supports advanced features like aggregate pushdown and joins pushdown.
-These significantly improve performance by utilizing the remote server’s resources
-for these resource intensive operations.
+The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for `ClickHouse` column oriented database.
 
 Supported PostgreSQL Versions
 ------------------------------
@@ -159,53 +138,6 @@ Now create user mapping and foreign tables:
              Output: bbl, tbea, bav, insertion_date
              Remote SQL: SELECT bbl, tbea, bav, insertion_date FROM test_database.tax_bills_nyc
     (5 rows)
-
-Aggregate Pushdown.
--------------------
-
-Aggregate pushdown is a new feature of PostgreSQL FDW. There are currently very
-few foreign data wrappers that support aggregate pushdown: `clickhouse_fdw` is one of them.
-Planner decides which aggregate to pushdown or not. Here is an example for both cases.
-
-    postgres=# EXPLAIN VERBOSE SELECT count(bbl) FROM tax_bills_nyc LIMIT 5;
-                                    QUERY PLAN                                                                
-    ---------------------------------------------------------------------------
-    Limit  (cost=0.00..0.01 rows=1 width=8)
-    Output: (count(bbl))
-    ->  Aggregate  (cost=0.00..0.01 rows=1 width=8)
-             Output: count(bbl)
-             ->  Foreign Scan on public.tax_bills_nyc  (cost=0.00..0.00 rows=0 width=8)
-                Output: bbl, owner_name, address, tax_class, tax_rate, emv, tbea, bav, tba, property_tax, condonumber, condo, insertion_date
-                   Remote SQL: SELECT bbl FROM test_database.tax_bills_nyc
-    (7 rows)
-
-        EXPLAIN VERBOSE SELECT count(bbl) FROM tax_bills_nyc;
-                                QUERY PLAN                            
-    ------------------------------------------------------------------
-    Foreign Scan  (cost=1.00..-1.00 rows=1000 width=8)
-    Output: (count(bbl))
-    Relations: Aggregate on (tax_bills_nyc)
-    Remote SQL: SELECT count(bbl) FROM test_database.tax_bills_nyc
-    (4 rows)
-
-
-
-Join Pushdown
----------------
-
-Join pushdown is also a very new feature of PostgreSQL FDW’s. The `clickhouse_fdw` also supports join pushdown.
-
-    EXPLAIN VERBOSE SELECT t2.bbl, t2.owner_name, t1.bav FROM tax_bills_nyc t1 RIGHT OUTER JOIN tax_bills t2 ON (t1.bbl = t2.bbl);
-                                                                        QUERY PLAN
-
-    -------------------------------------------------------------------------------------------------------------------------------------------------------
-    ----
-    Foreign Scan  (cost=1.00..-1.00 rows=1000 width=50)
-    Output: t2.bbl, t2.owner_name, t1.bav
-    Relations: (tax_bills t2) LEFT JOIN (tax_bills_nyc t1)
-    Remote SQL: SELECT r2.bbl, r2.owner_name, r1.bav FROM  test_database.tax_bills r2 ALL LEFT JOIN test_database.tax_bills_nyc r1 ON (((r1.bbl = r2.bbl
-    )))
-    (4 rows)
 
 AggregatingMergeTree
 --------------------
