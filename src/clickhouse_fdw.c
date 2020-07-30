@@ -2541,15 +2541,13 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	bool		save_use_remote_estimate = false;
 	List	   *fdw_private;
 	ForeignPath *final_path;
-
+	FinalPathExtraData *extra = (FinalPathExtraData *) fextra;
 
 	/*
 	 * Currently, we only support this for SELECT commands
 	 */
 	if (parse->commandType != CMD_SELECT)
 		return;
-
-	FinalPathExtraData *extra = (FinalPathExtraData *) fextra;
 
 	/*
 	 * No work if there is no FOR UPDATE/SHARE clause and if there is no need
