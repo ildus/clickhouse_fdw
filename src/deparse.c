@@ -2352,12 +2352,18 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		char *trunctype = TextDatumGetCString(arg->constvalue);
 		if (strcmp(trunctype, "week") == 0)
 			appendStringInfoString(buf, "toMonday");
+		else if (strcmp(trunctype, "second") == 0)
+			appendStringInfoString(buf, "toStartOfSecond");
+		else if (strcmp(trunctype, "minute") == 0)
+			appendStringInfoString(buf, "toStartOfMinute");
 		else if (strcmp(trunctype, "hour") == 0)
 			appendStringInfoString(buf, "toStartOfHour");
 		else if (strcmp(trunctype, "day") == 0)
 			appendStringInfoString(buf, "toStartOfDay");
 		else if (strcmp(trunctype, "month") == 0)
 			appendStringInfoString(buf, "toStartOfMonth");
+		else if (strcmp(trunctype, "quarter") == 0)
+			appendStringInfoString(buf, "toStartOfQuarter");
 		else if (strcmp(trunctype, "year") == 0)
 			appendStringInfoString(buf, "toStartOfYear");
 		else
