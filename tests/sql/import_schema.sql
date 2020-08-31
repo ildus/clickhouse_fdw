@@ -78,7 +78,7 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
 SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
     c1 Int32,
     c2 DateTime64(6, ''Europe/Moscow''),
-    c3 DateTime64(10, ''Europe/Berlin''),
+    c3 DateTime64(9, ''Europe/Berlin''),
 	c4 DateTime64(6)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
