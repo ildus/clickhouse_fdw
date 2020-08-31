@@ -1,5 +1,4 @@
 #include <iostream>
-#include <machine/endian.h>
 #include <cassert>
 #include <stdexcept>
 
@@ -32,16 +31,14 @@ using namespace clickhouse;
 
 #if defined( __APPLE__) // Byte ordering on OS X
 
+    #include <machine/endian.h>
     #include <libkern/OSByteOrder.h>
     #define HOST_TO_BIG_ENDIAN_64(x) OSSwapHostToBigInt64(x)
 
-#elif BYTE_ORDER == BIG_ENDIAN
-#define HOST_TO_BIG_ENDIAN_32(x) (x)
+#else
 
-#else 
-
-#include <endian.h>
-#define HOST_TO_BIG_ENDIAN_64(x) htobe64(x)
+    #include <endian.h>
+    #define HOST_TO_BIG_ENDIAN_64(x) htobe64(x)
 
 #endif
 

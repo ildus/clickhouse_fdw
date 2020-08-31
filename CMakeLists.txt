@@ -48,7 +48,7 @@ exec_program(${PG_CONFIG} ARGS --libs OUTPUT_VARIABLE PGSQL_LIBS)
 #------------------------------------------------------------------------------
 # tests
 #------------------------------------------------------------------------------
-find_program(PG_REGRESS pg_regress ${PGSQL_PKGLIBDIR}/pgxs/src/test/regress/ REQUIRED)
+find_program(PG_REGRESS NAMES pg_regress PATHS ${PGSQL_PKGLIBDIR}/pgxs/src/test/regress/ REQUIRED)
 LIST(APPEND REGRESS_TESTS
 	http
 	binary
