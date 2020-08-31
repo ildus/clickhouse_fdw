@@ -88,6 +88,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_TIMESTAMPTZ_ZONE:
 			case F_TIMESTAMP_PART:
 			case F_TIMESTAMPTZ_PART:
+			case F_ARRAY_POSITION:
 				break;
 			default:
 				return NULL;
@@ -124,6 +125,11 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 		{
 			entry->cf_type = CF_TIMEZONE;
 			strcpy(entry->custom_name, "toTimeZone");
+			break;
+		}
+		else if (funcid == F_ARRAY_POSITION)
+		{
+			strcpy(entry->custom_name, "indexOf");
 			break;
 		}
 
