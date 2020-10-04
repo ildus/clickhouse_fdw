@@ -850,8 +850,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				   *datts = NIL;
 	char		  **row_values;
 
-	query = psprintf("select name, engine, engine_full "
-			"from system.tables where database='%s' and name not like '.inner.%%'", stmt->remote_schema);
+	query = psprintf("SELECT name, engine, engine_full "
+			"FROM system.tables WHERE database='%s' and name not like '.inner%%'", stmt->remote_schema);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
 	datts = list_make2_int(1,2);
@@ -889,7 +889,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		}
 
 		initStringInfo(&buf);
-		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS %s.%s (\n",
+		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS \"%s\".\"%s\" (\n",
 			stmt->local_schema, table_name);
 		query = psprintf("select name, type from system.columns where database='%s' and table='%s'", stmt->remote_schema, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);
