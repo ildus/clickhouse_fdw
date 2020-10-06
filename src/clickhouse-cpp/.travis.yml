@@ -1,0 +1,54 @@
+# Enable C++ support
+language: cpp
+
+matrix:
+  include:
+    - os: linux
+      dist: trusty
+      sudo: required
+      compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-7
+      env:
+        - MATRIX_EVAL="CC=gcc-7 && CXX=g++-7"
+
+    - os: linux
+      dist: trusty
+      sudo: required
+      compiler: clang
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+            - llvm-toolchain-trusty-6.0
+            - sourceline: 'ppa:ubuntu-toolchain-r/test'
+          packages:
+            - g++-7
+            - llvm-6.0
+            - clang-6.0
+            - libstdc++6
+      env:
+        - MATRIX_EVAL="CC=clang-6.0 && CXX=clang++-6.0"
+
+    - os: osx
+      osx_image: xcode9.4
+      compiler: clang
+
+before_install:
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then echo 'deb http://repo.yandex.ru/clickhouse/deb/stable main/' | sudo tee /etc/apt/sources.list.d/clickhouse.list ; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo apt-key adv --keyserver keyserver.ubuntu.com --recv E0C56BD4 ; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo apt-get update -q && sudo apt-get install -q -y --allow-unauthenticated clickhouse-server-common ; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo service clickhouse-server start ; fi
+
+# Build steps
+script:
+  - eval "${MATRIX_EVAL}"
+  - mkdir build
+  - cd build
+  - cmake .. -DBUILD_TESTS=ON && make
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ./ut/clickhouse-cpp-ut ; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ./ut/clickhouse-cpp-ut --gtest_filter=-"Client/*:*Performance*" ; fi
