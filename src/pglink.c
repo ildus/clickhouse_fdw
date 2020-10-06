@@ -731,8 +731,7 @@ binary_insert_tuple(void *istate, TupleTableSlot *slot)
 	}
 }
 
-#define STR_TYPES_COUNT 17
-static char *str_types_map[STR_TYPES_COUNT][2] = {
+static char *str_types_map[][2] = {
 	{"Int8", "INT2"},
 	{"UInt8", "INT2"},
 	{"Int16", "INT2"},
@@ -748,7 +747,8 @@ static char *str_types_map[STR_TYPES_COUNT][2] = {
 	{"String", "TEXT"},
 	{"DateTime", "TIMESTAMP"},
 	{"Date", "DATE"}, // important that this one is after other Date types
-	{"UUID", "UUID"}
+	{"UUID", "UUID"},
+	{NULL, NULL},
 };
 
 static char *
@@ -784,6 +784,8 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 		else if (strncmp(typepart, "Enum16", strlen("Enum16")) == 0)
 			return "TEXT";
 		else if (strncmp(typepart, "DateTime64", strlen("DateTime64")) == 0)
+			return "TIMESTAMP";
+		else if (strncmp(typepart, "DateTime", strlen("DateTime")) == 0)
 			return "TIMESTAMP";
 		else if (strncmp(typepart, "Tuple", strlen("Tuple")) == 0)
 		{
@@ -828,10 +830,12 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 		typepart = pos + 1;
 	}
 
-	for (size_t i = 0; i < STR_TYPES_COUNT; i++)
+	size_t i = 0;
+	while (str_types_map[i] != NULL)
 	{
 		if (strncmp(str_types_map[i][0], typepart, strlen(str_types_map[i][0])) == 0)
 			return pstrdup(str_types_map[i][1]);
+		i++;
 	}
 
 	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s>", typepart)));
