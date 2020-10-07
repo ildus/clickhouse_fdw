@@ -1,6 +1,7 @@
 #include "types.h"
 
 #include <assert.h>
+#include <stdexcept>
 
 namespace clickhouse {
 

@@ -88,7 +88,11 @@ void ColumnArray::Swap(Column& other) {
 }
 
 void ColumnArray::OffsetsIncrease(size_t n) {
-    offsets_->Append(n);
+    if (offsets_->Size() == 0) {
+        offsets_->Append(n);
+    } else {
+        offsets_->Append((*offsets_)[offsets_->Size() - 1] + n);
+    }
 }
 
 size_t ColumnArray::GetOffset(size_t n) const {

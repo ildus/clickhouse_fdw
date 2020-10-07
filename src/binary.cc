@@ -7,6 +7,10 @@
 #include <clickhouse/client.h>
 #include <clickhouse/types/types.h>
 
+#if __cplusplus > 199711L
+#define register      // Deprecated in C++11.
+#endif  // #if __cplusplus > 199711L
+
 extern "C" {
 
 #include "postgres.h"
@@ -507,7 +511,7 @@ column_append(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 				{
 					auto arrcol = col->As<ColumnArray>();
 
-					arrcol->AppendOffset(arr->len);
+					arrcol->OffsetsIncrease(arr->len);
 					for (size_t i = 0; i < arr->len; i++)
 						column_append(arrcol->Nested(), arr->datums[i],
 								arr->item_type, arr->nulls[i]);
@@ -724,29 +728,29 @@ nested:
 		break;
 		case Type::Code::FixedString:
 		{
-			const char *str = col->As<ColumnFixedString>()->At(row).c_str();
-			ret = CStringGetTextDatum(str);
+            auto s = std::string(col->As<ColumnFixedString>()->At(row));
+			ret = CStringGetTextDatum(s.c_str());
 			*valtype = TEXTOID;
 		}
 		break;
 		case Type::Code::String:
 		{
-			const char *str = col->As<ColumnString>()->At(row).c_str();
-			ret = CStringGetTextDatum(str);
+			auto s = std::string(col->As<ColumnString>()->At(row));
+			ret = CStringGetTextDatum(s.c_str());
 			*valtype = TEXTOID;
 		}
 		break;
 		case Type::Code::Enum8:
 		{
-			const char *str = col->As<ColumnEnum8>()->NameAt(row).c_str();
-			ret = CStringGetTextDatum(str);
+			auto s = std::string(col->As<ColumnEnum8>()->NameAt(row));
+			ret = CStringGetTextDatum(s.c_str());
 			*valtype = TEXTOID;
 		}
 		break;
 		case Type::Code::Enum16:
 		{
-			const char *str = col->As<ColumnEnum16>()->NameAt(row).c_str();
-			ret = CStringGetTextDatum(str);
+			auto s = std::string(col->As<ColumnEnum16>()->NameAt(row));
+			ret = CStringGetTextDatum(s.c_str());
 			*valtype = TEXTOID;
 		}
 		break;

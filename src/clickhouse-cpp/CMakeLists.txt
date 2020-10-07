@@ -5,6 +5,7 @@ INCLUDE (cmake/subdirs.cmake)
 
 OPTION(BUILD_BENCHMARK "Build benchmark" OFF)
 OPTION(BUILD_TESTS "Build tests" OFF)
+OPTION(CLICKHOUSE_CPP_ENABLE_INSTALL "Enable installation of the libraries and headers files" ON)
 
 PROJECT (CLICKHOUSE-CLIENT)
 
