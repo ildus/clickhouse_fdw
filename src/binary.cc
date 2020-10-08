@@ -9,8 +9,8 @@
 #include <clickhouse/types/types.h>
 
 #if __cplusplus > 199711L
-#define register      // Deprecated in C++11.
-#endif  // #if __cplusplus > 199711L
+#define register	  // Deprecated in C++11.
+#endif	// #if __cplusplus > 199711L
 
 extern "C" {
 
@@ -36,14 +36,14 @@ using namespace clickhouse;
 
 #if defined( __APPLE__) // Byte ordering on OS X
 
-    #include <machine/endian.h>
-    #include <libkern/OSByteOrder.h>
-    #define HOST_TO_BIG_ENDIAN_64(x) OSSwapHostToBigInt64(x)
+	#include <machine/endian.h>
+	#include <libkern/OSByteOrder.h>
+	#define HOST_TO_BIG_ENDIAN_64(x) OSSwapHostToBigInt64(x)
 
 #else
 
-    #include <endian.h>
-    #define HOST_TO_BIG_ENDIAN_64(x) htobe64(x)
+	#include <endian.h>
+	#define HOST_TO_BIG_ENDIAN_64(x) htobe64(x)
 
 #endif
 
@@ -236,8 +236,8 @@ get_corr_postgres_type(const TypeRef &type)
 		case Type::Code::Enum8:
 		case Type::Code::Enum16:
 		case Type::Code::String: return TEXTOID;
-        case Type::Code::LowCardinality:
-            return get_corr_postgres_type(type->As<LowCardinalityType>()->GetNestedType());
+		case Type::Code::LowCardinality:
+			return get_corr_postgres_type(type->As<LowCardinalityType>()->GetNestedType());
 		case Type::Code::Date: return DATEOID;
 		case Type::Code::DateTime: return TIMESTAMPOID;
 		case Type::Code::DateTime64: return TIMESTAMPOID;
@@ -313,10 +313,10 @@ ch_binary_prepare_insert(void *conn, char *query, ch_binary_insert_state *state)
 				bool error = false;
 				clickhouse::ColumnRef	col = sample_block[i];
 
-                auto chtype = col->Type();
-                if (chtype->GetCode() == Type::LowCardinality) {
-                    chtype = col->As<ColumnLowCardinality>()->GetNestedType();
-                }
+				auto chtype = col->Type();
+				if (chtype->GetCode() == Type::LowCardinality) {
+					chtype = col->As<ColumnLowCardinality>()->GetNestedType();
+				}
 
 				Oid pgtype = get_corr_postgres_type(chtype);
 
@@ -473,12 +473,12 @@ column_append(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 				case Type::Code::Enum16:
 					col->As<ColumnEnum16>()->Append(s);
 					break;
-                case Type::Code::LowCardinality:
-                {
-                    auto item = ItemView{Type::String, std::string_view(s)};
-                    col->As<ColumnLowCardinality>()->Append(item);
-                    break;
-                }
+				case Type::Code::LowCardinality:
+				{
+					auto item = ItemView{Type::String, std::string_view(s)};
+					col->As<ColumnLowCardinality>()->Append(item);
+					break;
+				}
 				default:
 					throw std::runtime_error("unexpected column "
 							"type for TEXT: " + col->Type()->GetName());
@@ -664,7 +664,7 @@ make_datum(clickhouse::ColumnRef col, size_t row, Oid *valtype, bool *is_null)
 	Datum	ret = (Datum) 0;
 
 nested_col:
-    auto type_code = col->Type()->GetCode();
+	auto type_code = col->Type()->GetCode();
 
 	*valtype = InvalidOid;
 	*is_null = false;
@@ -746,7 +746,7 @@ nested_col:
 		break;
 		case Type::Code::FixedString:
 		{
-            auto s = std::string(col->As<ColumnFixedString>()->At(row));
+			auto s = std::string(col->As<ColumnFixedString>()->At(row));
 			ret = CStringGetTextDatum(s.c_str());
 			*valtype = TEXTOID;
 		}
@@ -907,14 +907,14 @@ nested_col:
 			*valtype = RECORDOID;
 		}
 		break;
-        case Type::Code::LowCardinality:
-        {
+		case Type::Code::LowCardinality:
+		{
 			auto item = col->As<ColumnLowCardinality>()->GetItem(row);
-            auto data = item.AsBinaryData();
+			auto data = item.AsBinaryData();
 			ret = PointerGetDatum(cstring_to_text_with_len(data.data(), data.size()));
 			*valtype = TEXTOID;
-        }
-        break;
+		}
+		break;
 		default:
 			throw std::runtime_error("clickhouse_fdw: unsupported type");
 	}
