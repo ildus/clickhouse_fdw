@@ -54,6 +54,9 @@ public:
     /// Appends another LowCardinality column to the end of this one, updating dictionary.
     void Append(ColumnRef /*column*/) override;
 
+    /// Appends one element to the column.
+    void Append(ItemView &item);
+
     /// Loads column data from input stream.
     bool Load(CodedInputStream* input, size_t rows) override;
 
@@ -81,6 +84,7 @@ protected:
     void removeLastIndex();
 
     ColumnRef GetDictionary();
+
     void AppendUnsafe(const ItemView &);
 
 private:

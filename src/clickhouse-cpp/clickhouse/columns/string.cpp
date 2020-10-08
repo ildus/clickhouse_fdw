@@ -31,14 +31,17 @@ ColumnFixedString::ColumnFixedString(size_t n)
 }
 
 void ColumnFixedString::Append(std::string_view str) {
-    if (data_.capacity() < str.size())
+    std::string s{str};
+
+    s.resize(string_size_);
+    if (data_.capacity() < string_size_)
     {
         // round up to the next block size
         const auto new_size = (((data_.size() + string_size_) / DEFAULT_BLOCK_SIZE) + 1) * DEFAULT_BLOCK_SIZE;
         data_.reserve(new_size);
     }
 
-    data_.insert(data_.size(), str);
+    data_.insert(data_.size(), s);
 }
 
 void ColumnFixedString::Clear() {

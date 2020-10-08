@@ -70,6 +70,8 @@ public:
 
     // Validate that value matches type, will throw an exception if validation fails.
     static void ValidateData(Type::Code type, DataType data);
+
+    Type::Code GetType() { return type; };
 };
 
 }

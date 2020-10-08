@@ -189,6 +189,13 @@ void ColumnLowCardinality::Append(ColumnRef col) {
     }
 }
 
+void ColumnLowCardinality::Append(ItemView &item) {
+    if (!(dictionary_column_->Type()->GetCode() == item.GetType()))
+        throw std::runtime_error("Incompatible types");
+
+    AppendUnsafe(item);
+}
+
 namespace {
 
 auto Load(ColumnRef new_dictionary_column, CodedInputStream* input, size_t rows) {

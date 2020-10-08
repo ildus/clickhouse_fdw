@@ -2,6 +2,7 @@
 #include <cassert>
 #include <stdexcept>
 
+#include "clickhouse/columns/lowcardinality.h"
 #include "clickhouse/columns/nullable.h"
 #include "clickhouse/columns/factory.h"
 #include <clickhouse/client.h>
@@ -235,8 +236,11 @@ get_corr_postgres_type(const TypeRef &type)
 		case Type::Code::Enum8:
 		case Type::Code::Enum16:
 		case Type::Code::String: return TEXTOID;
+        case Type::Code::LowCardinality:
+            return get_corr_postgres_type(type->As<LowCardinalityType>()->GetNestedType());
 		case Type::Code::Date: return DATEOID;
 		case Type::Code::DateTime: return TIMESTAMPOID;
+		case Type::Code::DateTime64: return TIMESTAMPOID;
 		case Type::Code::UUID: return UUIDOID;
 		case Type::Code::Array:
 		{
@@ -309,7 +313,13 @@ ch_binary_prepare_insert(void *conn, char *query, ch_binary_insert_state *state)
 				bool error = false;
 				clickhouse::ColumnRef	col = sample_block[i];
 
-				Oid pgtype = get_corr_postgres_type(col->Type());
+                auto chtype = col->Type();
+                if (chtype->GetCode() == Type::LowCardinality) {
+                    chtype = col->As<ColumnLowCardinality>()->GetNestedType();
+                }
+
+				Oid pgtype = get_corr_postgres_type(chtype);
+
 				vec->push_back(clickhouse::CreateColumnByType(col->Type()->GetName()));
 				const char *colname = sample_block.GetColumnName(i).c_str();
 
@@ -463,6 +473,12 @@ column_append(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 				case Type::Code::Enum16:
 					col->As<ColumnEnum16>()->Append(s);
 					break;
+                case Type::Code::LowCardinality:
+                {
+                    auto item = ItemView{Type::String, std::string_view(s)};
+                    col->As<ColumnLowCardinality>()->Append(item);
+                    break;
+                }
 				default:
 					throw std::runtime_error("unexpected column "
 							"type for TEXT: " + col->Type()->GetName());
@@ -647,11 +663,13 @@ make_datum(clickhouse::ColumnRef col, size_t row, Oid *valtype, bool *is_null)
 {
 	Datum	ret = (Datum) 0;
 
-nested:
+nested_col:
+    auto type_code = col->Type()->GetCode();
+
 	*valtype = InvalidOid;
 	*is_null = false;
 
-	switch (col->Type()->GetCode())
+	switch (type_code)
 	{
 		case Type::Code::UInt8:
 		{
@@ -783,6 +801,20 @@ nested:
 			}
 		}
 		break;
+		case Type::Code::DateTime64:
+		{
+			auto val = static_cast<pg_time_t> (col->As<ColumnDateTime64>()->At(row));
+			*valtype = TIMESTAMPOID;
+
+			if (val == 0)
+				*is_null = true;
+			else
+			{
+				Timestamp t = (Timestamp) time_t_to_timestamptz(val);
+				ret = TimestampGetDatum(t);
+			}
+		}
+		break;
 		case Type::Code::UUID:
 		{
 			/* we form char[16] from two uint64 numbers, and they should
@@ -809,7 +841,7 @@ nested:
 			else
 			{
 				col = nullable->Nested();
-				goto nested;
+				goto nested_col;
 			}
 		}
 		break;
@@ -875,6 +907,14 @@ nested:
 			*valtype = RECORDOID;
 		}
 		break;
+        case Type::Code::LowCardinality:
+        {
+			auto item = col->As<ColumnLowCardinality>()->GetItem(row);
+            auto data = item.AsBinaryData();
+			ret = PointerGetDatum(cstring_to_text_with_len(data.data(), data.size()));
+			*valtype = TEXTOID;
+        }
+        break;
 		default:
 			throw std::runtime_error("clickhouse_fdw: unsupported type");
 	}
