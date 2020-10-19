@@ -1,29 +1,27 @@
 #pragma once
 
-#include "column.h"
-#include "numeric.h"
+#include "string.h"
+#include "../base/socket.h"
 
 namespace clickhouse {
 
-using UInt128 = std::pair<uint64_t, uint64_t>;
-
-/**
- * Represents a UUID column.
- */
-class ColumnUUID : public Column {
+class ColumnIPv6 : public Column{
 public:
-    ColumnUUID();
+    ColumnIPv6();
+    explicit ColumnIPv6(ColumnRef data);
 
-    explicit ColumnUUID(ColumnRef data);
+    /// Appends one element to the column.
+    void Append(const std::string& str);
 
-    /// Appends one element to the end of column.
-    void Append(const UInt128& value);
-
-    /// Returns element at given row number.
-    const UInt128 At(size_t n) const;
+    void Append(const in6_addr* addr);
 
     /// Returns element at given row number.
-    const UInt128 operator [] (size_t n) const;
+    in6_addr At(size_t n) const;
+
+    /// Returns element at given row number.
+    in6_addr operator [] (size_t n) const;
+
+    std::string AsString(size_t n) const;
 
 public:
     /// Appends content of given column to the end of current one.
@@ -34,7 +32,7 @@ public:
 
     /// Saves column data to output stream.
     void Save(CodedOutputStream* output) override;
-    
+
     /// Clear column data .
     void Clear() override;
 
@@ -44,11 +42,10 @@ public:
     /// Makes slice of the current column.
     ColumnRef Slice(size_t begin, size_t len) override;
     void Swap(Column& other) override;
-
-    ItemView GetItem(size_t) const override;
+    ItemView GetItem(size_t index) const override;
 
 private:
-    std::shared_ptr<ColumnUInt64> data_;
+    std::shared_ptr<ColumnFixedString> data_;
 };
 
 }

@@ -74,14 +74,25 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
 	toInt16(number)
     FROM numbers(10);');
 
--- datetime64
-SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
-    c1 Int32,
-    c2 DateTime64(6, ''Europe/Moscow''),
-    c3 DateTime64(9, ''Europe/Berlin''),
-	c4 DateTime64(6)
-) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
-');
+-- datetime with timezones
+SELECT clickhousedb_raw_query('CREATE TABLE regression.timezones (
+	t1 DateTime64(6,''UTC''),
+	t2 DateTime64(6,''Europe/Berlin''),
+	t4 DateTime(''Europe/Berlin''),
+	t5 DateTime64(6))
+	ENGINE = MergeTree ORDER BY (t1) SETTINGS index_granularity=8192;');
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.timezones VALUES (
+	''2020-01-01 11:00:00'',
+	''2020-01-01 11:00:00'',
+	''2020-01-01 11:00:00'',
+	''2020-01-01 11:00:00'')');
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.timezones VALUES (
+	''2020-01-01 12:00:00'',
+	''2020-01-01 12:00:00'',
+	''2020-01-01 12:00:00'',
+	''2020-01-01 12:00:00'')');
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
 
@@ -89,12 +100,13 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
 \d+ clickhouse.types;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
-\d+ clickhouse.dt64;
+\d+ clickhouse.timezones;
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse.timezones ORDER BY t1 LIMIT 2;
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 
@@ -102,12 +114,13 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 \d+ clickhouse_bin.types;
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
-\d+ clickhouse_bin.dt64;
+\d+ clickhouse_bin.timezones;
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse_bin.timezones ORDER BY t1 LIMIT 2;
 
 IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 

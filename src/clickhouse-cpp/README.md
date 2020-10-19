@@ -1,4 +1,4 @@
-ClickHouse C++ client [![Build Status](https://travis-ci.org/artpaul/clickhouse-cpp.svg?branch=master)](https://travis-ci.org/artpaul/clickhouse-cpp)
+ClickHouse C++ client [![Build Status](https://travis-ci.org/ClickHouse/clickhouse-cpp.svg?branch=master)](https://travis-ci.org/ClickHouse/clickhouse-cpp)
 =====
 
 C++ client for [Yandex ClickHouse](https://clickhouse.yandex/)
@@ -7,11 +7,12 @@ C++ client for [Yandex ClickHouse](https://clickhouse.yandex/)
 
 * Array(T)
 * Date
-* DateTime
+* DateTime, DateTime64
 * Decimal32, Decimal64, Decimal128
 * Enum8, Enum16
 * FixedString(N)
 * Float32, Float64
+* IPv4, IPv6
 * Nullable(T)
 * String
 * Tuple
@@ -22,7 +23,7 @@ C++ client for [Yandex ClickHouse](https://clickhouse.yandex/)
 ```sh
 $ mkdir build .
 $ cd build
-$ cmake ..
+$ cmake .. [-DBUILD_TESTS=ON]
 $ make
 ```
 

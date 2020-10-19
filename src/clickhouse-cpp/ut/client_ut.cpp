@@ -1,23 +1,85 @@
 #include <clickhouse/client.h>
 #include <contrib/gtest/gtest.h>
 
+#include <cmath>
+
 using namespace clickhouse;
+
+namespace clickhouse {
+std::ostream & operator<<(std::ostream & ostr, const ServerInfo & server_info) {
+    return ostr << server_info.name << "/" << server_info.display_name
+                << " ver "
+                << server_info.version_major << "."
+                << server_info.version_minor << "."
+                << server_info.version_patch
+                << " (" << server_info.revision << ")";
+}
+}
+
+namespace {
+
+uint64_t versionNumber(
+        uint64_t version_major,
+        uint64_t version_minor,
+        uint64_t version_patch = 0,
+        uint64_t revision = 0) {
+
+    // in this case version_major can be up to 1000
+    static auto revision_decimal_places = 8;
+    static auto patch_decimal_places = 4;
+    static auto minor_decimal_places = 4;
+
+    auto const result = version_major * static_cast<uint64_t>(std::pow(10, minor_decimal_places + patch_decimal_places + revision_decimal_places))
+            + version_minor * static_cast<uint64_t>(std::pow(10, patch_decimal_places + revision_decimal_places))
+            + version_patch * static_cast<uint64_t>(std::pow(10, revision_decimal_places))
+            + revision;
+
+    return result;
+}
+
+uint64_t versionNumber(const ServerInfo & server_info) {
+    return versionNumber(server_info.version_major, server_info.version_minor, server_info.version_patch, server_info.revision);
+}
+
+}
 
 // Use value-parameterized tests to run same tests with different client
 // options.
 class ClientCase : public testing::TestWithParam<ClientOptions> {
 protected:
     void SetUp() override {
-        client_ = new Client(GetParam());
+        client_ = std::make_unique<Client>(GetParam());
         client_->Execute("CREATE DATABASE IF NOT EXISTS test_clickhouse_cpp");
     }
 
     void TearDown() override {
-        client_->Execute("DROP DATABASE test_clickhouse_cpp");
-        delete client_;
+        if (client_)
+            client_->Execute("DROP DATABASE test_clickhouse_cpp");
     }
 
-    Client* client_ = nullptr;
+    template <typename T>
+    std::shared_ptr<T> createTableWithOneColumn(Block & block)
+    {
+        auto col = std::make_shared<T>();
+        const auto type_name = col->GetType().GetName();
+
+        client_->Execute("DROP TABLE IF EXISTS " + table_name + ";");
+        client_->Execute("CREATE TABLE IF NOT EXISTS " + table_name + "( " + column_name + " " + type_name + " )"
+                "ENGINE = Memory");
+
+        block.AppendColumn("test_column", col);
+
+        return col;
+    }
+
+    std::string getOneColumnSelectQuery() const
+    {
+        return "SELECT " + column_name + " FROM " + table_name;
+    }
+
+    std::unique_ptr<Client> client_;
+    const std::string table_name = "test_clickhouse_cpp.test_ut_table";
+    const std::string column_name = "test_column";
 };
 
 TEST_P(ClientCase, Array) {
@@ -100,6 +162,78 @@ TEST_P(ClientCase, Date) {
             }
         }
     );
+}
+
+TEST_P(ClientCase, LowCardinality) {
+    Block block;
+    auto lc = createTableWithOneColumn<ColumnLowCardinalityT<ColumnString>>(block);
+
+    const std::vector<std::string> data{{"FooBar", "1", "2", "Foo", "4", "Bar", "Foo", "7", "8", "Foo"}};
+    lc->AppendMany(data);
+
+    block.RefreshRowCount();
+    client_->Insert(table_name, block);
+
+    size_t total_rows = 0;
+    client_->Select(getOneColumnSelectQuery(),
+        [&total_rows, &data](const Block& block) {
+            total_rows += block.GetRowCount();
+            if (block.GetRowCount() == 0) {
+                return;
+            }
+
+            ASSERT_EQ(1U, block.GetColumnCount());
+            if (auto col = block[0]->As<ColumnLowCardinalityT<ColumnString>>()) {
+                ASSERT_EQ(data.size(), col->Size());
+                for (size_t i = 0; i < col->Size(); ++i) {
+                    EXPECT_EQ(data[i], (*col)[i]) << " at index: " << i;
+                }
+            }
+        }
+    );
+
+    ASSERT_EQ(total_rows, data.size());
+}
+
+TEST_P(ClientCase, LowCardinality_InsertAfterClear) {
+    // User can successfully insert values after invoking Clear() on LC column.
+    Block block;
+    auto lc = createTableWithOneColumn<ColumnLowCardinalityT<ColumnString>>(block);
+
+    // Add some data, but don't care about it much.
+    lc->AppendMany(std::vector<std::string_view>{"abc", "def", "123", "abc", "123", "def", "ghi"});
+    EXPECT_GT(lc->Size(), 0u);
+    EXPECT_GT(lc->GetDictionarySize(), 0u);
+
+    lc->Clear();
+
+    // Now ensure that all data appended after Clear() is inserted properly
+    const std::vector<std::string> data{{"FooBar", "1", "2", "Foo", "4", "Bar", "Foo", "7", "8", "Foo"}};
+    lc->AppendMany(data);
+
+    block.RefreshRowCount();
+    client_->Insert(table_name, block);
+
+    // Now validate that data was properly inserted
+    size_t total_rows = 0;
+    client_->Select(getOneColumnSelectQuery(),
+        [&total_rows, &data](const Block& block) {
+            total_rows += block.GetRowCount();
+            if (block.GetRowCount() == 0) {
+                return;
+            }
+
+            ASSERT_EQ(1U, block.GetColumnCount());
+            if (auto col = block[0]->As<ColumnLowCardinalityT<ColumnString>>()) {
+                ASSERT_EQ(data.size(), col->Size());
+                for (size_t i = 0; i < col->Size(); ++i) {
+                    EXPECT_EQ(data[i], (*col)[i]) << " at index: " << i;
+                }
+            }
+        }
+    );
+
+    ASSERT_EQ(total_rows, data.size());
 }
 
 TEST_P(ClientCase, Generic) {
@@ -247,6 +381,40 @@ TEST_P(ClientCase, Numbers) {
     EXPECT_EQ(100000U, num);
 }
 
+TEST_P(ClientCase, SimpleAggregateFunction) {
+    const auto & server_info = client_->GetServerInfo();
+    if (versionNumber(server_info) < versionNumber(19, 9)) {
+        std::cout << "Test is skipped since server '" << server_info << "' does not support SimpleAggregateFunction" << std::endl;
+        return;
+    }
+
+    client_->Execute("DROP TABLE IF EXISTS test_clickhouse_cpp.SimpleAggregateFunction");
+    client_->Execute(
+            "CREATE TABLE IF NOT EXISTS test_clickhouse_cpp.SimpleAggregateFunction (saf SimpleAggregateFunction(sum, UInt64))"
+            "ENGINE = Memory");
+
+    constexpr size_t EXPECTED_ROWS = 10;
+    client_->Execute("INSERT INTO test_clickhouse_cpp.SimpleAggregateFunction (saf) SELECT number FROM system.numbers LIMIT 10");
+
+    size_t total_rows = 0;
+    client_->Select("Select * FROM test_clickhouse_cpp.SimpleAggregateFunction", [&total_rows](const Block & block) {
+        if (block.GetRowCount() == 0)
+            return;
+
+        total_rows += block.GetRowCount();
+        auto col = block[0]->As<ColumnUInt64>();
+        ASSERT_NE(nullptr, col);
+
+        for (size_t r = 0; r < col->Size(); ++r) {
+            EXPECT_EQ(r, col->At(r));
+        }
+
+        EXPECT_EQ(total_rows, col->Size());
+    });
+
+    EXPECT_EQ(EXPECTED_ROWS, total_rows);
+}
+
 TEST_P(ClientCase, Cancellable) {
     /// Create a table.
     client_->Execute(
@@ -376,6 +544,31 @@ TEST_P(ClientCase, Decimal) {
         auto d5 = std::make_shared<ColumnDecimal>(18, 9);
         auto d6 = std::make_shared<ColumnDecimal>(38, 19);
 
+        EXPECT_THROW(
+            d1->Append("1234567890123456789012345678901234567890"),
+            std::runtime_error
+        );
+        EXPECT_THROW(
+            d1->Append("123456789012345678901234567890123456.7890"),
+            std::runtime_error
+        );
+        EXPECT_THROW(
+            d1->Append("-1234567890123456789012345678901234567890"),
+            std::runtime_error
+        );
+        EXPECT_THROW(
+            d1->Append("12345678901234567890123456789012345678a"),
+            std::runtime_error
+        );
+        EXPECT_THROW(
+            d1->Append("12345678901234567890123456789012345678-"),
+            std::runtime_error
+        );
+        EXPECT_THROW(
+            d1->Append("1234.12.1234"),
+            std::runtime_error
+        );
+
         id->Append(1);
         d1->Append(123456789);
         d2->Append(123456789012345678);
@@ -401,7 +594,6 @@ TEST_P(ClientCase, Decimal) {
         d6->Append(-999999999999999999);
 
         // Check strings with decimal point
-        // TODO: check that exception is thrown if point doesn't match the `scale`
         id->Append(4);
         d1->Append("12345.6789");
         d2->Append("123456789.012345678");
@@ -419,6 +611,14 @@ TEST_P(ClientCase, Decimal) {
         d5->Append("-123456789012345678");
         d6->Append("-12345678901234567890123456789012345678");
 
+        id->Append(6);
+        d1->Append("12345.678");
+        d2->Append("123456789.0123456789");
+        d3->Append("1234567890123456789.0123456789012345678");
+        d4->Append("12345.6789");
+        d5->Append("123456789.012345678");
+        d6->Append("1234567890123456789.0123456789012345678");
+
         b.AppendColumn("id", id);
         b.AppendColumn("d1", d1);
         b.AppendColumn("d2", d2);
@@ -435,7 +635,7 @@ TEST_P(ClientCase, Decimal) {
             return;
         }
 
-        ASSERT_EQ(5u, b.GetRowCount());
+        ASSERT_EQ(6u, b.GetRowCount());
 
         auto int128_to_string = [](Int128 value) {
             std::string result;
@@ -504,7 +704,80 @@ TEST_P(ClientCase, Decimal) {
         EXPECT_EQ("-123456789", int128_to_string(decimal(4, 4)));
         EXPECT_EQ("-123456789012345678", int128_to_string(decimal(5, 4)));
         EXPECT_EQ("-12345678901234567890123456789012345678", int128_to_string(decimal(6, 4)));
+
+        EXPECT_EQ(6u, b[0]->As<ColumnUInt64>()->At(5));
+        EXPECT_EQ("123456780", int128_to_string(decimal(1, 5)));
+        EXPECT_EQ("123456789012345678", int128_to_string(decimal(2, 5)));
+        EXPECT_EQ("12345678901234567890123456789012345678", int128_to_string(decimal(3, 5)));
+        EXPECT_EQ("123456789", int128_to_string(decimal(4, 5)));
+        EXPECT_EQ("123456789012345678", int128_to_string(decimal(5, 5)));
+        EXPECT_EQ("12345678901234567890123456789012345678", int128_to_string(decimal(6, 5)));
     });
+}
+
+// Test roundtrip of DateTime64 values
+TEST_P(ClientCase, DateTime64) {
+    const auto & server_info = client_->GetServerInfo();
+    if (versionNumber(server_info) < versionNumber(20, 1)) {
+        std::cout << "Test is skipped since server '" << server_info << "' does not support DateTime64" << std::endl;
+        return;
+    }
+
+    Block block;
+    client_->Execute("DROP TABLE IF EXISTS test_clickhouse_cpp.datetime64;");
+
+    client_->Execute("CREATE TABLE IF NOT EXISTS "
+            "test_clickhouse_cpp.datetime64 (dt DateTime64(6)) "
+            "ENGINE = Memory");
+
+    auto col_dt64 = std::make_shared<ColumnDateTime64>(6);
+    block.AppendColumn("dt", col_dt64);
+
+    // Empty INSERT and SELECT
+    client_->Insert("test_clickhouse_cpp.datetime64", block);
+    client_->Select("SELECT dt FROM test_clickhouse_cpp.datetime64",
+        [](const Block& block) {
+            ASSERT_EQ(0U, block.GetRowCount());
+        }
+    );
+
+    const std::vector<Int64> data{
+        -1'234'567'890'123'456'7ll, // approx year 1578
+        -1'234'567'890'123ll,       // 1969-12-17T17:03:52.890123
+        -1'234'567ll,               // 1969-12-31T23:59:58.234567
+        0,                          // epoch
+        1'234'567ll,                // 1970-01-01T00:00:01.234567
+        1'234'567'890'123ll,        // 1970-01-15T06:56:07.890123
+        1'234'567'890'123'456'7ll   // 2361-03-21T19:15:01.234567
+    };
+    for (const auto & d : data) {
+        col_dt64->Append(d);
+    }
+
+    block.RefreshRowCount();
+
+    // Non-empty INSERT and SELECT
+    client_->Insert("test_clickhouse_cpp.datetime64", block);
+
+    size_t total_rows = 0;
+    client_->Select("SELECT dt FROM test_clickhouse_cpp.datetime64",
+        [&total_rows, &data](const Block& block) {
+            total_rows += block.GetRowCount();
+            if (block.GetRowCount() == 0) {
+                return;
+            }
+
+            const auto offset = total_rows - block.GetRowCount();
+            ASSERT_EQ(1U, block.GetColumnCount());
+            if (auto col = block[0]->As<ColumnDateTime64>()) {
+                for (size_t i = 0; i < col->Size(); ++i) {
+                    EXPECT_EQ(data[offset + i], col->At(i)) << " at index: " << i;
+                }
+            }
+        }
+    );
+
+    ASSERT_EQ(total_rows, data.size());
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -518,4 +791,3 @@ INSTANTIATE_TEST_CASE_P(
             .SetPingBeforeQuery(false)
             .SetCompressionMethod(CompressionMethod::LZ4)
     ));
-

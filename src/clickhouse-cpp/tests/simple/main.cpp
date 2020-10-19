@@ -2,7 +2,9 @@
 #include <clickhouse/error_codes.h>
 #include <clickhouse/types/type_parser.h>
 
+#include <stdexcept>
 #include <iostream>
+#include <cmath>
 
 #if defined(_MSC_VER)
 #   pragma warning(disable : 4996)
@@ -47,7 +49,6 @@ inline void ArrayExample(Client& client) {
     b.AppendColumn("arr", arr);
     client.Insert("test.array", b);
 
-
     client.Select("SELECT arr FROM test.array", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
@@ -64,6 +65,46 @@ inline void ArrayExample(Client& client) {
     client.Execute("DROP TABLE test.array");
 }
 
+inline void MultiArrayExample(Client& client) {
+    Block b;
+
+    /// Create a table.
+    client.Execute("CREATE TABLE IF NOT EXISTS test.multiarray (arr Array(Array(UInt64))) ENGINE = Memory");
+
+    auto arr = std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>());
+
+    auto id = std::make_shared<ColumnUInt64>();
+    id->Append(17);
+    arr->AppendAsColumn(id);
+
+    auto a2 = std::make_shared<ColumnArray>(std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>()));
+    a2->AppendAsColumn(arr);
+    b.AppendColumn("arr", a2);
+    client.Insert("test.multiarray", b);
+
+    client.Select("SELECT arr FROM test.multiarray", [](const Block& block)
+        {
+            for (size_t c = 0; c < block.GetRowCount(); ++c) {
+                auto col = block[0]->As<ColumnArray>()->GetAsColumn(c);
+                cout << "[";
+                for (size_t i = 0; i < col->Size(); ++i) {
+                    auto col2 = col->As<ColumnArray>()->GetAsColumn(i);
+                    for (size_t j = 0; j < col2->Size(); ++j) {
+                        cout << (int)(*col2->As<ColumnUInt64>())[j];
+                        if (j + 1 != col2->Size()) {
+                            cout << " ";
+                        }
+                    }
+                }
+                std::cout << "]" << std::endl;
+            }
+        }
+    );
+
+    /// Delete table.
+    client.Execute("DROP TABLE test.multiarray");
+}
+
 inline void DateExample(Client& client) {
     Block b;
 
@@ -75,12 +116,11 @@ inline void DateExample(Client& client) {
     b.AppendColumn("d", d);
     client.Insert("test.date", b);
 
-
     client.Select("SELECT d FROM test.date", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
                 auto col = block[0]->As<ColumnDateTime>();
-                std::time_t t = col->As<ColumnDateTime>()->At(c);
+                std::time_t t = col->At(c);
                 std::cerr << std::asctime(std::localtime(&t)) << " " << std::endl;
             }
         }
@@ -88,6 +128,69 @@ inline void DateExample(Client& client) {
 
     /// Delete table.
     client.Execute("DROP TABLE test.date");
+}
+
+inline void DateTime64Example(Client& client) {
+    Block b;
+
+    /// Create a table.
+    client.Execute("CREATE TABLE IF NOT EXISTS test.datetime64 (dt64 DateTime64(6)) ENGINE = Memory");
+
+    size_t precision = 6ul;
+    auto d = std::make_shared<ColumnDateTime64>(precision);
+    assert(d->GetPrecision() == precision);
+    Int64 precision_multiplier = std::pow(10ull, precision);
+    Int64 datetime = Int64(std::time(nullptr)) * precision_multiplier;
+
+    d->Append(datetime);
+    b.AppendColumn("dt64", d);
+    client.Insert("test.date", b);
+
+    client.Select("SELECT d FROM test.datetime64", [precision_multiplier](const Block& block)
+        {
+            for (size_t c = 0; c < block.GetRowCount(); ++c) {
+                auto col = block[0]->As<ColumnDateTime64>();
+                const time_t t = static_cast<time_t>(col->At(c) / precision_multiplier);
+                std::cerr << std::asctime(std::localtime(&t)) << " " << std::endl;
+            }
+        }
+    );
+
+    /// Delete table.
+    client.Execute("DROP TABLE test.datetime64");
+}
+
+inline void DecimalExample(Client& client) {
+    Block b;
+
+    /// Create a table.
+    client.Execute("CREATE TABLE IF NOT EXISTS test.decimal (d Decimal64(4)) ENGINE = Memory");
+
+    auto d = std::make_shared<ColumnDecimal>(18, 4);
+    d->Append(21111);
+    b.AppendColumn("d", d);
+    client.Insert("test.decimal", b);
+
+    client.Select("SELECT d FROM test.decimal", [](const Block& block)
+        {
+            for (size_t c = 0; c < block.GetRowCount(); ++c) {
+                auto col = block[0]->As<ColumnDecimal>();
+                cout << (int)col->At(c) << endl;
+            }
+        }
+    );
+
+    client.Select("SELECT toDecimal32(2, 4) AS x", [](const Block& block)
+        {
+            for (size_t c = 0; c < block.GetRowCount(); ++c) {
+                auto col = block[0]->As<ColumnDecimal>();
+                cout << (int)col->At(c) << endl;
+            }
+        }
+    );
+
+    /// Delete table.
+    client.Execute("DROP TABLE test.decimal");
 }
 
 inline void GenericExample(Client& client) {
@@ -292,9 +395,17 @@ inline void EnumExample(Client& client) {
         }
     );
 
-
     /// Delete table.
     client.Execute("DROP TABLE test.enums");
+}
+
+inline void SelectNull(Client& client) {
+    client.Select("SELECT NULL", []([[maybe_unused]] const Block& block)
+        {
+            assert(block.GetRowCount() < 2);
+            (void)(block);
+        }
+    );
 }
 
 inline void ShowTables(Client& client) {
@@ -308,15 +419,70 @@ inline void ShowTables(Client& client) {
     );
 }
 
+inline void IPExample(Client &client) {
+    /// Create a table.
+    client.Execute("CREATE TABLE IF NOT EXISTS test.ips (id UInt64, v4 IPv4, v6 IPv6) ENGINE = Memory");
+
+    /// Insert some values.
+    {
+        Block block;
+
+        auto id = std::make_shared<ColumnUInt64>();
+        id->Append(1);
+        id->Append(2);
+        id->Append(3);
+
+        auto v4 = std::make_shared<ColumnIPv4>();
+        v4->Append("127.0.0.1");
+        v4->Append(3585395774);
+        v4->Append(0);
+
+        auto v6 = std::make_shared<ColumnIPv6>();
+        v6->Append("::1");
+        v6->Append("aa::ff");
+        v6->Append("fe80::86ba:ef31:f2d8:7e8b");
+
+        block.AppendColumn("id", id);
+        block.AppendColumn("v4", v4);
+        block.AppendColumn("v6", v6);
+
+        client.Insert("test.ips", block);
+    }
+
+    /// Select values inserted in the previous step.
+    client.Select("SELECT id, v4, v6 FROM test.ips", [](const Block& block)
+        {
+            for (Block::Iterator bi(block); bi.IsValid(); bi.Next()) {
+                std::cout << bi.Name() << " ";
+            }
+            std::cout << std::endl;
+
+            for (size_t i = 0; i < block.GetRowCount(); ++i) {
+                std::cout << (*block[0]->As<ColumnUInt64>())[i] << " "
+                          << (*block[1]->As<ColumnIPv4>()).AsString(i) << " (" << (*block[1]->As<ColumnIPv4>())[i].s_addr << ") "
+                          << (*block[2]->As<ColumnIPv6>()).AsString(i) << "\n";
+            }
+        }
+    );
+
+    /// Delete table.
+    client.Execute("DROP TABLE test.ips");
+}
+
 static void RunTests(Client& client) {
     ArrayExample(client);
     CancelableExample(client);
     DateExample(client);
+    DateTime64Example(client);
+    DecimalExample(client);
     EnumExample(client);
     ExecptionExample(client);
     GenericExample(client);
+    IPExample(client);
+    MultiArrayExample(client);
     NullableExample(client);
     NumbersExample(client);
+    SelectNull(client);
     ShowTables(client);
 }
 

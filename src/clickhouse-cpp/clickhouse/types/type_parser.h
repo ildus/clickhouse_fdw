@@ -18,6 +18,8 @@ struct TypeAst {
         Terminal,
         Tuple,
         Enum,
+        LowCardinality,
+        SimpleAggregateFunction
     };
 
     /// Type's category.
@@ -31,7 +33,12 @@ struct TypeAst {
     int64_t value = 0;
     /// Subelements of the type.
     /// Used to store enum's names and values as well.
-    std::list<TypeAst> elements;
+    std::vector<TypeAst> elements;
+
+    bool operator==(const TypeAst & other) const;
+    inline bool operator!=(const TypeAst & other) const {
+        return !(*this == other);
+    }
 };
 
 
@@ -45,6 +52,7 @@ class TypeParser {
             LPar,
             RPar,
             Comma,
+            QuotedString, // string with quotation marks included
             EOS,
         };
 

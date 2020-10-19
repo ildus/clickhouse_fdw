@@ -731,8 +731,7 @@ binary_insert_tuple(void *istate, TupleTableSlot *slot)
 	}
 }
 
-#define STR_TYPES_COUNT 17
-static char *str_types_map[STR_TYPES_COUNT][2] = {
+static char *str_types_map[][2] = {
 	{"Int8", "INT2"},
 	{"UInt8", "INT2"},
 	{"Int16", "INT2"},
@@ -748,7 +747,8 @@ static char *str_types_map[STR_TYPES_COUNT][2] = {
 	{"String", "TEXT"},
 	{"DateTime", "TIMESTAMP"},
 	{"Date", "DATE"}, // important that this one is after other Date types
-	{"UUID", "UUID"}
+	{"UUID", "UUID"},
+	{NULL, NULL},
 };
 
 static char *
@@ -784,6 +784,8 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 		else if (strncmp(typepart, "Enum16", strlen("Enum16")) == 0)
 			return "TEXT";
 		else if (strncmp(typepart, "DateTime64", strlen("DateTime64")) == 0)
+			return "TIMESTAMP";
+		else if (strncmp(typepart, "DateTime", strlen("DateTime")) == 0)
 			return "TIMESTAMP";
 		else if (strncmp(typepart, "Tuple", strlen("Tuple")) == 0)
 		{
@@ -828,10 +830,12 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 		typepart = pos + 1;
 	}
 
-	for (size_t i = 0; i < STR_TYPES_COUNT; i++)
+	size_t i = 0;
+	while (str_types_map[i] != NULL)
 	{
 		if (strncmp(str_types_map[i][0], typepart, strlen(str_types_map[i][0])) == 0)
 			return pstrdup(str_types_map[i][1]);
+		i++;
 	}
 
 	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s>", typepart)));
@@ -850,8 +854,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				   *datts = NIL;
 	char		  **row_values;
 
-	query = psprintf("select name, engine, engine_full "
-			"from system.tables where database='%s' and name not like '.inner.%%'", stmt->remote_schema);
+	query = psprintf("SELECT name, engine, engine_full "
+			"FROM system.tables WHERE database='%s' and name not like '.inner%%'", stmt->remote_schema);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
 	datts = list_make2_int(1,2);
@@ -889,7 +893,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		}
 
 		initStringInfo(&buf);
-		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS %s.%s (\n",
+		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS \"%s\".\"%s\" (\n",
 			stmt->local_schema, table_name);
 		query = psprintf("select name, type from system.columns where database='%s' and table='%s'", stmt->remote_schema, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);

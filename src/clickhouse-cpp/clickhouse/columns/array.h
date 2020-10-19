@@ -22,8 +22,6 @@ public:
 	/// Link to nested column
 	ColumnRef Nested() const { return data_; }
 
-	void AppendOffset(size_t n);
-
 public:
     /// Appends content of given column to the end of current one.
     void Append(ColumnRef column) override;
@@ -41,7 +39,11 @@ public:
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t, size_t) override { return ColumnRef(); }
+    ColumnRef Slice(size_t, size_t) override;
+
+    void Swap(Column&) override;
+
+    void OffsetsIncrease(size_t);
 
 private:
     size_t GetOffset(size_t n) const;

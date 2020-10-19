@@ -1,6 +1,7 @@
 #include "types.h"
 
 #include <assert.h>
+#include <stdexcept>
 
 namespace clickhouse {
 
@@ -39,8 +40,14 @@ std::string Type::GetName() const {
             return "String";
         case FixedString:
             return As<FixedStringType>()->GetName();
+        case IPv4:
+            return "IPv4";
+        case IPv6:
+            return "IPv6";
         case DateTime:
             return "DateTime";
+        case DateTime64:
+            return As<DateTime64Type>()->GetName();
         case Date:
             return "Date";
         case Array:
@@ -52,10 +59,13 @@ std::string Type::GetName() const {
         case Enum8:
         case Enum16:
             return As<EnumType>()->GetName();
+        case Decimal:
         case Decimal32:
         case Decimal64:
         case Decimal128:
             return As<DecimalType>()->GetName();
+        case LowCardinality:
+            return As<LowCardinalityType>()->GetName();
     }
 
     // XXX: NOT REACHED!
@@ -72,6 +82,26 @@ TypeRef Type::CreateDate() {
 
 TypeRef Type::CreateDateTime() {
     return TypeRef(new Type(Type::DateTime));
+}
+
+TypeRef Type::CreateDateTime64(size_t precision) {
+    return TypeRef(new DateTime64Type(precision));
+}
+
+TypeRef Type::CreateDecimal(size_t precision, size_t scale) {
+    return TypeRef(new DecimalType(precision, scale));
+}
+
+TypeRef Type::CreateIPv4() {
+    return TypeRef(new Type(Type::IPv4));
+}
+
+TypeRef Type::CreateIPv6() {
+    return TypeRef(new Type(Type::IPv6));
+}
+
+TypeRef Type::CreateNothing() {
+    return TypeRef(new Type(Type::Void));
 }
 
 TypeRef Type::CreateNullable(TypeRef nested_type) {
@@ -102,14 +132,9 @@ TypeRef Type::CreateUUID() {
     return TypeRef(new Type(Type::UUID));
 }
 
-TypeRef Type::CreateDecimal(size_t precision, size_t scale) {
-    return TypeRef(new DecimalType(precision, scale));
+TypeRef Type::CreateLowCardinality(TypeRef item_type) {
+    return std::make_shared<LowCardinalityType>(item_type);
 }
-
-TypeRef Type::CreateNothing() {
-	return TypeRef(new Type(Type::Void));
-}
-
 
 /// class ArrayType
 
@@ -119,34 +144,26 @@ ArrayType::ArrayType(TypeRef item_type) : Type(Array), item_type_(item_type) {
 /// class DecimalType
 
 DecimalType::DecimalType(size_t precision, size_t scale)
-    : Type([&] {
-          if (precision <= 9) {
-              return Type::Decimal32;
-          } else if (precision <= 18) {
-              return Type::Decimal64;
-          } else {
-              return Type::Decimal128;
-          }
-      }()),
+    : Type(Decimal),
       precision_(precision),
       scale_(scale) {
     // TODO: assert(precision <= 38 && precision > 0);
 }
 
 std::string DecimalType::GetName() const {
-    std::string result = "Decimal";
-
-    if (precision_ <= 9) {
-        result += "32";
-    } else if (precision_ <= 18) {
-        result += "64";
-    } else {
-        result += "128";
+    switch (GetCode()) {
+        case Decimal:
+            return "Decimal(" + std::to_string(precision_) + "," + std::to_string(scale_) + ")";
+        case Decimal32:
+            return "Decimal32(" + std::to_string(scale_) + ")";
+        case Decimal64:
+            return "Decimal64(" + std::to_string(scale_) + ")";
+        case Decimal128:
+            return "Decimal128(" + std::to_string(scale_) + ")";
+        default:
+            /// XXX: NOT REACHED!
+            return "";
     }
-
-    result += "(" + std::to_string(scale_) + ")";
-
-    return result;
 }
 
 /// class EnumType
@@ -209,6 +226,25 @@ EnumType::ValueToNameIterator EnumType::EndValueToName() const {
     return value_to_name_.end();
 }
 
+/// class DateTime64Type
+
+DateTime64Type::DateTime64Type(size_t precision)
+    : Type(DateTime64), precision_(precision) {
+
+    if (precision_ > 18) {
+        throw std::runtime_error("DateTime64 precision is > 18");
+    }
+}
+
+std::string DateTime64Type::GetName() const {
+    std::string datetime64_representation;
+    datetime64_representation.reserve(14);
+    datetime64_representation += "DateTime64(";
+    datetime64_representation += std::to_string(precision_);
+    datetime64_representation += ")";
+    return datetime64_representation;
+}
+
 /// class FixedStringType
 
 FixedStringType::FixedStringType(size_t n) : Type(FixedString), size_(n) {
@@ -223,6 +259,12 @@ NullableType::NullableType(TypeRef nested_type) : Type(Nullable), nested_type_(n
 
 TupleType::TupleType(const std::vector<TypeRef>& item_types) : Type(Tuple), item_types_(item_types) {
 }
+
+/// class LowCardinalityType
+LowCardinalityType::LowCardinalityType(TypeRef nested_type) : Type(LowCardinality), nested_type_(nested_type) {
+}
+LowCardinalityType::~LowCardinalityType()
+{}
 
 std::string TupleType::GetName() const {
     std::string result("Tuple(");

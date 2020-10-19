@@ -1,5 +1,4 @@
 #include "array.h"
-
 #include <stdexcept>
 
 namespace clickhouse {
@@ -31,6 +30,18 @@ ColumnRef ColumnArray::GetAsColumn(size_t n) const {
     return data_->Slice(GetOffset(n), GetSize(n));
 }
 
+ColumnRef ColumnArray::Slice(size_t begin, size_t size) {
+    auto result = std::make_shared<ColumnArray>(GetAsColumn(begin));
+    result->OffsetsIncrease(1);
+
+    for (size_t i = 1; i < size; i++)
+    {
+        result->Append(std::make_shared<ColumnArray>(GetAsColumn(begin + i)));
+    }
+
+    return result;
+}
+
 void ColumnArray::Append(ColumnRef column) {
     if (auto col = column->As<ColumnArray>()) {
         if (!col->data_->Type()->IsEqual(data_->Type())) {
@@ -43,15 +54,10 @@ void ColumnArray::Append(ColumnRef column) {
     }
 }
 
-void ColumnArray::AppendOffset(size_t n) {
-    if (offsets_->Size() == 0) {
-        offsets_->Append(n);
-    } else {
-        offsets_->Append((*offsets_)[offsets_->Size() - 1] + n);
-    }
-}
-
 bool ColumnArray::Load(CodedInputStream* input, size_t rows) {
+    if (!rows) {
+        return true;
+    }
     if (!offsets_->Load(input, rows)) {
         return false;
     }
@@ -73,6 +79,20 @@ void ColumnArray::Clear() {
 
 size_t ColumnArray::Size() const {
     return offsets_->Size();
+}
+
+void ColumnArray::Swap(Column& other) {
+    auto & col = dynamic_cast<ColumnArray &>(other);
+    data_.swap(col.data_);
+    offsets_.swap(col.offsets_);
+}
+
+void ColumnArray::OffsetsIncrease(size_t n) {
+    if (offsets_->Size() == 0) {
+        offsets_->Append(n);
+    } else {
+        offsets_->Append((*offsets_)[offsets_->Size() - 1] + n);
+    }
 }
 
 size_t ColumnArray::GetOffset(size_t n) const {

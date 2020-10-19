@@ -7,6 +7,9 @@
 #include "columns/date.h"
 #include "columns/decimal.h"
 #include "columns/enum.h"
+#include "columns/ip4.h"
+#include "columns/ip6.h"
+#include "columns/lowcardinality.h"
 #include "columns/nullable.h"
 #include "columns/numeric.h"
 #include "columns/string.h"
@@ -19,6 +22,16 @@
 #include <string>
 
 namespace clickhouse {
+
+struct ServerInfo {
+    std::string name;
+    std::string timezone;
+    std::string display_name;
+    uint64_t    version_major;
+    uint64_t    version_minor;
+    uint64_t    version_patch;
+    uint64_t    revision;
+};
 
 /// Methods of block compression.
 enum class CompressionMethod {
@@ -37,7 +50,7 @@ struct ClientOptions {
     /// Hostname of the server.
     DECLARE_FIELD(host, std::string, SetHost, std::string());
     /// Service port.
-    DECLARE_FIELD(port, int, SetPort, 9000);
+    DECLARE_FIELD(port, unsigned int, SetPort, 9000);
 
     /// Default database.
     DECLARE_FIELD(default_database, std::string, SetDefaultDatabase, "default");
@@ -54,7 +67,7 @@ struct ClientOptions {
     /// Ping server every time before execute any query.
     DECLARE_FIELD(ping_before_query, bool, SetPingBeforeQuery, false);
     /// Count of retry to send request to server.
-    DECLARE_FIELD(send_retries, int, SetSendRetries, 1);
+    DECLARE_FIELD(send_retries, unsigned int, SetSendRetries, 1);
     /// Amount of time to wait before next retry.
     DECLARE_FIELD(retry_timeout, std::chrono::seconds, SetRetryTimeout, std::chrono::seconds(5));
 
@@ -63,9 +76,9 @@ struct ClientOptions {
 
     /// TCP Keep alive options
     DECLARE_FIELD(tcp_keepalive, bool, TcpKeepAlive, false);
-    DECLARE_FIELD(tcp_keepalive_idle, int, SetTcpKeepAliveIdle, 60);
-    DECLARE_FIELD(tcp_keepalive_intvl, int, SetTcpKeepAliveInterval, 5);
-    DECLARE_FIELD(tcp_keepalive_cnt, int, SetTcpKeepAliveCount, 3);
+    DECLARE_FIELD(tcp_keepalive_idle, std::chrono::seconds, SetTcpKeepAliveIdle, std::chrono::seconds(60));
+    DECLARE_FIELD(tcp_keepalive_intvl, std::chrono::seconds, SetTcpKeepAliveInterval, std::chrono::seconds(5));
+    DECLARE_FIELD(tcp_keepalive_cnt, unsigned int, SetTcpKeepAliveCount, 3);
 
 #undef DECLARE_FIELD
 };
@@ -105,6 +118,8 @@ public:
 
     /// Reset connection with initial params.
     void ResetConnection();
+
+    const ServerInfo& GetServerInfo() const;
 
 private:
     ClientOptions options_;

@@ -123,14 +123,33 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.tuples SELECT
  
 (1 row)
 
--- datetime64
-SELECT clickhousedb_raw_query('CREATE TABLE regression.dt64 (
-    c1 Int32,
-    c2 DateTime64(6, ''Europe/Moscow''),
-    c3 DateTime64(9, ''Europe/Berlin''),
-	c4 DateTime64(6)
-) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
-');
+-- datetime with timezones
+SELECT clickhousedb_raw_query('CREATE TABLE regression.timezones (
+	t1 DateTime64(6,''UTC''),
+	t2 DateTime64(6,''Europe/Berlin''),
+	t4 DateTime(''Europe/Berlin''),
+	t5 DateTime64(6))
+	ENGINE = MergeTree ORDER BY (t1) SETTINGS index_granularity=8192;');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.timezones VALUES (
+	''2020-01-01 11:00:00'',
+	''2020-01-01 11:00:00'',
+	''2020-01-01 11:00:00'',
+	''2020-01-01 11:00:00'')');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.timezones VALUES (
+	''2020-01-01 12:00:00'',
+	''2020-01-01 12:00:00'',
+	''2020-01-01 12:00:00'',
+	''2020-01-01 12:00:00'')');
  clickhousedb_raw_query 
 ------------------------
  
@@ -192,16 +211,16 @@ FDW options: (table_name 'arrays', engine 'MergeTree')
 Server: loopback
 FDW options: (table_name 'tuples', engine 'MergeTree')
 
-\d+ clickhouse.dt64;
-                                              Foreign table "clickhouse.dt64"
+\d+ clickhouse.timezones;
+                                            Foreign table "clickhouse.timezones"
  Column |            Type             | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
 --------+-----------------------------+-----------+----------+---------+-------------+---------+--------------+-------------
- c1     | integer                     |           | not null |         |             | plain   |              | 
- c2     | timestamp without time zone |           | not null |         |             | plain   |              | 
- c3     | timestamp without time zone |           | not null |         |             | plain   |              | 
- c4     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t1     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t2     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t4     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t5     | timestamp without time zone |           | not null |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 'dt64', engine 'MergeTree')
+FDW options: (table_name 'timezones', engine 'MergeTree')
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -231,6 +250,13 @@ SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
 ----+-----------+---------+---------+----
   0 | (0,'0',1) | {0,1,1} | {0,2,2} |  0
   1 | (1,'1',2) | {1,1,1} | {1,2,2} |  1
+(2 rows)
+
+SELECT * FROM clickhouse.timezones ORDER BY t1 LIMIT 2;
+         t1          |         t2          |         t4          |         t5          
+---------------------+---------------------+---------------------+---------------------
+ 2020-01-01 11:00:00 | 2020-01-01 11:00:00 | 2020-01-01 11:00:00 | 2020-01-01 11:00:00
+ 2020-01-01 12:00:00 | 2020-01-01 12:00:00 | 2020-01-01 12:00:00 | 2020-01-01 12:00:00
 (2 rows)
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
@@ -289,16 +315,16 @@ FDW options: (table_name 'arrays', engine 'MergeTree')
 Server: loopback_bin
 FDW options: (table_name 'tuples', engine 'MergeTree')
 
-\d+ clickhouse_bin.dt64;
-                                            Foreign table "clickhouse_bin.dt64"
+\d+ clickhouse_bin.timezones;
+                                          Foreign table "clickhouse_bin.timezones"
  Column |            Type             | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
 --------+-----------------------------+-----------+----------+---------+-------------+---------+--------------+-------------
- c1     | integer                     |           | not null |         |             | plain   |              | 
- c2     | timestamp without time zone |           | not null |         |             | plain   |              | 
- c3     | timestamp without time zone |           | not null |         |             | plain   |              | 
- c4     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t1     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t2     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t4     | timestamp without time zone |           | not null |         |             | plain   |              | 
+ t5     | timestamp without time zone |           | not null |         |             | plain   |              | 
 Server: loopback_bin
-FDW options: (table_name 'dt64', engine 'MergeTree')
+FDW options: (table_name 'timezones', engine 'MergeTree')
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -328,6 +354,13 @@ SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
 ----+---------+---------+---------+----
   0 | (0,0,1) | {0,1,1} | {0,2,2} |  0
   1 | (1,1,2) | {1,1,1} | {1,2,2} |  1
+(2 rows)
+
+SELECT * FROM clickhouse_bin.timezones ORDER BY t1 LIMIT 2;
+         t1          |         t2          |         t4          |         t5          
+---------------------+---------------------+---------------------+---------------------
+ 2020-01-01 11:00:00 | 2020-01-01 10:00:00 | 2020-01-01 10:00:00 | 2020-01-01 11:00:00
+ 2020-01-01 12:00:00 | 2020-01-01 11:00:00 | 2020-01-01 11:00:00 | 2020-01-01 12:00:00
 (2 rows)
 
 IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
@@ -403,18 +436,18 @@ DROP EXTENSION clickhouse_fdw CASCADE;
 NOTICE:  drop cascades to 17 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table clickhouse.arrays
-drop cascades to foreign table clickhouse.dt64
 drop cascades to foreign table clickhouse.ints
+drop cascades to foreign table clickhouse.timezones
 drop cascades to foreign table clickhouse.tuples
 drop cascades to foreign table clickhouse.types
 drop cascades to foreign table clickhouse_limit.ints
 drop cascades to foreign table clickhouse_limit.types
 drop cascades to foreign table clickhouse_except.arrays
-drop cascades to foreign table clickhouse_except.dt64
+drop cascades to foreign table clickhouse_except.timezones
 drop cascades to foreign table clickhouse_except.tuples
 drop cascades to server loopback_bin
 drop cascades to foreign table clickhouse_bin.arrays
-drop cascades to foreign table clickhouse_bin.dt64
 drop cascades to foreign table clickhouse_bin.ints
+drop cascades to foreign table clickhouse_bin.timezones
 drop cascades to foreign table clickhouse_bin.tuples
 drop cascades to foreign table clickhouse_bin.types

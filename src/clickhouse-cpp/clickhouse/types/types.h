@@ -17,7 +17,6 @@ public:
         Int16,
         Int32,
         Int64,
-        Int128,
         UInt8,
         UInt16,
         UInt32,
@@ -34,9 +33,15 @@ public:
         Enum8,
         Enum16,
         UUID,
+        IPv4,
+        IPv6,
+        Int128,
+        Decimal,
         Decimal32,
         Decimal64,
         Decimal128,
+        LowCardinality,
+        DateTime64,
     };
 
     using EnumItem = std::pair<std::string /* name */, int16_t /* value */>;
@@ -62,7 +67,8 @@ public:
     std::string GetName() const;
 
     /// Is given type same as current one.
-    bool IsEqual(const TypeRef& other) const { return this->GetName() == other->GetName(); }
+    bool IsEqual(const Type& other) const { return this->GetName() == other.GetName(); }
+    bool IsEqual(const TypeRef& other) const { return IsEqual(*other); }
 
 public:
     static TypeRef CreateArray(TypeRef item_type);
@@ -70,6 +76,16 @@ public:
     static TypeRef CreateDate();
 
     static TypeRef CreateDateTime();
+
+    static TypeRef CreateDateTime64(size_t precision);
+
+    static TypeRef CreateDecimal(size_t precision, size_t scale);
+
+    static TypeRef CreateIPv4();
+
+    static TypeRef CreateIPv6();
+
+    static TypeRef CreateNothing();
 
     static TypeRef CreateNullable(TypeRef nested_type);
 
@@ -88,13 +104,23 @@ public:
 
     static TypeRef CreateUUID();
 
-    static TypeRef CreateDecimal(size_t precision, size_t scale);
-
-	static TypeRef CreateNothing();
+    static TypeRef CreateLowCardinality(TypeRef item_type);
 
 private:
     const Code code_;
 };
+
+inline bool operator==(const Type & left, const Type & right) {
+    if (&left == &right)
+        return true;
+    if (typeid(left) == typeid(right))
+        return left.IsEqual(right);
+    return false;
+}
+
+inline bool operator==(const TypeRef & left, const TypeRef & right) {
+    return *left == *right;
+}
 
 class ArrayType : public Type {
 public:
@@ -116,9 +142,22 @@ public:
     std::string GetName() const;
 
     inline size_t GetScale() const { return scale_; }
+    inline size_t GetPrecision() const { return precision_; }
 
 private:
     const size_t precision_, scale_;
+};
+
+class DateTime64Type: public Type {
+public:
+    explicit DateTime64Type(size_t precision);
+
+    std::string GetName() const;
+
+    inline size_t GetPrecision() const { return precision_; }
+
+private:
+    size_t precision_;
 };
 
 class EnumType : public Type {
@@ -175,8 +214,25 @@ public:
 
     std::string GetName() const;
 
+    /// Type of nested Tuple element type.
+    std::vector<TypeRef> GetTupleType() const { return item_types_; }
+
 private:
     std::vector<TypeRef> item_types_;
+};
+
+class LowCardinalityType : public Type {
+public:
+    explicit LowCardinalityType(TypeRef nested_type);
+    ~LowCardinalityType();
+
+    std::string GetName() const { return std::string("LowCardinality(") + nested_type_->GetName() + ")"; }
+
+    /// Type of nested nullable element.
+    TypeRef GetNestedType() const { return nested_type_; }
+
+private:
+    TypeRef nested_type_;
 };
 
 template <>

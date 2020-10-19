@@ -36,12 +36,15 @@ public:
 
     /// Clear column data .
     void Clear() override;
-
+    
     /// Returns count of rows in the column.
     size_t Size() const override;
 
     /// Makes slice of the current column.
     ColumnRef Slice(size_t begin, size_t len) override;
+    void Swap(Column&) override;
+
+    ItemView GetItem(size_t) const override;
 
 private:
     ColumnRef nested_;

@@ -134,7 +134,7 @@ private:
             select_cb_(block);
         } else if (insert_cb_) {
             insert_cb_(block);
-		}
+	}
     }
 
     bool OnDataCancelable(const Block& block) override {

@@ -1,15 +1,13 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 project(clickhouse_fdw VERSION 1.2.0 LANGUAGES C CXX)
 
-if (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.0)
-  set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++17")
-  set(CMAKE_CXX17_EXTENSION_COMPILE_OPTION "-std=gnu++17")
-elseif (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.1)
-  set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++1z")
-  set(CMAKE_CXX17_EXTENSION_COMPILE_OPTION "-std=gnu++1z")
-endif()
+include (clickhouse-cpp/cmake/cpp17.cmake)
 
+USE_CXX17()
+
+set(CLICKHOUSE_CPP_ENABLE_INSTALL OFF CACHE BOOL "disable clickhouse-cpp installation" FORCE)
 add_subdirectory (clickhouse-cpp)
+
 target_compile_options(clickhouse-cpp-lib-static PRIVATE -fPIC)
 target_compile_options(clickhouse-cpp-lib PRIVATE -fPIC)
 

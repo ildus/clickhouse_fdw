@@ -13,10 +13,8 @@ class ColumnTuple : public Column {
 public:
     ColumnTuple(const std::vector<ColumnRef>& columns);
 
-    /// Returns count of elements in the tuple (column references)
-    size_t Elements() const {
-        return columns_.size();
-    }
+    /// Returns count of columns in the tuple.
+    size_t TupleSize() const;
 
     ColumnRef operator [] (size_t n) const {
         return columns_[n];
@@ -31,18 +29,16 @@ public:
 
     /// Saves column data to output stream.
     void Save(CodedOutputStream* output) override;
-    
+
     /// Clear column data .
     void Clear() override;
 
     /// Returns count of rows in the column.
     size_t Size() const override;
 
-    /// Returns count of columns in the tuple.
-    size_t TupleSize() const  { return columns_.size(); }
-
     /// Makes slice of the current column.
     ColumnRef Slice(size_t, size_t) override { return ColumnRef(); }
+    void Swap(Column& other) override;
 
 private:
     std::vector<ColumnRef> columns_;
