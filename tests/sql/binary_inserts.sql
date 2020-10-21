@@ -26,7 +26,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.null_ints (
 ');
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.complex (
-    c1 Int32, c2 Date, c3 DateTime, c4 String, c5 FixedString(10), c6 LowCardinality(String)
+    c1 Int32, c2 Date, c3 DateTime, c4 String, c5 FixedString(10), c6 LowCardinality(String), c7 DateTime64(3)
 ) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
 ');
 
@@ -67,9 +67,12 @@ SELECT * FROM null_ints ORDER BY c1;
 SELECT * FROM null_ints ORDER BY c1;
 
 /* check dates and strings */
+ALTER TABLE complex ALTER COLUMN c7 SET DATA TYPE timestamp(3);
+\d+ complex
 INSERT INTO complex VALUES
-	(1, '1990-06-01', '1990-06-02 10:01:02', 't1', 'fix_t1', 'low1'),
-	(2, '1990-06-02', '1990-06-03 10:01:02', 5, 'fix_t2', 'low2');
+	(1, '2020-06-01', '2020-06-02 10:01:02', 't1', 'fix_t1', 'low1', '2020-06-02 10:01:02.123'),
+	(2, '2020-06-02', '2020-06-03 10:01:02', 5, 'fix_t2', 'low2', '2020-06-03 11:01:02.234'),
+	(3, '2020-06-03', '2020-06-04 10:01:02', 5, 'fix_t3', 'low3', '2020-06-04 12:01:02');
 SELECT * FROM complex ORDER BY c1;
 
 /* check arrays */

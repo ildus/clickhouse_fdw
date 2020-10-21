@@ -2,6 +2,7 @@
 #include <cassert>
 #include <stdexcept>
 
+#include "clickhouse/columns/date.h"
 #include "clickhouse/columns/lowcardinality.h"
 #include "clickhouse/columns/nullable.h"
 #include "clickhouse/columns/factory.h"
@@ -504,13 +505,24 @@ column_append(clickhouse::ColumnRef col, Datum val, Oid valtype, bool isnull)
 		}
 		case TIMESTAMPOID:
 		{
-			pg_time_t d = timestamptz_to_time_t(DatumGetTimestamp(val));
-
 			switch (col->Type()->GetCode())
 			{
 				case Type::Code::DateTime:
+                {
+			        pg_time_t d = timestamptz_to_time_t(DatumGetTimestamp(val));
 					col->As<ColumnDateTime>()->Append(d);
 					break;
+                }
+				case Type::Code::DateTime64:
+                {
+                    auto dt64_col = col->As<ColumnDateTime64>();
+                    Timestamp t = DatumGetTimestamp(val);
+	                Int64 dt64 = ((1.0 * t) / USECS_PER_SEC +
+						  ((POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * SECS_PER_DAY)) * pow(10.0, dt64_col->GetPrecision());
+
+					dt64_col->Append(dt64);
+					break;
+                }
 				default:
 					throw std::runtime_error("unexpected column "
 							"type for TIMESTAMPOID: " + col->Type()->GetName());
@@ -812,7 +824,7 @@ nested_col:
 				*is_null = true;
 			else
 			{
-                ret = (val / pow(10.0, dt_col->GetPrecision()) -
+                ret = ((1.0 * val) / pow(10, dt_col->GetPrecision()) -
                     (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * SECS_PER_DAY) * USECS_PER_SEC;
 			}
 		}
