@@ -316,7 +316,7 @@ foreign_expr_walker(Node *node,
 		 * non-default collation.
 		 */
 		if (bms_is_member(var->varno, glob_cxt->relids) &&
-		        var->varlevelsup == 0)
+				var->varlevelsup == 0)
 		{
 			RangeTblEntry		*rte;
 			CustomColumnInfo	*cinfo;
@@ -362,15 +362,15 @@ foreign_expr_walker(Node *node,
 		 * affect the inner_cxt state.
 		 */
 		if (!foreign_expr_walker((Node *) ar->refupperindexpr,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 			return false;
 
 		if (!foreign_expr_walker((Node *) ar->reflowerindexpr,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 			return false;
 
 		if (!foreign_expr_walker((Node *) ar->refexpr,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 			return false;
 	}
 	break;
@@ -399,7 +399,7 @@ foreign_expr_walker(Node *node,
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) fe->args,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 			return false;
 	}
 	break;
@@ -421,7 +421,7 @@ foreign_expr_walker(Node *node,
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) oe->args,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 			return false;
 	}
 	break;
@@ -448,7 +448,7 @@ foreign_expr_walker(Node *node,
 		 * Recurse to input subexpression.
 		 */
 		if (!foreign_expr_walker((Node *) r->arg,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 		{
 			return false;
 		}
@@ -462,7 +462,7 @@ foreign_expr_walker(Node *node,
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) b->args,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 		{
 			return false;
 		}
@@ -476,7 +476,7 @@ foreign_expr_walker(Node *node,
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) nt->arg,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 		{
 			return false;
 		}
@@ -490,7 +490,7 @@ foreign_expr_walker(Node *node,
 		 * Recurse to input subexpressions.
 		 */
 		if (!foreign_expr_walker((Node *) a->elements,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 		{
 			return false;
 		}
@@ -507,7 +507,7 @@ foreign_expr_walker(Node *node,
 		foreach (lc, l)
 		{
 			if (!foreign_expr_walker((Node *) lfirst(lc),
-			                         glob_cxt, &inner_cxt))
+									 glob_cxt, &inner_cxt))
 			{
 				return false;
 			}
@@ -571,7 +571,7 @@ foreign_expr_walker(Node *node,
 
 		/* Check aggregate filter */
 		if (!foreign_expr_walker((Node *) agg->aggfilter,
-		                         glob_cxt, &inner_cxt))
+								 glob_cxt, &inner_cxt))
 			return false;
 	}
 	break;
@@ -1149,8 +1149,8 @@ deparseTargetList(StringInfo buf,
 	 * check for ctid and oid
 	 */
 	if (bms_is_member(SelfItemPointerAttributeNumber -
-	                  FirstLowInvalidHeapAttributeNumber,
-	                  attrs_used))
+					  FirstLowInvalidHeapAttributeNumber,
+					  attrs_used))
 		elog(ERROR, "clickhouse does not support system columns");
 
 	/* Don't generate bad syntax if no undropped columns */
@@ -1343,7 +1343,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			if (fpinfo->jointype == JOIN_INNER)
 			{
 				*ignore_conds = list_concat(*ignore_conds,
-				                            list_copy(fpinfo->joinclauses));
+											list_copy(fpinfo->joinclauses));
 				fpinfo->joinclauses = NIL;
 			}
 
@@ -1365,8 +1365,8 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		{
 			initStringInfo(&join_sql_o);
 			deparseRangeTblRef(&join_sql_o, root, outerrel,
-			                   fpinfo->make_outerrel_subquery,
-			                   ignore_rel, ignore_conds, params_list);
+							   fpinfo->make_outerrel_subquery,
+							   ignore_rel, ignore_conds, params_list);
 
 			/*
 			 * If inner relation is the target relation, skip deparsing it.
@@ -1391,8 +1391,8 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		{
 			initStringInfo(&join_sql_i);
 			deparseRangeTblRef(&join_sql_i, root, innerrel,
-			                   fpinfo->make_innerrel_subquery,
-			                   ignore_rel, ignore_conds, params_list);
+							   fpinfo->make_innerrel_subquery,
+							   ignore_rel, ignore_conds, params_list);
 
 			/*
 			 * If outer relation is the target relation, skip deparsing it.
@@ -1416,7 +1416,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		 * ((outer relation) <join type> (inner relation) ON (joinclauses))
 		 */
 		appendStringInfo(buf, " %s ALL %s JOIN %s ON ", join_sql_o.data,
-		                 chfdw_get_jointype_name(fpinfo->jointype), join_sql_i.data);
+						 chfdw_get_jointype_name(fpinfo->jointype), join_sql_i.data);
 
 		/* Append join clause; (TRUE) if no join clause */
 		if (fpinfo->joinclauses)
@@ -1494,19 +1494,19 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		 * such relations can never contain an UPDATE/DELETE target.
 		 */
 		Assert(ignore_rel == 0 ||
-		       !bms_is_member(ignore_rel, foreignrel->relids));
+			   !bms_is_member(ignore_rel, foreignrel->relids));
 
 		/* Deparse the subquery representing the relation. */
 		appendStringInfoChar(buf, '(');
 		chfdw_deparse_select_stmt_for_rel(buf, root, foreignrel, NIL,
-		                        fpinfo->remote_conds, NIL,
+								fpinfo->remote_conds, NIL,
                                 false, false, true,
-		                        &retrieved_attrs, params_list);
+								&retrieved_attrs, params_list);
 		appendStringInfoChar(buf, ')');
 
 		/* Append the relation alias. */
 		appendStringInfo(buf, " %s%d", SUBQUERY_REL_ALIAS_PREFIX,
-		                 fpinfo->relation_index);
+						 fpinfo->relation_index);
 
 		/*
 		 * Append the column aliases if needed.  Note that the subquery emits
@@ -1533,7 +1533,7 @@ deparseRangeTblRef(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 	}
 	else
 		deparseFromExprForRel(buf, root, foreignrel, true, ignore_rel,
-		                      ignore_conds, params_list);
+							  ignore_conds, params_list);
 }
 
 /*
@@ -1765,6 +1765,10 @@ deparseRelation(StringInfo buf, Relation rel)
 		{
 			relname = defGetString(def);
 		}
+		else if (strcmp(def->defname, "database") == 0)
+        {
+			dbname = defGetString(def);
+        }
 	}
 	if (relname == NULL)
 	{
@@ -1772,7 +1776,7 @@ deparseRelation(StringInfo buf, Relation rel)
 	}
 
 	appendStringInfo(buf, "%s.%s", quote_identifier(dbname),
-	                 quote_identifier(relname));
+					 quote_identifier(relname));
 }
 
 /*
@@ -1888,7 +1892,7 @@ deparseExpr(Expr *node, deparse_expr_cxt *context)
 		break;
 	default:
 		elog(ERROR, "unsupported expression type for deparse: %d",
-		     (int) nodeTag(node));
+			 (int) nodeTag(node));
 		break;
 	}
 }
@@ -1920,8 +1924,8 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 	if (is_subquery_var(node, context->scanrel, &relno, &colno))
 	{
 		appendStringInfo(context->buf, "%s%d.%s%d",
-		                 SUBQUERY_REL_ALIAS_PREFIX, relno,
-		                 SUBQUERY_COL_ALIAS_PREFIX, colno);
+						 SUBQUERY_REL_ALIAS_PREFIX, relno,
+						 SUBQUERY_COL_ALIAS_PREFIX, colno);
 		return;
 	}
 
@@ -1933,7 +1937,7 @@ deparseVar(Var *node, deparse_expr_cxt *context)
 		deparseColumnRef(context->buf, cdef,
 						 node->varno, node->varattno,
 						 planner_rt_fetch(node->varno, context->root),
-		                 qualify_col);
+						 qualify_col);
 	else
 		elog(ERROR, "clickhouse_fdw does not support params");
 }
@@ -2134,7 +2138,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		appendStringInfoString(buf, "cast(");
 
 	getTypeOutputInfo(node->consttype,
-	                  &typoutput, &typIsVarlena);
+					  &typoutput, &typIsVarlena);
 
 	if (typoutput == F_TIMESTAMPTZ_OUT || typoutput == F_TIMESTAMP_OUT)
 	{
@@ -2805,8 +2809,8 @@ deparseOpExpr(OpExpr *node, deparse_expr_cxt *context)
 
 	/* Sanity check. */
 	Assert((oprkind == 'r' && list_length(node->args) == 1) ||
-	       (oprkind == 'l' && list_length(node->args) == 1) ||
-	       (oprkind == 'b' && list_length(node->args) == 2));
+		   (oprkind == 'l' && list_length(node->args) == 1) ||
+		   (oprkind == 'b' && list_length(node->args) == 2));
 
 	cdef = chfdw_check_for_custom_operator(node->opno, form);
 	if (cdef)
@@ -3589,11 +3593,11 @@ appendAggOrderBy(List *orderList, List *targetList, deparse_expr_cxt *context)
 
 		first = false;
 		sortexpr = deparseSortGroupClause(srt->tleSortGroupRef, targetList,
-		                                  false, context);
+										  false, context);
 		sortcoltype = exprType(sortexpr);
 		/* See whether operator is default < or > for datatype */
 		typentry = lookup_type_cache(sortcoltype,
-		                             TYPECACHE_LT_OPR | TYPECACHE_GT_OPR);
+									 TYPECACHE_LT_OPR | TYPECACHE_GT_OPR);
 		if (srt->sortop == typentry->lt_opr)
 			appendStringInfoString(buf, " ASC");
 		else

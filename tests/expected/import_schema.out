@@ -22,6 +22,12 @@ SELECT clickhousedb_raw_query('CREATE DATABASE regression');
  
 (1 row)
 
+SELECT clickhousedb_raw_query('CREATE DATABASE regression_2');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 -- integer types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
     c1 Int8, c2 Int16, c3 Int32, c4 Int64,
@@ -172,7 +178,7 @@ NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, 
  c9     | real             |           | not null |         |             | plain   |              | 
  c10    | double precision |           |          |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 'ints', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'ints', engine 'MergeTree')
 
 \d+ clickhouse.types;
                                               Foreign table "clickhouse.types"
@@ -188,7 +194,7 @@ FDW options: (table_name 'ints', engine 'MergeTree')
  c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'types', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse.arrays;
                                      Foreign table "clickhouse.arrays"
@@ -197,7 +203,7 @@ FDW options: (table_name 'types', engine 'MergeTree')
  c1     | integer[] |           | not null |         |             | extended |              | 
  c2     | text[]    |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'arrays', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse.tuples;
                                      Foreign table "clickhouse.tuples"
@@ -209,7 +215,7 @@ FDW options: (table_name 'arrays', engine 'MergeTree')
  c3.b   | integer[] |           | not null |         |             | extended |              | 
  c4     | smallint  |           | not null |         |             | plain    |              | 
 Server: loopback
-FDW options: (table_name 'tuples', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'tuples', engine 'MergeTree')
 
 \d+ clickhouse.timezones;
                                             Foreign table "clickhouse.timezones"
@@ -220,7 +226,7 @@ FDW options: (table_name 'tuples', engine 'MergeTree')
  t4     | timestamp without time zone |           | not null |         |             | plain   |              | 
  t5     | timestamp without time zone |           | not null |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 'timezones', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'timezones', engine 'MergeTree')
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -276,7 +282,7 @@ NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, 
  c9     | real             |           | not null |         |             | plain   |              | 
  c10    | double precision |           |          |         |             | plain   |              | 
 Server: loopback_bin
-FDW options: (table_name 'ints', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'ints', engine 'MergeTree')
 
 \d+ clickhouse_bin.types;
                                             Foreign table "clickhouse_bin.types"
@@ -292,7 +298,7 @@ FDW options: (table_name 'ints', engine 'MergeTree')
  c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback_bin
-FDW options: (table_name 'types', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse_bin.arrays;
                                    Foreign table "clickhouse_bin.arrays"
@@ -301,7 +307,7 @@ FDW options: (table_name 'types', engine 'MergeTree')
  c1     | integer[] |           | not null |         |             | extended |              | 
  c2     | text[]    |           | not null |         |             | extended |              | 
 Server: loopback_bin
-FDW options: (table_name 'arrays', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse_bin.tuples;
                                    Foreign table "clickhouse_bin.tuples"
@@ -313,7 +319,7 @@ FDW options: (table_name 'arrays', engine 'MergeTree')
  c3.b   | integer[] |           | not null |         |             | extended |              | 
  c4     | smallint  |           | not null |         |             | plain    |              | 
 Server: loopback_bin
-FDW options: (table_name 'tuples', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'tuples', engine 'MergeTree')
 
 \d+ clickhouse_bin.timezones;
                                           Foreign table "clickhouse_bin.timezones"
@@ -324,7 +330,7 @@ FDW options: (table_name 'tuples', engine 'MergeTree')
  t4     | timestamp without time zone |           | not null |         |             | plain   |              | 
  t5     | timestamp without time zone |           | not null |         |             | plain   |              | 
 Server: loopback_bin
-FDW options: (table_name 'timezones', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'timezones', engine 'MergeTree')
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
@@ -379,7 +385,7 @@ IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback I
  c9     | real             |           | not null |         |             | plain   |              | 
  c10    | double precision |           |          |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 'ints', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'ints', engine 'MergeTree')
 
 \d+ clickhouse_limit.types;
                                            Foreign table "clickhouse_limit.types"
@@ -395,7 +401,7 @@ FDW options: (table_name 'ints', engine 'MergeTree')
  c9     | character varying(50)       |           |          |         |             | extended |              | 
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'types', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'types', engine 'MergeTree')
 
 \d+ clickhouse_limit.arrays;
 \d+ clickhouse_limit.tuples;
@@ -410,7 +416,7 @@ NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, 
  c1     | integer[] |           | not null |         |             | extended |              | 
  c2     | text[]    |           | not null |         |             | extended |              | 
 Server: loopback
-FDW options: (table_name 'arrays', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'arrays', engine 'MergeTree')
 
 \d+ clickhouse_except.tuples;
                                  Foreign table "clickhouse_except.tuples"
@@ -422,7 +428,32 @@ FDW options: (table_name 'arrays', engine 'MergeTree')
  c3.b   | integer[] |           | not null |         |             | extended |              | 
  c4     | smallint  |           | not null |         |             | plain    |              | 
 Server: loopback
-FDW options: (table_name 'tuples', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'tuples', engine 'MergeTree')
+
+-- check custom database
+SELECT clickhousedb_raw_query('CREATE TABLE regression_2.custom_option (a Int64) ENGINE = MergeTree ORDER BY (a)');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+IMPORT FOREIGN SCHEMA "regression_2" FROM SERVER loopback INTO clickhouse;
+EXPLAIN VERBOSE SELECT * FROM clickhouse.custom_option;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on clickhouse.custom_option  (cost=0.00..0.00 rows=0 width=8)
+   Output: a
+   Remote SQL: SELECT a FROM regression_2.custom_option
+(3 rows)
+
+ALTER FOREIGN TABLE clickhouse.custom_option OPTIONS (DROP database);
+EXPLAIN VERBOSE SELECT * FROM clickhouse.custom_option;
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Foreign Scan on clickhouse.custom_option  (cost=0.00..0.00 rows=0 width=8)
+   Output: a
+   Remote SQL: SELECT a FROM regression.custom_option
+(3 rows)
 
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
@@ -432,8 +463,14 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
  
 (1 row)
 
+SELECT clickhousedb_raw_query('DROP DATABASE regression_2');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 17 other objects
+NOTICE:  drop cascades to 18 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table clickhouse.arrays
 drop cascades to foreign table clickhouse.ints
@@ -445,6 +482,7 @@ drop cascades to foreign table clickhouse_limit.types
 drop cascades to foreign table clickhouse_except.arrays
 drop cascades to foreign table clickhouse_except.timezones
 drop cascades to foreign table clickhouse_except.tuples
+drop cascades to foreign table clickhouse.custom_option
 drop cascades to server loopback_bin
 drop cascades to foreign table clickhouse_bin.arrays
 drop cascades to foreign table clickhouse_bin.ints

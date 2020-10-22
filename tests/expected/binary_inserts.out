@@ -185,7 +185,7 @@ ALTER TABLE complex ALTER COLUMN c7 SET DATA TYPE timestamp(3);
  c6     | text                           |           | not null |         |             | extended |              | 
  c7     | timestamp(3) without time zone |           | not null |         |             | plain    |              | 
 Server: loopback
-FDW options: (table_name 'complex', engine 'MergeTree')
+FDW options: (database 'regression', table_name 'complex', engine 'MergeTree')
 
 INSERT INTO complex VALUES
 	(1, '2020-06-01', '2020-06-02 10:01:02', 't1', 'fix_t1', 'low1', '2020-06-02 10:01:02.123'),

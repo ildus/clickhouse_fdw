@@ -37,7 +37,7 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO public;
  a      | integer  |           | not null |         |             | plain   |              | 
  b      | smallint |           | not null |         |             | plain   |              | 
 Server: loopback
-FDW options: (table_name 't1', engine 'MergeTree')
+FDW options: (database 'regression', table_name 't1', engine 'MergeTree')
 
 ALTER TABLE t1 ALTER COLUMN b SET DATA TYPE bool;
 EXPLAIN (VERBOSE, COSTS OFF)

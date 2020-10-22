@@ -98,8 +98,8 @@ chfdw_http_connect(char *connstring)
 			error = "undefined";
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("could not connect to server: %s", error)));
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+				 errmsg("could not connect to server: %s", error)));
 	}
 
 	res.conn = conn;
@@ -174,8 +174,8 @@ again:
 			goto again;
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse_fdw: communication error: %s", error)));
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+				 errmsg("clickhouse_fdw: communication error: %s", error)));
 	}
 	else if (resp->http_status == 418)
 	{
@@ -183,8 +183,8 @@ again:
 		ch_http_response_free(resp);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw: query was aborted")));
+				(errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+				 errmsg("clickhouse_fdw: query was aborted")));
 	}
 	else if (resp->http_status != 200)
 	{
@@ -192,8 +192,8 @@ again:
 		ch_http_response_free(resp);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw:%s\nQUERY:%.10000s", format_error(error), query)));
+				(errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+				 errmsg("clickhouse_fdw:%s\nQUERY:%.10000s", format_error(error), query)));
 	}
 
 	/* we could not control properly deallocation of libclickhouse memory, so
@@ -232,8 +232,8 @@ http_simple_insert(void *conn, const char *query)
 			error = "undefined";
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse_fdw: communication error: %s", error)));
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+				 errmsg("clickhouse_fdw: communication error: %s", error)));
 	}
 
 	if (resp->http_status != 200)
@@ -242,8 +242,8 @@ http_simple_insert(void *conn, const char *query)
 		ch_http_response_free(resp);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw:%s", format_error(error)),
+				(errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+				 errmsg("clickhouse_fdw:%s", format_error(error)),
 				 errdetail("query: %.1024s", query)));
 	}
 
@@ -334,7 +334,7 @@ extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 		{
 			int			attnum = lfirst_int(lc);
 			Datum		value;
-			Oid		    type;
+			Oid			type;
 			bool		isnull;
 
 			value = slot_getattr(slot, attnum, &isnull);
@@ -426,8 +426,8 @@ extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 			}
 			default:
 				ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-				                errmsg("cannot convert constant value to clickhouse value"),
-				                errhint("Constant value data type: %u", type)));
+								errmsg("cannot convert constant value to clickhouse value"),
+								errhint("Constant value data type: %u", type)));
 			}
 			pindex++;
 		}
@@ -484,8 +484,8 @@ chfdw_binary_connect(ch_connection_details *details)
 		free(ch_error);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse_fdw: connection error: %s", error)));
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+				 errmsg("clickhouse_fdw: connection error: %s", error)));
 	}
 
 	res.conn = conn;
@@ -517,8 +517,8 @@ binary_simple_query(void *conn, const char *query)
 		ch_binary_response_free(resp);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse_fdw: %s", error)));
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+				 errmsg("clickhouse_fdw: %s", error)));
 	}
 
 	tempcxt = AllocSetContextCreate(PortalContext, "clickhouse_fdw cursor",
@@ -543,8 +543,8 @@ binary_simple_query(void *conn, const char *query)
 	if (state->error)
 	{
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-		         errmsg("clickhouse_fdw: could not initialize read state: %s",
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+				 errmsg("clickhouse_fdw: could not initialize read state: %s",
 					 state->error)));
 	}
 
@@ -563,8 +563,8 @@ binary_fetch_row(ch_cursor *cursor, List *attrs, TupleDesc tupdesc,
 
 	if (state->error)
 		ereport(ERROR,
-		        (errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
-		         errmsg("clickhouse_fdw: error while reading row: %s",
+				(errcode(ERRCODE_SQL_ROUTINE_EXCEPTION),
+				 errmsg("clickhouse_fdw: error while reading row: %s",
 					 state->error)));
 
 	if (!have_data)
@@ -895,7 +895,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS \"%s\".\"%s\" (\n",
 			stmt->local_schema, table_name);
-		query = psprintf("select name, type from system.columns where database='%s' and table='%s'", stmt->remote_schema, table_name);
+		query = psprintf("select name, type from system.columns where database='%s' and table='%s'",
+            stmt->remote_schema, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);
 
 		while ((dvalues = (char **) conn.methods->fetch_row(table_def,
@@ -951,8 +952,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				appendStringInfoString(&buf, " NOT NULL");
 		}
 
-		appendStringInfo(&buf, "\n) SERVER %s OPTIONS (table_name '%s'",
-			server->servername, table_name);
+		appendStringInfo(&buf, "\n) SERVER %s OPTIONS (database '%s', table_name '%s'",
+			server->servername, stmt->remote_schema, table_name);
 
 		if (engine && engine_full && strcmp(engine, "CollapsingMergeTree") == 0)
 		{

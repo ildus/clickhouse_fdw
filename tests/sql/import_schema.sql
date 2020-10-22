@@ -13,6 +13,7 @@ CREATE USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
 
 SELECT clickhousedb_raw_query('DROP DATABASE IF EXISTS regression');
 SELECT clickhousedb_raw_query('CREATE DATABASE regression');
+SELECT clickhousedb_raw_query('CREATE DATABASE regression_2');
 
 -- integer types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.ints (
@@ -136,8 +137,17 @@ IMPORT FOREIGN SCHEMA "regression" EXCEPT (ints, types) FROM SERVER loopback INT
 \d+ clickhouse_except.arrays;
 \d+ clickhouse_except.tuples;
 
+-- check custom database
+SELECT clickhousedb_raw_query('CREATE TABLE regression_2.custom_option (a Int64) ENGINE = MergeTree ORDER BY (a)');
+IMPORT FOREIGN SCHEMA "regression_2" FROM SERVER loopback INTO clickhouse;
+
+EXPLAIN VERBOSE SELECT * FROM clickhouse.custom_option;
+ALTER FOREIGN TABLE clickhouse.custom_option OPTIONS (DROP database);
+EXPLAIN VERBOSE SELECT * FROM clickhouse.custom_option;
+
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback;
 DROP USER MAPPING FOR CURRENT_USER SERVER loopback_bin;
 
 SELECT clickhousedb_raw_query('DROP DATABASE regression');
+SELECT clickhousedb_raw_query('DROP DATABASE regression_2');
 DROP EXTENSION clickhouse_fdw CASCADE;

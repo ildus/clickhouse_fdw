@@ -104,14 +104,14 @@ clickhousedb_fdw_validator(PG_FUNCTION_ARGS)
 			{
 				if (catalog == opt->optcontext)
 					appendStringInfo(&buf, "%s%s", (buf.len > 0) ? ", " : "",
-					                 opt->keyword);
+									 opt->keyword);
 			}
 
 			ereport(ERROR,
-			        (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
-			         errmsg("invalid option \"%s\"", def->defname),
-			         errhint("Valid options in this context are: %s",
-			                 buf.data)));
+					(errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+					 errmsg("invalid option \"%s\"", def->defname),
+					 errhint("Valid options in this context are: %s",
+							 buf.data)));
 		}
 	}
 
@@ -131,6 +131,7 @@ InitChFdwOptions(void)
 	/* non-clickhouseclient FDW-specific FDW options */
 	static const ChFdwOption non_ch_options[] =
 	{
+		{"database", ForeignTableRelationId, false},
 		{"table_name", ForeignTableRelationId, false},
 		{"engine", ForeignTableRelationId, false},
 		{"driver", ForeignServerRelationId, false},
@@ -160,11 +161,11 @@ InitChFdwOptions(void)
 	 * string.
 	 */
 	clickhousedb_fdw_options = (ChFdwOption *) malloc(sizeof(
-	                               ChFdwOption) * num_ch_opts + sizeof(non_ch_options));
+								   ChFdwOption) * num_ch_opts + sizeof(non_ch_options));
 	if (clickhousedb_fdw_options == NULL)
 		ereport(ERROR,
-		        (errcode(ERRCODE_FDW_OUT_OF_MEMORY),
-		         errmsg("out of memory")));
+				(errcode(ERRCODE_FDW_OUT_OF_MEMORY),
+				 errmsg("out of memory")));
 
 	popt = clickhousedb_fdw_options;
 	for (lopt = ch_options; lopt->keyword; lopt++)
@@ -177,8 +178,8 @@ InitChFdwOptions(void)
 		 * Everything else is a server option.
 		 */
 		if (strcmp(lopt->keyword, "user") == 0 ||
-		        strcmp(lopt->keyword, "password") == 0 ||
-		        strchr(lopt->dispchar, '*'))
+				strcmp(lopt->keyword, "password") == 0 ||
+				strchr(lopt->dispchar, '*'))
 		{
 			popt->optcontext = UserMappingRelationId;
 		}
