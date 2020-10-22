@@ -76,6 +76,7 @@ init_custom_entry(CustomObjectDef *entry)
 
 CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 {
+	bool special_builtin = false;
 	CustomObjectDef	*entry;
 
 	if (chfdw_is_builtin(funcid))
@@ -89,6 +90,9 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_TIMESTAMP_PART:
 			case F_TIMESTAMPTZ_PART:
 			case F_ARRAY_POSITION:
+			case F_BTRIM:
+			case F_BTRIM1:
+				special_builtin = true;
 				break;
 			default:
 				return NULL;
@@ -99,7 +103,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 		custom_objects_cache = create_custom_objects_cache();
 
 	entry = hash_search(custom_objects_cache, (void *) &funcid, HASH_FIND, NULL);
-	while (!entry)
+	if (!entry)
 	{
 		Oid			extoid;
 		char	   *extname;
@@ -109,29 +113,44 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 		entry->cf_oid = funcid;
 		init_custom_entry(entry);
 
-		if (funcid == F_TIMESTAMPTZ_TRUNC || funcid == F_TIMESTAMP_TRUNC)
+		switch (funcid)
 		{
-			entry->cf_type = CF_DATE_TRUNC;
-			entry->custom_name[0] = '\1';
-			break;
+			case F_TIMESTAMPTZ_TRUNC:
+			case F_TIMESTAMP_TRUNC:
+			{
+				entry->cf_type = CF_DATE_TRUNC;
+				entry->custom_name[0] = '\1';
+				break;
+			}
+			case F_TIMESTAMPTZ_PART:
+			case F_TIMESTAMP_PART:
+			{
+				entry->cf_type = CF_DATE_PART;
+				entry->custom_name[0] = '\1';
+				break;
+			}
+			case F_TIMESTAMP_ZONE:
+			case F_TIMESTAMPTZ_ZONE:
+			{
+				entry->cf_type = CF_TIMEZONE;
+				strcpy(entry->custom_name, "toTimeZone");
+				break;
+			}
+			case F_ARRAY_POSITION:
+			{
+				strcpy(entry->custom_name, "indexOf");
+				break;
+			}
+			case F_BTRIM:
+			case F_BTRIM1:
+			{
+				strcpy(entry->custom_name, "trimBoth");
+				break;
+			}
 		}
-		else if (funcid == F_TIMESTAMPTZ_PART || funcid == F_TIMESTAMP_PART)
-		{
-			entry->cf_type = CF_DATE_PART;
-			entry->custom_name[0] = '\1';
-			break;
-		}
-		else if (funcid == F_TIMESTAMP_ZONE || funcid == F_TIMESTAMPTZ_ZONE)
-		{
-			entry->cf_type = CF_TIMEZONE;
-			strcpy(entry->custom_name, "toTimeZone");
-			break;
-		}
-		else if (funcid == F_ARRAY_POSITION)
-		{
-			strcpy(entry->custom_name, "indexOf");
-			break;
-		}
+
+		if (special_builtin)
+			return entry;
 
 		extoid = getExtensionOfObject(ProcedureRelationId, funcid);
 		extname = get_extension_name(extoid);
@@ -246,8 +265,6 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			ReleaseSysCache(proctup);
 			pfree(extname);
 		}
-
-		break;
 	}
 
 	return entry;

@@ -64,12 +64,20 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.t3_map (key1 Int32, key2 
  
 (1 row)
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (val String) engine=TinyLog();');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
 CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
 CREATE FOREIGN TABLE t3 (a int, b int) SERVER loopback;
 CREATE FOREIGN TABLE t3_map (key1 int, key2 text, val text) SERVER loopback;
+CREATE FOREIGN TABLE t4 (val text) SERVER loopback;
 INSERT INTO t3 SELECT i, i + 1 FROM generate_series(1, 10) i;
 INSERT INTO t3_map SELECT i, 'key'|| i::text, 'val' || i::text FROM generate_series(1, 10) i;
+INSERT INTO t4 SELECT 'val' || i::text FROM generate_series(1, 2) i;
 SELECT clickhousedb_raw_query($$
 	create dictionary regression.t3_dict
     (key1 Int32, key2 String, val String)
@@ -352,6 +360,22 @@ SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDE
  1546423200
 (2 rows)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: (ltrim(val)), (btrim(val)), (rtrim(val))
+   Relations: Aggregate on (t4)
+   Remote SQL: SELECT ltrim(val), trimBoth(val), rtrim(val) FROM regression.t4 GROUP BY (ltrim(val)), (trimBoth(val)), (rtrim(val)) ORDER BY ltrim(val) ASC
+(4 rows)
+
+SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
+  a   |  b   |  c   
+------+------+------
+ val1 | val1 | val1
+ val2 | val2 | val2
+(2 rows)
+
 --- check dictGet
 -- dictGet is broken for now
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
@@ -382,9 +406,10 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression');
 (1 row)
 
 DROP EXTENSION IF EXISTS clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 5 other objects
+NOTICE:  drop cascades to 6 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table t1
 drop cascades to foreign table t2
 drop cascades to foreign table t3
 drop cascades to foreign table t3_map
+drop cascades to foreign table t4

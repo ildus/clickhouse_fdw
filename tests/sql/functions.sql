@@ -29,14 +29,17 @@ SELECT clickhousedb_raw_query('
 	order by a');
 SELECT clickhousedb_raw_query('CREATE TABLE regression.t3_map (key1 Int32, key2 String,
         val String) engine=TinyLog();');
+SELECT clickhousedb_raw_query('CREATE TABLE regression.t4 (val String) engine=TinyLog();');
 
 CREATE FOREIGN TABLE t1 (a int, b int, c timestamp) SERVER loopback;
 CREATE FOREIGN TABLE t2 (a int, b int, c timestamp with time zone) SERVER loopback OPTIONS (table_name 't1');
 CREATE FOREIGN TABLE t3 (a int, b int) SERVER loopback;
 CREATE FOREIGN TABLE t3_map (key1 int, key2 text, val text) SERVER loopback;
+CREATE FOREIGN TABLE t4 (val text) SERVER loopback;
 
 INSERT INTO t3 SELECT i, i + 1 FROM generate_series(1, 10) i;
 INSERT INTO t3_map SELECT i, 'key'|| i::text, 'val' || i::text FROM generate_series(1, 10) i;
+INSERT INTO t4 SELECT 'val' || i::text FROM generate_series(1, 2) i;
 
 SELECT clickhousedb_raw_query($$
 	create dictionary regression.t3_dict
@@ -98,6 +101,9 @@ SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORD
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
+SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
 
 --- check dictGet
 -- dictGet is broken for now
