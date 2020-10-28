@@ -2355,7 +2355,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		Const *arg = (Const *) linitial(node->args);
 		char *trunctype = TextDatumGetCString(arg->constvalue);
 		for(int i = 0; trunctype[i]; i++){
-		  str[i] = tolower(trunctype[i]);
+		  trunctype[i] = tolower(trunctype[i]);
 		}
 		if (strcmp(trunctype, "week") == 0)
 			appendStringInfoString(buf, "toMonday");
@@ -2387,7 +2387,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		Const *arg = (Const *) linitial(node->args);
 		char *parttype = TextDatumGetCString(arg->constvalue);
 		for(int i = 0; parttype[i]; i++){
-		  str[i] = tolower(parttype[i]);
+		  parttype[i] = tolower(parttype[i]);
 		}
 
 		if (strcmp(parttype, "day") == 0)
