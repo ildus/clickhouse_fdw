@@ -466,7 +466,7 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 	if (custom_columns_cache == NULL)
 		custom_columns_cache = create_custom_columns_cache();
 
-	rel = heap_open(relid, NoLock);
+	rel = table_open_compat(relid, NoLock);
 	tupdesc = RelationGetDescr(rel);
 
 	for (attnum = 1; attnum <= tupdesc->natts; attnum++)
@@ -490,7 +490,7 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 		entry->varattno = attnum;
 		entry->table_engine = fpinfo->ch_table_engine;
 		entry->coltype = CF_USUAL;
-		entry->is_AggregateFunction = CF_USUAL;
+		entry->is_AggregateFunction = CF_AGGR_USUAL;
 		strcpy(entry->colname, NameStr(attr->attname));
 		strcpy(entry->signfield, fpinfo->ch_table_sign_field);
 
@@ -523,7 +523,7 @@ chfdw_apply_custom_table_options(CHFdwRelationInfo *fpinfo, Oid relid)
 		if (cdef && cdef->cf_type == CF_ISTORE_TYPE)
 			entry->coltype = cf_type;
 	}
-	heap_close(rel, NoLock);
+	table_close_compat(rel, NoLock);
 }
 
 /* Get foreign relation options */

@@ -43,7 +43,9 @@
 
 #include "clickhousedb_fdw.h"
 
+#ifndef MAXINT8LEN
 #define MAXINT8LEN		25
+#endif
 
 /* variable counter */
 static uint32 var_counter = 0;
@@ -1049,11 +1051,11 @@ deparseSelectSql(List *tlist, bool is_subquery, List **retrieved_attrs,
 		 * Core code already has some lock on each rel being planned, so we
 		 * can use NoLock here.
 		 */
-		Relation	rel = heap_open(rte->relid, NoLock);
+		Relation	rel = table_open_compat(rte->relid, NoLock);
 
 		deparseTargetList(buf, rte, foreignrel->relid, rel,
 						  fpinfo->attrs_used, false, retrieved_attrs);
-		heap_close(rel, NoLock);
+		table_close_compat(rel, NoLock);
 	}
 	elog(DEBUG2, "< %s:%d", __FUNCTION__, __LINE__);
 }
@@ -1449,7 +1451,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 		 * Core code already has some lock on each rel being planned, so we
 		 * can use NoLock here.
 		 */
-		Relation	rel = heap_open(rte->relid, NoLock);
+		Relation	rel = table_open_compat(rte->relid, NoLock);
 
 		deparseRelation(buf, rel);
 
@@ -1463,7 +1465,7 @@ deparseFromExprForRel(StringInfo buf, PlannerInfo *root, RelOptInfo *foreignrel,
 			appendStringInfo(buf, " %s%d", REL_ALIAS_PREFIX, foreignrel->relid);
 		}
 
-		heap_close(rel, NoLock);
+		table_close_compat(rel, NoLock);
 	}
 }
 
@@ -2294,7 +2296,7 @@ deparseSubscriptingRef(SubscriptingRef *node, deparse_expr_cxt *context)
 		{
 			deparseExpr(lfirst(lowlist_item), context);
 			appendStringInfoChar(buf, ':');
-			lowlist_item = lnext(lowlist_item);
+			lowlist_item = lnext_compat(node->reflowerindexpr, lowlist_item);
 		}
 		deparseExpr(lfirst(uplist_item), context);
 		appendStringInfoChar(buf, ']');

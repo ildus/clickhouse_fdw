@@ -281,6 +281,7 @@ typedef enum {
 } custom_object_type;
 
 typedef enum {
+    CF_AGGR_USUAL = 0,
 	CF_AGGR_FUNC = 1,
 	CF_AGGR_SIMPLE = 2
 } ch_aggregate_func_type;
@@ -337,6 +338,16 @@ extern double time_diff(struct timeval *prior, struct timeval *latter);
 #else
 #define CreateTemplateTupleDescCompat(natts) \
 	CreateTemplateTupleDesc(natts)
+#endif
+
+#if PG_VERSION_NUM < 130000
+#define table_open_compat(i,l) heap_open(i, l)
+#define table_close_compat(r,l) heap_close(r, l)
+#define lnext_compat(l,i) lnext(i)
+#else
+#define table_open_compat(i,l) table_open(i, l)
+#define table_close_compat(r,l) table_close(r, l)
+#define lnext_compat(l,i) lnext(l,i)
 #endif
 
 #endif							/* CLICKHOUSE_FDW_H */

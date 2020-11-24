@@ -1033,7 +1033,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 	 * Core code already has some lock on each rel being planned, so we can
 	 * use NoLock here.
 	 */
-	rel = heap_open(rte->relid, NoLock);
+	rel = table_open_compat(rte->relid, NoLock);
 	if (operation == CMD_INSERT)
 	{
 		TupleDesc	tupdesc = RelationGetDescr(rel);
@@ -1067,7 +1067,7 @@ clickhousePlanForeignModify(PlannerInfo *root,
 		break;
 	}
 
-	heap_close(rel, NoLock);
+	table_close_compat(rel, NoLock);
 
 
 	/*
