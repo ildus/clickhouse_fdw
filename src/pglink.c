@@ -761,7 +761,7 @@ readstr(ch_connection conn, char *val)
 }
 
 static char *
-parse_type(char *typepart, bool *is_nullable, List **options)
+parse_type(char *colname, char *typepart, bool *is_nullable, List **options)
 {
 	char *pos = strstr(typepart, "(");
 
@@ -790,12 +790,12 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 		else if (strncmp(typepart, "Tuple", strlen("Tuple")) == 0)
 		{
 			elog(NOTICE, "clickhouse_fdw: ClickHouse <Tuple> type was "
-				"translated to <TEXT> type, please create composite type and alter the column if needed");
+				"translated to <TEXT> type for column \"%s\", please create composite type and alter the column if needed", colname);
 			return "TEXT";
 		}
 		else if (strncmp(typepart, "Array", strlen("Array")) == 0)
 		{
-			return psprintf("%s[]", parse_type(insidebr, NULL, options));
+			return psprintf("%s[]", parse_type(colname, insidebr, NULL, options));
 		}
 		else if (strncmp(typepart, "Nullable", strlen("Nullable")) == 0)
 		{
@@ -803,7 +803,11 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 				elog(ERROR, "clickhouse_fdw: nested Nullable is not supported");
 
 			*is_nullable = true;
-			return parse_type(insidebr, NULL, options);
+			return parse_type(colname, insidebr, NULL, options);
+		}
+		else if (strncmp(typepart, "LowCardinality", strlen("LowCardinality")) == 0)
+		{
+			return parse_type(colname, insidebr, is_nullable, options);
 		}
 		else if (strncmp(typepart, "AggregateFunction", strlen("AggregateFunction")) == 0 ||
 				 strncmp(typepart, "SimpleAggregateFunction", strlen("SimpleAggregateFunction")) == 0)
@@ -824,7 +828,7 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 			if (strncmp(func, "sumMap", 6) == 0)
 				return "istore";
 
-			return parse_type(pos2 + 2, is_nullable, options);
+			return parse_type(colname, pos2 + 2, is_nullable, options);
 		}
 
 		typepart = pos + 1;
@@ -834,7 +838,15 @@ parse_type(char *typepart, bool *is_nullable, List **options)
 	while (str_types_map[i] != NULL)
 	{
 		if (strncmp(str_types_map[i][0], typepart, strlen(str_types_map[i][0])) == 0)
+		{
+			if (strcmp(typepart, "UInt8") == 0)
+			{
+				elog(NOTICE, "clickhouse_fdw: ClickHouse <UInt8> type was "
+					"translated to <INT2> type for column \"%s\", change it to BOOLEAN if needed", colname);
+			}
 			return pstrdup(str_types_map[i][1]);
+		}
+
 		i++;
 	}
 
@@ -904,14 +916,15 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		{
 			List   *options = NIL;
 			bool	is_nullable = false;
-			char   *remote_type = parse_type(readstr(conn, dvalues[1]), &is_nullable, &options);
+			char   *colname = readstr(conn, dvalues[0]);
+			char   *remote_type = parse_type(colname, readstr(conn, dvalues[1]), &is_nullable, &options);
 
 			if (!first)
 				appendStringInfoString(&buf, ",\n");
 			first = false;
 
 			/* name */
-			appendStringInfo(&buf, "\t\"%s\" ", readstr(conn, dvalues[0]));
+			appendStringInfo(&buf, "\t\"%s\" ", colname);
 
 			/* type */
 			appendStringInfoString(&buf, remote_type);

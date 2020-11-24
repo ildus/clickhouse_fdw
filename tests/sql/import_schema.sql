@@ -49,6 +49,14 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
     format(''cardinal {0}'', toString(number))
     FROM numbers(10);');
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.types2 (
+    c1 LowCardinality(Nullable(String))
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+SELECT clickhousedb_raw_query('INSERT INTO regression.types2 SELECT
+    format(''cardinal {0}'', toString(number + 1))
+    FROM numbers(10);');
+
 -- array types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
     c1 Array(Int), c2 Array(String)
@@ -99,12 +107,14 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
 
 \d+ clickhouse.ints;
 \d+ clickhouse.types;
+\d+ clickhouse.types2;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
 \d+ clickhouse.timezones;
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse.types2 ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.timezones ORDER BY t1 LIMIT 2;
@@ -113,12 +123,14 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 
 \d+ clickhouse_bin.ints;
 \d+ clickhouse_bin.types;
+\d+ clickhouse_bin.types2;
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
 \d+ clickhouse_bin.timezones;
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
+SELECT * FROM clickhouse_bin.types2 ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.timezones ORDER BY t1 LIMIT 2;

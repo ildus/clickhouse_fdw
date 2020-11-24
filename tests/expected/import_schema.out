@@ -85,6 +85,23 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
  
 (1 row)
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.types2 (
+    c1 LowCardinality(Nullable(String))
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query('INSERT INTO regression.types2 SELECT
+    format(''cardinal {0}'', toString(number + 1))
+    FROM numbers(10);');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 -- array types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
     c1 Array(Int), c2 Array(String)
@@ -162,7 +179,8 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.timezones VALUES (
 (1 row)
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
-NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+NOTICE:  clickhouse_fdw: ClickHouse <UInt8> type was translated to <INT2> type for column "c5", change it to BOOLEAN if needed
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type for column "c2", please create composite type and alter the column if needed
 \d+ clickhouse.ints;
                                          Foreign table "clickhouse.ints"
  Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
@@ -195,6 +213,14 @@ FDW options: (database 'regression', table_name 'ints', engine 'MergeTree')
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback
 FDW options: (database 'regression', table_name 'types', engine 'MergeTree')
+
+\d+ clickhouse.types2;
+                                  Foreign table "clickhouse.types2"
+ Column | Type | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | text |           |          |         |             | extended |              | 
+Server: loopback
+FDW options: (database 'regression', table_name 'types2', engine 'MergeTree')
 
 \d+ clickhouse.arrays;
                                      Foreign table "clickhouse.arrays"
@@ -244,6 +270,13 @@ SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
  1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | 1  | cardinal 1
 (2 rows)
 
+SELECT * FROM clickhouse.types2 ORDER BY c1 LIMIT 2;
+     c1      
+-------------
+ cardinal 1
+ cardinal 10
+(2 rows)
+
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
   c1   |       c2        
 -------+-----------------
@@ -266,7 +299,8 @@ SELECT * FROM clickhouse.timezones ORDER BY t1 LIMIT 2;
 (2 rows)
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
-NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+NOTICE:  clickhouse_fdw: ClickHouse <UInt8> type was translated to <INT2> type for column "c5", change it to BOOLEAN if needed
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type for column "c2", please create composite type and alter the column if needed
 \d+ clickhouse_bin.ints;
                                        Foreign table "clickhouse_bin.ints"
  Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
@@ -299,6 +333,14 @@ FDW options: (database 'regression', table_name 'ints', engine 'MergeTree')
  c8     | text                        |           | not null |         |             | extended |              | 
 Server: loopback_bin
 FDW options: (database 'regression', table_name 'types', engine 'MergeTree')
+
+\d+ clickhouse_bin.types2;
+                                Foreign table "clickhouse_bin.types2"
+ Column | Type | Collation | Nullable | Default | FDW options | Storage  | Stats target | Description 
+--------+------+-----------+----------+---------+-------------+----------+--------------+-------------
+ c1     | text |           |          |         |             | extended |              | 
+Server: loopback_bin
+FDW options: (database 'regression', table_name 'types2', engine 'MergeTree')
 
 \d+ clickhouse_bin.arrays;
                                    Foreign table "clickhouse_bin.arrays"
@@ -348,6 +390,8 @@ SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
  1990-01-02 | 1990-01-02 10:01:01 | number 1 | num 1 | f4bf890f-f9dc-4332-ad5c-0c18e73f28e1 | two | three | 1  | cardinal 1
 (2 rows)
 
+SELECT * FROM clickhouse_bin.types2 ORDER BY c1 LIMIT 2;
+ERROR:  clickhouse_fdw: LowCardinality(Nullable) is not supported
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
   c1   |     c2      
 -------+-------------
@@ -370,6 +414,7 @@ SELECT * FROM clickhouse_bin.timezones ORDER BY t1 LIMIT 2;
 (2 rows)
 
 IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
+NOTICE:  clickhouse_fdw: ClickHouse <UInt8> type was translated to <INT2> type for column "c5", change it to BOOLEAN if needed
 \d+ clickhouse_limit.ints;
                                       Foreign table "clickhouse_limit.ints"
  Column |       Type       | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
@@ -406,7 +451,7 @@ FDW options: (database 'regression', table_name 'types', engine 'MergeTree')
 \d+ clickhouse_limit.arrays;
 \d+ clickhouse_limit.tuples;
 IMPORT FOREIGN SCHEMA "regression" EXCEPT (ints, types) FROM SERVER loopback INTO clickhouse_except;
-NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type, please create composite type and alter the column if needed
+NOTICE:  clickhouse_fdw: ClickHouse <Tuple> type was translated to <TEXT> type for column "c2", please create composite type and alter the column if needed
 \d+ clickhouse_except.ints;
 \d+ clickhouse_except.types;
 \d+ clickhouse_except.arrays;
@@ -470,18 +515,20 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression_2');
 (1 row)
 
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 18 other objects
+NOTICE:  drop cascades to 21 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table clickhouse.arrays
 drop cascades to foreign table clickhouse.ints
 drop cascades to foreign table clickhouse.timezones
 drop cascades to foreign table clickhouse.tuples
 drop cascades to foreign table clickhouse.types
+drop cascades to foreign table clickhouse.types2
 drop cascades to foreign table clickhouse_limit.ints
 drop cascades to foreign table clickhouse_limit.types
 drop cascades to foreign table clickhouse_except.arrays
 drop cascades to foreign table clickhouse_except.timezones
 drop cascades to foreign table clickhouse_except.tuples
+drop cascades to foreign table clickhouse_except.types2
 drop cascades to foreign table clickhouse.custom_option
 drop cascades to server loopback_bin
 drop cascades to foreign table clickhouse_bin.arrays
@@ -489,3 +536,4 @@ drop cascades to foreign table clickhouse_bin.ints
 drop cascades to foreign table clickhouse_bin.timezones
 drop cascades to foreign table clickhouse_bin.tuples
 drop cascades to foreign table clickhouse_bin.types
+drop cascades to foreign table clickhouse_bin.types2

@@ -203,6 +203,8 @@ ch_binary_response_t * ch_binary_simple_query(
 	}
 	catch (const std::exception & e)
 	{
+        client->ResetConnection();
+
 		values->clear();
 		set_resp_error(resp, e.what());
 		delete values;
@@ -294,11 +296,10 @@ void ch_binary_insert_state_free(void * c)
 void ch_binary_prepare_insert(void * conn, char * query, ch_binary_insert_state * state)
 {
 	std::vector<clickhouse::ColumnRef> * vec = nullptr;
+	Client * client = (Client *)((ch_binary_connection_t *)conn)->client;
 
 	try
 	{
-		Client * client = (Client *)((ch_binary_connection_t *)conn)->client;
-
 		client->PrepareInsert(
 			std::string(query) + " VALUES", [&state, &vec](const Block & sample_block) {
 				if (sample_block.GetColumnCount() == 0)
@@ -351,6 +352,8 @@ void ch_binary_prepare_insert(void * conn, char * query, ch_binary_insert_state 
 	}
 	catch (const std::exception & e)
 	{
+        client->ResetConnection();
+
 		if (vec != nullptr)
 			delete vec;
 

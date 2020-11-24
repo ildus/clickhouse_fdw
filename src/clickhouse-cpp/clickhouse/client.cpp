@@ -111,6 +111,10 @@ private:
     void WriteBlock(const Block& block, CodedOutputStream* output);
 
 private:
+    void Disconnect() {
+        socket_.Close();
+    }
+
     /// In case of network errors tries to reconnect to server and
     /// call fuc several times.
     void RetryGuard(std::function<void()> fuc);
@@ -188,7 +192,9 @@ Client::Impl::Impl(const ClientOptions& opts)
 }
 
 Client::Impl::~Impl()
-{ }
+{
+    Disconnect();
+}
 
 void Client::Impl::ExecuteQuery(Query query) {
     EnsureNull en(static_cast<QueryEvents*>(&query), &events_);
