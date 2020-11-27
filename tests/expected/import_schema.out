@@ -102,6 +102,27 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types2 SELECT
  
 (1 row)
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.ip (
+    c1 IPv4,
+    c2 IPv6
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
+SELECT clickhousedb_raw_query($$
+    INSERT INTO regression.ip VALUES
+    ('116.106.34.242', '2001:44c8:129:2632:33:0:252:2'),
+    ('116.106.34.243', '2a02:e980:1e::1'),
+    ('116.106.34.244', '::1');
+$$);
+ clickhousedb_raw_query 
+------------------------
+ 
+(1 row)
+
 -- array types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
     c1 Array(Int), c2 Array(String)
@@ -254,6 +275,15 @@ FDW options: (database 'regression', table_name 'tuples', engine 'MergeTree')
 Server: loopback
 FDW options: (database 'regression', table_name 'timezones', engine 'MergeTree')
 
+\d+ clickhouse.ip;
+                                    Foreign table "clickhouse.ip"
+ Column | Type | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | inet |           | not null |         |             | main    |              | 
+ c2     | inet |           | not null |         |             | main    |              | 
+Server: loopback
+FDW options: (database 'regression', table_name 'ip', engine 'MergeTree')
+
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
 ----+----+----+----+----+----+----+----+------+------
@@ -297,6 +327,14 @@ SELECT * FROM clickhouse.timezones ORDER BY t1 LIMIT 2;
  2020-01-01 11:00:00 | 2020-01-01 11:00:00 | 2020-01-01 11:00:00 | 2020-01-01 11:00:00
  2020-01-01 12:00:00 | 2020-01-01 12:00:00 | 2020-01-01 12:00:00 | 2020-01-01 12:00:00
 (2 rows)
+
+SELECT * FROM clickhouse.ip ORDER BY c1;
+       c1       |              c2               
+----------------+-------------------------------
+ 116.106.34.242 | 2001:44c8:129:2632:33:0:252:2
+ 116.106.34.243 | 2a02:e980:1e::1
+ 116.106.34.244 | ::1
+(3 rows)
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 NOTICE:  clickhouse_fdw: ClickHouse <UInt8> type was translated to <INT2> type for column "c5", change it to BOOLEAN if needed
@@ -374,6 +412,15 @@ FDW options: (database 'regression', table_name 'tuples', engine 'MergeTree')
 Server: loopback_bin
 FDW options: (database 'regression', table_name 'timezones', engine 'MergeTree')
 
+\d+ clickhouse_bin.ip;
+                                  Foreign table "clickhouse_bin.ip"
+ Column | Type | Collation | Nullable | Default | FDW options | Storage | Stats target | Description 
+--------+------+-----------+----------+---------+-------------+---------+--------------+-------------
+ c1     | inet |           | not null |         |             | main    |              | 
+ c2     | inet |           | not null |         |             | main    |              | 
+Server: loopback_bin
+FDW options: (database 'regression', table_name 'ip', engine 'MergeTree')
+
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 |  c9  | c10  
 ----+----+----+----+----+----+----+----+------+------
@@ -412,6 +459,14 @@ SELECT * FROM clickhouse_bin.timezones ORDER BY t1 LIMIT 2;
  2020-01-01 11:00:00 | 2020-01-01 10:00:00 | 2020-01-01 10:00:00 | 2020-01-01 11:00:00
  2020-01-01 12:00:00 | 2020-01-01 11:00:00 | 2020-01-01 11:00:00 | 2020-01-01 12:00:00
 (2 rows)
+
+SELECT * FROM clickhouse.ip ORDER BY c1;
+       c1       |              c2               
+----------------+-------------------------------
+ 116.106.34.242 | 2001:44c8:129:2632:33:0:252:2
+ 116.106.34.243 | 2a02:e980:1e::1
+ 116.106.34.244 | ::1
+(3 rows)
 
 IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 NOTICE:  clickhouse_fdw: ClickHouse <UInt8> type was translated to <INT2> type for column "c5", change it to BOOLEAN if needed
@@ -515,10 +570,11 @@ SELECT clickhousedb_raw_query('DROP DATABASE regression_2');
 (1 row)
 
 DROP EXTENSION clickhouse_fdw CASCADE;
-NOTICE:  drop cascades to 21 other objects
+NOTICE:  drop cascades to 24 other objects
 DETAIL:  drop cascades to server loopback
 drop cascades to foreign table clickhouse.arrays
 drop cascades to foreign table clickhouse.ints
+drop cascades to foreign table clickhouse.ip
 drop cascades to foreign table clickhouse.timezones
 drop cascades to foreign table clickhouse.tuples
 drop cascades to foreign table clickhouse.types
@@ -526,6 +582,7 @@ drop cascades to foreign table clickhouse.types2
 drop cascades to foreign table clickhouse_limit.ints
 drop cascades to foreign table clickhouse_limit.types
 drop cascades to foreign table clickhouse_except.arrays
+drop cascades to foreign table clickhouse_except.ip
 drop cascades to foreign table clickhouse_except.timezones
 drop cascades to foreign table clickhouse_except.tuples
 drop cascades to foreign table clickhouse_except.types2
@@ -533,6 +590,7 @@ drop cascades to foreign table clickhouse.custom_option
 drop cascades to server loopback_bin
 drop cascades to foreign table clickhouse_bin.arrays
 drop cascades to foreign table clickhouse_bin.ints
+drop cascades to foreign table clickhouse_bin.ip
 drop cascades to foreign table clickhouse_bin.timezones
 drop cascades to foreign table clickhouse_bin.tuples
 drop cascades to foreign table clickhouse_bin.types

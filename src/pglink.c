@@ -748,6 +748,8 @@ static char *str_types_map[][2] = {
 	{"DateTime", "TIMESTAMP"},
 	{"Date", "DATE"}, // important that this one is after other Date types
 	{"UUID", "UUID"},
+	{"IPv4", "inet"},
+	{"IPv6", "inet"},
 	{NULL, NULL},
 };
 
@@ -835,7 +837,7 @@ parse_type(char *colname, char *typepart, bool *is_nullable, List **options)
 	}
 
 	size_t i = 0;
-	while (str_types_map[i] != NULL)
+	while (str_types_map[i][0] != NULL)
 	{
 		if (strncmp(str_types_map[i][0], typepart, strlen(str_types_map[i][0])) == 0)
 		{

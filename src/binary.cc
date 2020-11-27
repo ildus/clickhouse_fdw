@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "clickhouse/columns/date.h"
+#include "clickhouse/columns/ip4.h"
 #include "clickhouse/columns/lowcardinality.h"
 #include "clickhouse/columns/nullable.h"
 #include "clickhouse/columns/factory.h"
@@ -18,6 +19,7 @@ extern "C" {
 #include "postgres.h"
 #include "pgtime.h"
 #include "funcapi.h"
+#include "fmgr.h"
 #include "access/htup_details.h"
 #include "access/tupdesc.h"
 #include "catalog/pg_type_d.h"
@@ -922,8 +924,20 @@ nested_col:
 			*valtype = TEXTOID;
 		}
 		break;
+        case Type::Code::IPv4: {
+			auto item = col->As<ColumnIPv4>()->AsString(row);
+            ret = DirectFunctionCall1(inet_in, CStringGetDatum(item.c_str()));
+            *valtype = INETOID;
+        }
+        break;
+        case Type::Code::IPv6: {
+			auto item = col->As<ColumnIPv6>()->AsString(row);
+            ret = DirectFunctionCall1(inet_in, CStringGetDatum(item.c_str()));
+            *valtype = INETOID;
+        }
+        break;
 		default:
-			throw std::runtime_error("clickhouse_fdw: unsupported type");
+			throw std::runtime_error("unsupported type in binary protocol");
 	}
 
 	return ret;

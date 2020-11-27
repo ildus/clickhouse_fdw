@@ -57,6 +57,18 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types2 SELECT
     format(''cardinal {0}'', toString(number + 1))
     FROM numbers(10);');
 
+SELECT clickhousedb_raw_query('CREATE TABLE regression.ip (
+    c1 IPv4,
+    c2 IPv6
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+');
+SELECT clickhousedb_raw_query($$
+    INSERT INTO regression.ip VALUES
+    ('116.106.34.242', '2001:44c8:129:2632:33:0:252:2'),
+    ('116.106.34.243', '2a02:e980:1e::1'),
+    ('116.106.34.244', '::1');
+$$);
+
 -- array types
 SELECT clickhousedb_raw_query('CREATE TABLE regression.arrays (
     c1 Array(Int), c2 Array(String)
@@ -111,6 +123,7 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback INTO clickhouse;
 \d+ clickhouse.arrays;
 \d+ clickhouse.tuples;
 \d+ clickhouse.timezones;
+\d+ clickhouse.ip;
 
 SELECT * FROM clickhouse.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse.types ORDER BY c1 LIMIT 2;
@@ -118,6 +131,7 @@ SELECT * FROM clickhouse.types2 ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.tuples ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse.timezones ORDER BY t1 LIMIT 2;
+SELECT * FROM clickhouse.ip ORDER BY c1;
 
 IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 
@@ -127,6 +141,7 @@ IMPORT FOREIGN SCHEMA "regression" FROM SERVER loopback_bin INTO clickhouse_bin;
 \d+ clickhouse_bin.arrays;
 \d+ clickhouse_bin.tuples;
 \d+ clickhouse_bin.timezones;
+\d+ clickhouse_bin.ip;
 
 SELECT * FROM clickhouse_bin.ints ORDER BY c1 DESC LIMIT 4;
 SELECT * FROM clickhouse_bin.types ORDER BY c1 LIMIT 2;
@@ -134,6 +149,7 @@ SELECT * FROM clickhouse_bin.types2 ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.arrays ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.tuples ORDER BY c1 LIMIT 2;
 SELECT * FROM clickhouse_bin.timezones ORDER BY t1 LIMIT 2;
+SELECT * FROM clickhouse.ip ORDER BY c1;
 
 IMPORT FOREIGN SCHEMA "regression" LIMIT TO (ints, types) FROM SERVER loopback INTO clickhouse_limit;
 
