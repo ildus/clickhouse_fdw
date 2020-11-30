@@ -21,6 +21,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/latch.h"
+#include "utils/builtins.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
@@ -52,21 +53,7 @@ clickhouse_connect(ForeignServer *server, UserMapping *user)
 
 	if (strcmp(driver, "http") == 0)
 	{
-		ch_connection conn;
-		char *connstring;
-
-		if (details.username && details.password)
-			connstring = psprintf("http://%s:%s@%s:%d/", details.username,
-				details.password, details.host, details.port);
-		else if (details.username)
-			connstring = psprintf("http://%s@%s:%d/", details.username,
-				details.host, details.port);
-		else
-			connstring = psprintf("http://%s:%d/", details.host, details.port);
-
-		conn = chfdw_http_connect(connstring);
-		pfree(connstring);
-		return conn;
+		return chfdw_http_connect(&details);
 	}
 	else if (strcmp(driver, "binary") == 0)
 	{
@@ -97,17 +84,17 @@ chfdw_get_connection(UserMapping *user)
 		/* allocate ConnectionHash in the cache context */
 		ctl.hcxt = CacheMemoryContext;
 		ConnectionHash = hash_create("clickhousedb_fdw connections", 8,
-		                             &ctl,
-		                             HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+									 &ctl,
+									 HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 		/*
 		 * Register some callback functions that manage connection cleanup.
 		 * This should be done just once in each backend.
 		 */
 		CacheRegisterSyscacheCallback(FOREIGNSERVEROID,
-		                              chfdw_inval_callback, (Datum) 0);
+									  chfdw_inval_callback, (Datum) 0);
 		CacheRegisterSyscacheCallback(USERMAPPINGOID,
-		                              chfdw_inval_callback, (Datum) 0);
+									  chfdw_inval_callback, (Datum) 0);
 	}
 
 	/* Create hash key for the entry.  Assume no pad bytes in key struct */
@@ -155,18 +142,18 @@ chfdw_get_connection(UserMapping *user)
 		/* Reset all transient state fields, to be sure all are clean */
 		entry->invalidated = false;
 		entry->server_hashvalue =
-		    GetSysCacheHashValue1(FOREIGNSERVEROID,
-		                          ObjectIdGetDatum(server->serverid));
+			GetSysCacheHashValue1(FOREIGNSERVEROID,
+								  ObjectIdGetDatum(server->serverid));
 		entry->mapping_hashvalue =
-		    GetSysCacheHashValue1(USERMAPPINGOID,
-		                          ObjectIdGetDatum(user->umid));
+			GetSysCacheHashValue1(USERMAPPINGOID,
+								  ObjectIdGetDatum(user->umid));
 
 		/* Now try to make the connection */
 		entry->gate = clickhouse_connect(server, user);
 
 		elog(DEBUG3,
-		     "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
-		     entry->gate.conn, server->servername, user->umid, user->userid);
+			 "new clickhousedb_fdw connection %p for server \"%s\" (user mapping oid %u, userid %u)",
+			 entry->gate.conn, server->servername, user->umid, user->userid);
 	}
 
 	return entry->gate;
@@ -205,12 +192,137 @@ chfdw_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
 
 		/* hashvalue == 0 means a cache reset, must clear all state */
 		if (hashvalue == 0 ||
-		        (cacheid == FOREIGNSERVEROID &&
-		         entry->server_hashvalue == hashvalue) ||
-		        (cacheid == USERMAPPINGOID &&
-		         entry->mapping_hashvalue == hashvalue))
+				(cacheid == FOREIGNSERVEROID &&
+				 entry->server_hashvalue == hashvalue) ||
+				(cacheid == USERMAPPINGOID &&
+				 entry->mapping_hashvalue == hashvalue))
 		{
 			entry->invalidated = true;
 		}
 	}
+}
+
+
+ch_connection_details *
+connstring_parse(const char *connstring)
+{
+	char	   *pname;
+	char	   *pval;
+	char	   *buf;
+	char	   *cp;
+	char	   *cp2;
+    ch_connection_details *details = palloc0(sizeof(ch_connection_details));
+
+	/* Need a modifiable copy of the input string */
+	if ((buf = pstrdup(connstring)) == NULL)
+		return NULL;
+
+	cp = buf;
+
+	while (*cp)
+	{
+		/* Skip blanks before the parameter name */
+		if (isspace((unsigned char) *cp))
+		{
+			cp++;
+			continue;
+		}
+
+		/* Get the parameter name */
+		pname = cp;
+		while (*cp)
+		{
+			if (*cp == '=')
+				break;
+			if (isspace((unsigned char) *cp))
+			{
+				*cp++ = '\0';
+				while (*cp)
+				{
+					if (!isspace((unsigned char) *cp))
+						break;
+					cp++;
+				}
+				break;
+			}
+			cp++;
+		}
+
+		/* Check that there is a following '=' */
+		if (*cp != '=')
+			elog(ERROR, "missing \"=\" after \"%s\" in connection info string", pname);
+
+		*cp++ = '\0';
+
+		/* Skip blanks after the '=' */
+		while (*cp)
+		{
+			if (!isspace((unsigned char) *cp))
+				break;
+			cp++;
+		}
+
+		/* Get the parameter value */
+		pval = cp;
+
+		if (*cp != '\'')
+		{
+			cp2 = pval;
+			while (*cp)
+			{
+				if (isspace((unsigned char) *cp))
+				{
+					*cp++ = '\0';
+					break;
+				}
+				if (*cp == '\\')
+				{
+					cp++;
+					if (*cp != '\0')
+						*cp2++ = *cp++;
+				}
+				else
+					*cp2++ = *cp++;
+			}
+			*cp2 = '\0';
+		}
+		else
+		{
+			cp2 = pval;
+			cp++;
+			for (;;)
+			{
+				if (*cp == '\0')
+					elog(ERROR, "unterminated quoted string in connection info string");
+
+				if (*cp == '\\')
+				{
+					cp++;
+					if (*cp != '\0')
+						*cp2++ = *cp++;
+					continue;
+				}
+				if (*cp == '\'')
+				{
+					*cp2 = '\0';
+					cp++;
+					break;
+				}
+				*cp2++ = *cp++;
+			}
+		}
+
+		if (strcmp(pname, "host") == 0) {
+			details->host = pstrdup(pval);
+		} else if (strcmp(pname, "port") == 0) {
+			details->port = pg_strtoint32(pval);
+		} else if (strcmp(pname, "username") == 0) {
+			details->username = pstrdup(pval);
+		} else if (strcmp(pname, "password") == 0) {
+			details->password = pstrdup(pval);
+		}
+	}
+
+    pfree(buf);
+    return details;
 }

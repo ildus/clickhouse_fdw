@@ -81,10 +81,11 @@ static bool is_canceled(void)
 }
 
 ch_connection
-chfdw_http_connect(char *connstring)
+chfdw_http_connect(ch_connection_details *details)
 {
 	ch_connection res;
-	ch_http_connection_t *conn = ch_http_connection(connstring);
+	ch_http_connection_t *conn = ch_http_connection(details->host, details->port,
+            details->username, details->password);
 	if (!initialized)
 	{
 		initialized = true;

@@ -50,25 +50,55 @@ size_t write_data(void *contents, size_t size, size_t nmemb, void *userp)
 	return realsize;
 }
 
-ch_http_connection_t *ch_http_connection(char *connstring)
+ch_http_connection_t *ch_http_connection(char *host, int port, char *username, char *password)
 {
+	int n;
+	char *connstring = NULL;
+	size_t len = 20; /* all symbols from url string + some extra */
+
 	curl_error_happened = false;
 	ch_http_connection_t *conn = calloc(sizeof(ch_http_connection_t), 1);
-	if (conn == NULL)
-	{
-		curl_error_happened = true;
-		snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
-		return NULL;
-	}
+	if (!conn)
+		goto cleanup;
 
 	conn->curl = curl_easy_init();
 	if (!conn->curl)
 		goto cleanup;
 
-	conn->base_url = strdup(connstring);
-	if (conn->base_url == NULL)
+	len += strlen(host) + snprintf(NULL, 0, "%d", port);
+
+	if (username) {
+		username = curl_easy_escape(conn->curl, username, 0);
+		len += strlen(username);
+	}
+
+	if (password) {
+		password = curl_easy_escape(conn->curl, password, 0);
+		len += strlen(password);
+	}
+
+	connstring = calloc(len, 1);
+	if (!connstring)
 		goto cleanup;
 
+	if (username && password)
+	{
+		n = snprintf(connstring, len, "http://%s:%s@%s:%d/", username, password, host, port);
+		curl_free(username);
+		curl_free(password);
+	}
+	else if (username)
+	{
+		n = snprintf(connstring, len, "http://%s@%s:%d/", username, host, port);
+		curl_free(username);
+	}
+	else
+		n = snprintf(connstring, len, "http://%s:%d/", host, port);
+
+	if (n < 0)
+		goto cleanup;
+
+	conn->base_url = connstring;
 	conn->base_url_len = strlen(conn->base_url);
 
 	return conn;
@@ -76,10 +106,12 @@ ch_http_connection_t *ch_http_connection(char *connstring)
 cleanup:
 	snprintf(curl_error_buffer, CURL_ERROR_SIZE, "OOM");
 	curl_error_happened = true;
-	if (conn->base_url)
-		free(conn->base_url);
+	if (connstring)
+		free(connstring);
 
-	free(conn);
+	if (conn)
+		free(conn);
+
 	return NULL;
 }
 

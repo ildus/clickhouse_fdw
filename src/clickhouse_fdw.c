@@ -296,7 +296,8 @@ clickhousedb_raw_query(PG_FUNCTION_ARGS)
 	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
 		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
 
-	ch_connection	conn = chfdw_http_connect(connstring);
+    ch_connection_details *details = connstring_parse(connstring);
+	ch_connection	conn = chfdw_http_connect(details);
 	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
 	text		   *res = chfdw_http_fetch_raw_data(cursor);
 
