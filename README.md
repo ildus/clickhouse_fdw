@@ -1,4 +1,5 @@
-[![Build Status](https://travis-ci.org/adjust/clickhouse_fdw.svg?branch=master)](https://travis-ci.org/adjust/clickhouse_fdw)
+![CI](https://github.com/adjust/clickhouse_fdw/workflows/CI/badge.svg)
+
 
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
