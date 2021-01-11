@@ -40,7 +40,7 @@ popd
 status=$?
 if [ $status -ne 0 ]; then exit $status; fi
 
-# add pg_pathman to shared_preload_libraries and restart cluster 'test'
+# add the extension to shared_preload_libraries and restart cluster 'test'
 echo "port = 55435" >> $PGDATA/postgresql.conf
 pg_ctl start -l /tmp/postgres.log -w
 
