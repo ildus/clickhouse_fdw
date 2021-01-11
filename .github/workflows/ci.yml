@@ -24,7 +24,6 @@ jobs:
         run: docker-compose up -d
       - name: Build an image with the source code
         run: docker-compose -f docker-compose-extra.yml  build --build-arg CHECK_CODE=${{ matrix.check_code }} --build-arg PG_VERSION=${{ matrix.pg }} tests
-        run: docker build -t tests --build-arg="GITHUB_TOKEN=${{ secrets.PRIVATE_GITHUB_TOKEN }}" .
       - name: Run the tests
         run: docker-compose -f docker-compose-extra.yml run tests
       - name: Stop clickhouse
