@@ -145,9 +145,9 @@ Now create user mapping and foreign tables:
      4123850237 |    50 |    450 | 2019-08-03 11:04:38
      4103150163 |  2053 |  18450 | 2019-08-03 11:04:38
 
-    INSERT INTO tax_bills SELECT bbl, tbea from tax_bills_nyc LIMIT 100;
+    INSERT INTO tax_bills SELECT bbl, tbea from foreign_tax_bills_nyc LIMIT 100;
 
-    EXPLAIN VERBOSE SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
+    EXPLAIN VERBOSE SELECT bbl,tbea,bav,insertion_date FROM foreign_tax_bills_nyc LIMIT 5;
                                          QUERY PLAN
     --------------------------------------------------------------------------------------------
     Limit  (cost=0.00..0.00 rows=1 width=32)
