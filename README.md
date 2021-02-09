@@ -119,7 +119,24 @@ Now create user mapping and foreign tables:
 		OPTIONS (user 'default', password '');
 	IMPORT FOREIGN SCHEMA "default" FROM SERVER clickhouse_svr INTO public;
 
-	SELECT bbl,tbea,bav,insertion_date FROM tax_bills_nyc LIMIT 5;
+    CREATE FOREIGN TABLE foreign_tax_bills_nyc (
+        bbl integer,
+        owner_name text,
+        address text,
+        tax_class text,
+        tax_rate text,
+        emv real,
+        tbea real,
+        bav real,
+        tba text,
+        property_tax text,
+        condonumber text,
+        condo text,
+        insertion_date timestamp
+    )
+    SERVER clickhouse_svr OPTIONS (table_name 'tax_bills_nyc');
+
+	SELECT bbl,tbea,bav,insertion_date FROM foreign_tax_bills_nyc LIMIT 5;
         bbl     | tbea  |  bav   |   insertion_date
 	------------+-------+--------+---------------------
      1001200009 | 72190 | 648900 | 2019-08-03 11:04:38
