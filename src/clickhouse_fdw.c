@@ -875,9 +875,10 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 			char   *valstr = (char *) row_values[j];
 
 			Oid pgtype = TupleDescAttr(tupdesc, i - 1)->atttypid;
+			bool is_array = type_is_array_domain(pgtype);
 
 			/* that's the easy way to check array, otherwise use get_element_type on pgtype */
-			if (valstr && valstr[0] == '[')
+			if (valstr && is_array && valstr[0] == '[')
 			{
 				size_t	pos = 0;
 
@@ -890,7 +891,7 @@ fetch_tuple(ChFdwScanState *fsstate, TupleDesc tupdesc)
 					pos++;
 				}
 			}
-            else if (valstr && valstr[0] == '0' && valstr[1] == '0')
+			else if (valstr && valstr[0] == '0' && valstr[1] == '0')
             {
                 /* clickhouse supports such values which are invalid in postgres,
                  * so we just set set as NULL
