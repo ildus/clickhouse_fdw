@@ -78,7 +78,7 @@ SELECT uniq_exact(a) FROM t1;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
 SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('dAy', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
@@ -96,11 +96,14 @@ SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('minute' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minuTe' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT extract('minuTe' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('epoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('SeCond', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+SELECT date_trunc('SeCond', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+
+EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('ePoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT extract('ePoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
 SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
