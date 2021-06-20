@@ -34,7 +34,7 @@ SELECT clickhousedb_raw_query('CREATE TABLE regression.uints (
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.floats (
     c1 Float32, c2 Float64
-) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1) SETTINGS allow_floating_point_partition_key=1;
 ');
  clickhousedb_raw_query 
 ------------------------

@@ -412,7 +412,7 @@ extend_insert_query(ch_http_insert_state *state, TupleTableSlot *slot)
 			{
 				/* we expect DateTime on other side */
 				char *extval = DatumGetCString(DirectFunctionCall1(ch_time_out, value));
-				appendStringInfo(&state->sql, "0001-01-01 %s", extval);
+				appendStringInfo(&state->sql, "1970-01-01 %s", extval);
 				pfree(extval);
 				break;
 			}

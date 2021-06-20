@@ -92,6 +92,13 @@ typedef struct deparse_expr_cxt
 #define SUBQUERY_REL_ALIAS_PREFIX	"s"
 #define SUBQUERY_COL_ALIAS_PREFIX	"c"
 
+#define CSTRING_TOLOWER(str) \
+do { \
+	for (int i = 0; str[i]; i++) { \
+	  str[i] = tolower(str[i]); \
+	} \
+} while (0)
+
 /*
  * Functions to determine whether an expression can be evaluated safely on
  * remote server.
@@ -2356,35 +2363,67 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	{
 		Const *arg = (Const *) linitial(node->args);
 		char *trunctype = TextDatumGetCString(arg->constvalue);
+		CSTRING_TOLOWER(trunctype);
+		int cast_to_datetime64 = 0;
+
 		if (strcmp(trunctype, "week") == 0)
+		{
 			appendStringInfoString(buf, "toMonday");
+		}
 		else if (strcmp(trunctype, "second") == 0)
+		{
+			cast_to_datetime64 = 1;
 			appendStringInfoString(buf, "toStartOfSecond");
+		}
 		else if (strcmp(trunctype, "minute") == 0)
+		{
 			appendStringInfoString(buf, "toStartOfMinute");
+		}
 		else if (strcmp(trunctype, "hour") == 0)
+		{
 			appendStringInfoString(buf, "toStartOfHour");
+		}
 		else if (strcmp(trunctype, "day") == 0)
+		{
 			appendStringInfoString(buf, "toStartOfDay");
+		}
 		else if (strcmp(trunctype, "month") == 0)
+		{
 			appendStringInfoString(buf, "toStartOfMonth");
+		}
 		else if (strcmp(trunctype, "quarter") == 0)
+		{
 			appendStringInfoString(buf, "toStartOfQuarter");
+		}
 		else if (strcmp(trunctype, "year") == 0)
+		{
 			appendStringInfoString(buf, "toStartOfYear");
+		}
 		else
+		{
 			elog(ERROR, "date_trunc cannot be exported for: %s", trunctype);
+		}
 
 		pfree(trunctype);
-		appendStringInfoChar(buf, '(');
-		deparseExpr(list_nth(node->args, 1), context);
-		appendStringInfoChar(buf, ')');
+		if (cast_to_datetime64)
+		{
+			appendStringInfoString(buf, "(toDateTime64(");
+			deparseExpr(list_nth(node->args, 1), context);
+			appendStringInfoString(buf, ", 1))");
+		}
+		else
+		{
+			appendStringInfoChar(buf, '(');
+			deparseExpr(list_nth(node->args, 1), context);
+			appendStringInfoChar(buf, ')');
+		}
 		return;
 	}
 	else if (cdef && cdef->cf_type == CF_DATE_PART)
 	{
 		Const *arg = (Const *) linitial(node->args);
 		char *parttype = TextDatumGetCString(arg->constvalue);
+		CSTRING_TOLOWER(parttype);
 
 		if (strcmp(parttype, "day") == 0)
 			appendStringInfoString(buf, "toDayOfMonth");
