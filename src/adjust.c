@@ -90,6 +90,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_TIMESTAMP_PART:
 			case F_TIMESTAMPTZ_PART:
 			case F_ARRAY_POSITION:
+			case F_TEXTPOS:
 			case F_BTRIM:
 			case F_BTRIM1:
 				special_builtin = true;
@@ -145,6 +146,11 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_BTRIM1:
 			{
 				strcpy(entry->custom_name, "trimBoth");
+				break;
+			}
+			case F_TEXTPOS:
+			{
+				strcpy(entry->custom_name, "position");
 				break;
 			}
 		}
