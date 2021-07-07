@@ -392,6 +392,21 @@ SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c 
  val2 | val2 | val2
 (2 rows)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT strpos(val, 'val') AS a FROM t4 GROUP BY a ORDER BY a;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: (strpos(val, 'val'::text))
+   Relations: Aggregate on (t4)
+   Remote SQL: SELECT position(val, 'val') FROM regression.t4 GROUP BY (position(val, 'val')) ORDER BY position(val, 'val') ASC
+(4 rows)
+
+SELECT strpos(val, 'val') AS a FROM t4 GROUP BY a ORDER BY a;
+ a 
+---
+ 1
+(1 row)
+
 --- check dictGet
 -- dictGet is broken for now
 EXPLAIN (VERBOSE, COSTS OFF) SELECT a, dictGet('regression.t3_dict', 'val', (a, 'key' || a::text)) as val, sum(b) FROM t3 GROUP BY a, val ORDER BY a;
