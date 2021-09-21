@@ -239,7 +239,7 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT c as d1 FROM t1 WHERE c >= to_timestamp('201
  Foreign Scan
    Output: c
    Relations: Aggregate on (t1)
-   Remote SQL: SELECT c FROM test.tt WHERE ((c >= parseDateTimeBestEffortOrNull('2019-01-01 00:00:00.000000'))) GROUP BY c ORDER BY c ASC
+   Remote SQL: SELECT c FROM regression.t1 WHERE ((c >= parseDateTimeBestEffortOrNull('2019-01-01 00:00:00.000000'))) GROUP BY c ORDER BY c ASC
 (4 rows)
 
 SELECT c as d1 FROM t1 WHERE c >= to_timestamp('2019-01-01 00:00:00.000000', 'YYYY-MM-DD HH24:MI:SS.US') GROUP BY d1 ORDER BY d1;
