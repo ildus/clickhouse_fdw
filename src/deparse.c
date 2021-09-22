@@ -2419,7 +2419,7 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 		{
 			appendStringInfoString(buf, "(toDateTime64(");
 			deparseExpr(list_nth(node->args, 1), context);
-			appendStringInfoString(buf, ", 1))");
+			appendStringInfoString(buf, ", 1, 'UTC'))");
 		}
 		else
 		{
