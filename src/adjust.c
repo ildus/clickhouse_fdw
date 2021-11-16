@@ -93,6 +93,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case 868: // strpos
 			case F_BTRIM:
 			case F_BTRIM1:
+			case F_TO_TIMESTAMP:
 				special_builtin = true;
 				break;
 			default:
@@ -151,6 +152,11 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case 868:
 			{
 				strcpy(entry->custom_name, "position");
+			}
+			case F_TO_TIMESTAMP:
+			{
+				entry->cf_type = CF_TO_TIMESTAMP;
+				entry->custom_name[0] = '\1';
 				break;
 			}
 		}

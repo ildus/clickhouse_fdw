@@ -2359,6 +2359,16 @@ deparseFuncExpr(FuncExpr *node, deparse_expr_cxt *context)
 	 * Normal function: display as proname(args).
 	 */
 	cdef = appendFunctionName(node->funcid, context);
+
+	if (cdef && cdef->cf_type == CF_TO_TIMESTAMP)
+	{
+		appendStringInfoString(buf, "parseDateTimeBestEffortOrNull");
+		appendStringInfoChar(buf, '(');
+		deparseExpr(list_nth(node->args, 0), context);
+		appendStringInfoChar(buf, ')');
+		return;
+	}
+
 	if (cdef && cdef->cf_type == CF_DATE_TRUNC)
 	{
 		Const *arg = (Const *) linitial(node->args);
