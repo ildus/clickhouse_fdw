@@ -152,6 +152,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case 868:
 			{
 				strcpy(entry->custom_name, "position");
+				break;
 			}
 			case F_TO_TIMESTAMP:
 			{
