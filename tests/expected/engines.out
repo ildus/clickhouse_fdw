@@ -132,22 +132,22 @@ Server: loopback
 FDW options: (database 'regression', table_name 't3', engine 'MergeTree')
 
 \d+ t3_aggr
-                                              Foreign table "public.t3_aggr"
- Column |  Type   | Collation | Nullable | Default |         FDW options          | Storage  | Stats target | Description 
---------+---------+-----------+----------+---------+------------------------------+----------+--------------+-------------
- a      | integer |           | not null |         |                              | plain    |              | 
- b      | istore  |           | not null |         | (aggregatefunction 'sumMap') | extended |              | 
+                                           Foreign table "public.t3_aggr"
+ Column |  Type   | Collation | Nullable | Default |       FDW options       | Storage | Stats target | Description 
+--------+---------+-----------+----------+---------+-------------------------+---------+--------------+-------------
+ a      | integer |           | not null |         |                         | plain   |              | 
+ b      | integer |           | not null |         | (aggregatefunction '1') | plain   |              | 
 Server: loopback
 FDW options: (database 'regression', table_name 't3_aggr', engine 'MaterializedView')
 
 \d+ t4
-                                                  Foreign table "public.t4"
- Column |  Type   | Collation | Nullable | Default |           FDW options           | Storage  | Stats target | Description 
---------+---------+-----------+----------+---------+---------------------------------+----------+--------------+-------------
- a      | integer |           | not null |         |                                 | plain    |              | 
- b      | integer |           | not null |         | (aggregatefunction 'sum')       | plain    |              | 
- c      | istore  |           | not null |         | (aggregatefunction 'sumMap')    | extended |              | 
- d      | bigint  |           | not null |         | (simpleaggregatefunction 'sum') | plain    |              | 
+                                                 Foreign table "public.t4"
+ Column |  Type   | Collation | Nullable | Default |           FDW options           | Storage | Stats target | Description 
+--------+---------+-----------+----------+---------+---------------------------------+---------+--------------+-------------
+ a      | integer |           | not null |         |                                 | plain   |              | 
+ b      | integer |           | not null |         | (aggregatefunction 'sum')       | plain   |              | 
+ c      | integer |           | not null |         | (aggregatefunction '1')         | plain   |              | 
+ d      | bigint  |           | not null |         | (simpleaggregatefunction 'sum') | plain   |              | 
 Server: loopback
 FDW options: (database 'regression', table_name 't4', engine 'AggregatingMergeTree')
 
