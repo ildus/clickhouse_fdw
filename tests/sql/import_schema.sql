@@ -51,7 +51,7 @@ SELECT clickhousedb_raw_query('INSERT INTO regression.types SELECT
 
 SELECT clickhousedb_raw_query('CREATE TABLE regression.types2 (
     c1 LowCardinality(Nullable(String))
-) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1);
+) ENGINE = MergeTree PARTITION BY c1 ORDER BY (c1) SETTINGS allow_nullable_key = 1;
 ');
 SELECT clickhousedb_raw_query('INSERT INTO regression.types2 SELECT
     format(''cardinal {0}'', toString(number + 1))

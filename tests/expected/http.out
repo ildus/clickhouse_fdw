@@ -166,11 +166,11 @@ SELECT c3, c4 FROM ft1 ORDER BY c3, c1 LIMIT 1;  -- should work
 
 ALTER SERVER loopback OPTIONS (SET dbname 'no such database');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1;  -- should fail
-ERROR:  clickhouse_fdw:Code: 81, e.displayText() = DB::Exception: Database `no such database` doesn't exist
+ERROR:  clickhouse_fdw:Code: 81. DB::Exception: Database `no such database` doesn't exist. (UNKNOWN_DATABASE)
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (ADD user 'no such user');
 SELECT c3, c4 FROM ft1 ORDER BY c3, c1;  -- should fail
-ERROR:  clickhouse_fdw:Code: 516, e.displayText() = DB::Exception: no such user: Authentication failed: password is incorrect or there is no user with such name
+ERROR:  clickhouse_fdw:Code: 516. DB::Exception: no such user: Authentication failed: password is incorrect or there is no user with such name. (AUTHENTICATION_FAILED)
 QUERY:SELECT c1, c3, c4 FROM "no such database".t1 ORDER BY c3 ASC, c1 ASC
 ALTER SERVER loopback OPTIONS (SET dbname 'regression');
 ALTER USER MAPPING FOR CURRENT_USER SERVER loopback OPTIONS (DROP user);
