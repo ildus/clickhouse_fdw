@@ -268,6 +268,7 @@ typedef enum {
 	CF_DATE_PART,		/* date_part function */
 	CF_TIMESTAMPTZ_PL_INTERVAL,	/* timestamptz + interval */
 	CF_TIMEZONE,		/* timezone */
+	CF_TO_TIMESTAMP,
 	CF_COUNTRY_TYPE,
 	CF_AJTIME_PL_INTERVAL,
 	CF_AJTIME_MI_INTERVAL,

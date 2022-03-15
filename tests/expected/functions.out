@@ -233,6 +233,22 @@ SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
           1
 (1 row)
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT c as d1 FROM t1 WHERE c >= to_timestamp('2019-01-01 00:00:00.000000', 'YYYY-MM-DD HH24:MI:SS.US') GROUP BY d1 ORDER BY d1;
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan
+   Output: c
+   Relations: Aggregate on (t1)
+   Remote SQL: SELECT c FROM regression.t1 WHERE ((c >= parseDateTimeBestEffortOrNull('2019-01-01 00:00:00.000000'))) GROUP BY c ORDER BY c ASC
+(4 rows)
+
+SELECT c as d1 FROM t1 WHERE c >= to_timestamp('2019-01-01 00:00:00.000000', 'YYYY-MM-DD HH24:MI:SS.US') GROUP BY d1 ORDER BY d1;
+           d1           
+------------------------
+ 2019-01-01 10:00:00
+ 2019-01-02 10:00:00
+(2 rows)
+
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('dAy', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------

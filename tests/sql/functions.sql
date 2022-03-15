@@ -78,6 +78,9 @@ SELECT uniq_exact(a) FROM t1;
 EXPLAIN (VERBOSE, COSTS OFF) SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
 SELECT uniq_exact(a) FILTER(WHERE b>1) FROM t1;
 
+EXPLAIN (VERBOSE, COSTS OFF) SELECT c as d1 FROM t1 WHERE c >= to_timestamp('2019-01-01 00:00:00.000000', 'YYYY-MM-DD HH24:MI:SS.US') GROUP BY d1 ORDER BY d1;
+SELECT c as d1 FROM t1 WHERE c >= to_timestamp('2019-01-01 00:00:00.000000', 'YYYY-MM-DD HH24:MI:SS.US') GROUP BY d1 ORDER BY d1;
+
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('dAy', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 
