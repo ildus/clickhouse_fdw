@@ -1,0 +1,20 @@
+ARG POSTGRES_VERSION
+FROM postgres:${POSTGRES_VERSION} as build
+
+ARG POSTGRES_VERSION
+RUN apt update && apt install -y cmake build-essential uuid-dev postgresql-server-dev-${POSTGRES_VERSION} libcurl4-openssl-dev pkg-config
+
+ADD . /clickhouse-fdw-src
+RUN rm -rf /clickhouse-fdw-src/build
+WORKDIR /clickhouse-fdw-src
+
+RUN mkdir -p build && cd build && cmake .. && make install
+
+ARG POSTGRES_VERSION
+FROM postgres:${POSTGRES_VERSION}
+
+ARG POSTGRES_VERSION
+RUN apt update && apt install -y libcurl4
+COPY --from=build /usr/lib/postgresql/${POSTGRES_VERSION}/lib/* /usr/lib/postgresql/${POSTGRES_VERSION}/lib/
+COPY --from=build /usr/share/postgresql/${POSTGRES_VERSION}/extension/* /usr/share/postgresql/${POSTGRES_VERSION}/extension/
+
