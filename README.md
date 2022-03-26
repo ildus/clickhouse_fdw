@@ -78,7 +78,7 @@ tax_bills_nyc and tax_bills:
         condo String,
         insertion_date DateTime MATERIALIZED now()
     )
-    ENGINE = MergeTree PARTITION BY tax_class ORDER BY (owner_name)
+    ENGINE = MergeTree PARTITION BY tax_class ORDER BY (owner_name);
 
     CREATE TABLE tax_bills
     (
