@@ -19,6 +19,19 @@
 
 #include "clickhousedb_fdw.h"
 
+// in PostgreSQL 14 source code those variables has other names,
+// see postgres/src/backend/utils/fmgroids.h
+#define F_TIMESTAMP_TRUNC 2020
+#define F_TIMESTAMP_PART 2021
+#define F_TIMESTAMPTZ_TRUNC 1217
+#define F_TIMESTAMP_ZONE 2069
+#define F_TIMESTAMPTZ_ZONE 1159
+#define F_TIMESTAMPTZ_PART 1171
+#define F_ARRAY_POSITION 3277
+#define F_STRPOS 868
+#define F_BTRIM 884
+#define F_BTRIM1 885
+
 static HTAB *custom_objects_cache = NULL;
 static HTAB *custom_columns_cache = NULL;
 
@@ -83,17 +96,6 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 	{
 		switch (funcid)
 		{
-#if PG_VERSION_NUM >= 140000
-			case F_DATE_TRUNC_TEXT_TIMESTAMP:
-			case F_DATE_TRUNC_TEXT_TIMESTAMPTZ:
-			case F_TIMEZONE_TEXT_TIMESTAMP:
-			case F_TIMEZONE_TEXT_TIMESTAMPTZ:
-			case F_DATE_PART_TEXT_TIMESTAMP:
-			case F_DATE_PART_TEXT_TIMESTAMPTZ:
-			case F_ARRAY_POSITION_ANYCOMPATIBLEARRAY_ANYCOMPATIBLE:
-			case F_BTRIM_TEXT_TEXT:
-			case F_BTRIM_TEXT:
-#else
 			case F_TIMESTAMP_TRUNC:
 			case F_TIMESTAMPTZ_TRUNC:
 			case F_TIMESTAMP_ZONE:
@@ -101,10 +103,9 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_TIMESTAMP_PART:
 			case F_TIMESTAMPTZ_PART:
 			case F_ARRAY_POSITION:
-			case 868: // strpos
+			case F_STRPOS:
 			case F_BTRIM:
 			case F_BTRIM1:
-#endif
 				special_builtin = true;
 				break;
 			default:
@@ -128,63 +129,39 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 
 		switch (funcid)
 		{
-#if PG_VERSION_NUM >= 140000
-			case F_DATE_TRUNC_TEXT_TIMESTAMPTZ:
-			case F_DATE_TRUNC_TEXT_TIMESTAMP:
-#else
 			case F_TIMESTAMPTZ_TRUNC:
 			case F_TIMESTAMP_TRUNC:
-#endif
 			{
 				entry->cf_type = CF_DATE_TRUNC;
 				entry->custom_name[0] = '\1';
 				break;
 			}
-#if PG_VERSION_NUM >= 140000
-			case F_DATE_PART_TEXT_TIMESTAMP:
-			case F_DATE_PART_TEXT_TIMESTAMPTZ:
-#else
 			case F_TIMESTAMPTZ_PART:
 			case F_TIMESTAMP_PART:
-#endif
 			{
 				entry->cf_type = CF_DATE_PART;
 				entry->custom_name[0] = '\1';
 				break;
 			}
-#if PG_VERSION_NUM >= 140000
-			case F_TIMEZONE_TEXT_TIMESTAMP:
-			case F_TIMEZONE_TEXT_TIMESTAMPTZ:
-#else
 			case F_TIMESTAMP_ZONE:
 			case F_TIMESTAMPTZ_ZONE:
-#endif
 			{
 				entry->cf_type = CF_TIMEZONE;
 				strcpy(entry->custom_name, "toTimeZone");
 				break;
 			}
-#if PG_VERSION_NUM >= 140000
-			case F_ARRAY_POSITION_ANYCOMPATIBLEARRAY_ANYCOMPATIBLE:
-#else
 			case F_ARRAY_POSITION:
-#endif
 			{
 				strcpy(entry->custom_name, "indexOf");
 				break;
 			}
-#if PG_VERSION_NUM >= 140000
-			case F_BTRIM_TEXT_TEXT:
-			case F_BTRIM_TEXT:
-#else
 			case F_BTRIM:
 			case F_BTRIM1:
-#endif
 			{
 				strcpy(entry->custom_name, "trimBoth");
 				break;
 			}
-			case 868:
+			case F_STRPOS:
 			{
 				strcpy(entry->custom_name, "position");
 				break;
