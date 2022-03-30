@@ -265,7 +265,7 @@ SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER B
  2019-01-02 00:00:00
 (2 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t1 GROUP BY d1 ORDER BY d1;
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Foreign Scan
@@ -274,14 +274,14 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as 
    Remote SQL: SELECT toDayOfMonth(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfMonth(toTimeZone(c, 'UTC'))) ORDER BY toDayOfMonth(toTimeZone(c, 'UTC')) ASC
 (4 rows)
 
-SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t1 GROUP BY d1 ORDER BY d1;
  d1 
 ----
   1
   2
 (2 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
                                                                                 QUERY PLAN                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Foreign Scan
@@ -290,14 +290,14 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as 
    Remote SQL: SELECT toDayOfMonth(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfMonth(toTimeZone(c, 'UTC'))) ORDER BY toDayOfMonth(toTimeZone(c, 'UTC')) ASC
 (4 rows)
 
-SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
 ----
   1
   2
 (2 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('doy'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
                                                                               QUERY PLAN                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Foreign Scan
@@ -306,14 +306,14 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('doy' from c at time zone 'UTC') as 
    Remote SQL: SELECT toDayOfYear(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfYear(toTimeZone(c, 'UTC'))) ORDER BY toDayOfYear(toTimeZone(c, 'UTC')) ASC
 (4 rows)
 
-SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('doy'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
 ----
   1
   2
 (2 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('dow'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
                                                                               QUERY PLAN                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Foreign Scan
@@ -322,14 +322,14 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('dow' from c at time zone 'UTC') as 
    Remote SQL: SELECT toDayOfWeek(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toDayOfWeek(toTimeZone(c, 'UTC'))) ORDER BY toDayOfWeek(toTimeZone(c, 'UTC')) ASC
 (4 rows)
 
-SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('dow'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
 ----
   2
   3
 (2 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minuTe' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('minuTe'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Foreign Scan
@@ -338,7 +338,7 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minuTe' from c at time zone 'UTC') 
    Remote SQL: SELECT toMinute(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toMinute(toTimeZone(c, 'UTC'))) ORDER BY toMinute(toTimeZone(c, 'UTC')) ASC
 (4 rows)
 
-SELECT extract('minuTe' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('minuTe'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
  d1 
 ----
   0
@@ -360,7 +360,7 @@ SELECT date_trunc('SeCond', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDE
  2019-01-02 10:00:00-08
 (2 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('ePoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('ePoch'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Foreign Scan
@@ -369,7 +369,7 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('ePoch' from c at time zone 'UTC') a
    Remote SQL: SELECT toUnixTimestamp(toTimeZone(c, 'UTC')) FROM regression.t1 GROUP BY (toUnixTimestamp(toTimeZone(c, 'UTC'))) ORDER BY toUnixTimestamp(toTimeZone(c, 'UTC')) ASC
 (4 rows)
 
-SELECT extract('ePoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('ePoch'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
      d1     
 ------------
  1546336800
