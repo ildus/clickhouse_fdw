@@ -20,6 +20,7 @@ uses UTC timezone.
 ###### Installing `clickhouse_fdw`
 
 ```
+git clone <repository_link>.git
 cd clickhouse_fdw
 mkdir build && cd build
 cmake ..
