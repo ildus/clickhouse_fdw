@@ -345,7 +345,7 @@ CustomObjectDef *chfdw_check_for_custom_type(Oid typeoid)
 			}
 			else if (strcmp(name, "country") == 0)
 			{
-				entry->cf_type = CF_COUNTRY_TYPE; /* adjust country type */
+				entry->cf_type = CF_COUNTRY_TYPE; /* country type */
 				strcpy(entry->custom_name, "text");
 			}
 			ReleaseSysCache(tp);

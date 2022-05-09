@@ -39,21 +39,6 @@ CREATE AGGREGATE argMax(anyelement, timestamp)
     stype = anyelement
 );
 
-/* adjust specific
-CREATE FUNCTION chfdw_install_adjust_functions()
-RETURNS VOID AS $$
-BEGIN
-	CREATE FUNCTION region_map(int DEFAULT 0)
-	RETURNS hstore
-	AS 'MODULE_PATHNAME', 'clickhousedb_mock'
-	LANGUAGE C STRICT;
-
-	CREATE FUNCTION region_mapfb(int DEFAULT 0)
-	RETURNS hstore
-	AS 'MODULE_PATHNAME', 'clickhousedb_mock'
-	LANGUAGE C STRICT;
-END $$ LANGUAGE plpgsql; */
-
 CREATE FUNCTION dictGet(text, text, anyelement)
 RETURNS text
 AS 'MODULE_PATHNAME', 'clickhousedb_mock'

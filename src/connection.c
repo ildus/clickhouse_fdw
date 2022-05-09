@@ -4,7 +4,7 @@
  *		  Connection management functions for clickhousedb_fdw
  *
  * Portions Copyright (c) 2012-2019, PostgreSQL Global Development Group
- * Copyright (c) 2019, Adjust GmbH
+ * Copyright (c) 2019-2022, Adjust GmbH
  *
  * IDENTIFICATION
  *		  contrib/clickhousedb_fdw/clickhousedb_connection.c
