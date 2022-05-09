@@ -1,6 +1,3 @@
-![CI](https://github.com/adjust/clickhouse_fdw/workflows/CI/badge.svg)
-
-
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
 
@@ -23,7 +20,6 @@ uses UTC timezone.
 ###### Installing `clickhouse_fdw`
 
 ```
-git clone https://github.com/adjust/clickhouse_fdw.git
 cd clickhouse_fdw
 mkdir build && cd build
 cmake ..
