@@ -84,26 +84,26 @@ SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER B
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 SELECT date_trunc('day', c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
-SELECT extract('day' from c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t1 GROUP BY d1 ORDER BY d1;
+SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('day' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('day'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('doy' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('doy'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('doy'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('dow' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('dow'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('dow'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('minuTe' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('minuTe' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('minuTe'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('minuTe'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT date_trunc('SeCond', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 SELECT date_trunc('SeCond', c at time zone 'UTC') as d1 FROM t1 GROUP BY d1 ORDER BY d1;
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT extract('ePoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
-SELECT extract('ePoch' from c at time zone 'UTC') as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+EXPLAIN (VERBOSE, COSTS OFF) SELECT date_part('ePoch'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
+SELECT date_part('ePoch'::text, timezone('UTC'::text, c)) as d1 FROM t2 GROUP BY d1 ORDER BY d1;
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;
 SELECT ltrim(val) AS a, btrim(val) AS b, rtrim(val) AS c FROM t4 GROUP BY a,b,c ORDER BY a;

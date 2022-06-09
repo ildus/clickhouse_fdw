@@ -19,6 +19,19 @@
 
 #include "clickhousedb_fdw.h"
 
+// in PostgreSQL 14 source code those variables has other names,
+// see postgres/src/backend/utils/fmgroids.h
+#define F_TIMESTAMP_TRUNC 2020
+#define F_TIMESTAMP_PART 2021
+#define F_TIMESTAMPTZ_TRUNC 1217
+#define F_TIMESTAMP_ZONE 2069
+#define F_TIMESTAMPTZ_ZONE 1159
+#define F_TIMESTAMPTZ_PART 1171
+#define F_ARRAY_POSITION 3277
+#define F_STRPOS 868
+#define F_BTRIM 884
+#define F_BTRIM1 885
+
 static HTAB *custom_objects_cache = NULL;
 static HTAB *custom_columns_cache = NULL;
 
@@ -90,7 +103,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 			case F_TIMESTAMP_PART:
 			case F_TIMESTAMPTZ_PART:
 			case F_ARRAY_POSITION:
-			case 868: // strpos
+			case F_STRPOS:
 			case F_BTRIM:
 			case F_BTRIM1:
 				special_builtin = true;
@@ -148,7 +161,7 @@ CustomObjectDef *chfdw_check_for_custom_function(Oid funcid)
 				strcpy(entry->custom_name, "trimBoth");
 				break;
 			}
-			case 868:
+			case F_STRPOS:
 			{
 				strcpy(entry->custom_name, "position");
 				break;

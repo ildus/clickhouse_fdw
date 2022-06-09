@@ -26,6 +26,9 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/cost.h"
+#if PG_VERSION_NUM >= 140000
+#include "optimizer/appendinfo.h"
+#endif  /* PG_VERSION_NUM */
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
@@ -1117,7 +1120,11 @@ clickhouseBeginForeignModify(ModifyTableState *mtstate,
 	                                rte,
 	                                resultRelInfo,
 	                                mtstate->operation,
+#if PG_VERSION_NUM < 140000
 	                                mtstate->mt_plans[subplan_index]->plan,
+#else
+	                                outerPlanState(mtstate)->plan,
+#endif
 	                                query,
 	                                target_attrs,
 									table_name);
@@ -2157,7 +2164,11 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 			 * RestrictInfos, so we must make our own.
 			 */
 			Assert(!IsA(expr, RestrictInfo));
-			rinfo = make_restrictinfo(expr,
+			rinfo = make_restrictinfo(
+#if PG_VERSION_NUM >= 140000
+									  root,
+#endif
+									  expr,
 									  true,
 									  false,
 									  false,

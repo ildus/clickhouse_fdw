@@ -390,12 +390,12 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c1 = -c1;          -- Op
    Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM regression.t1 WHERE ((c1 = (- c1)))
 (3 rows)
 
-EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE 1 = c1!;           -- OpExpr(r)
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE 1 = factorial(c1);           -- OpExpr(r)
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  Foreign Scan on public.ft1 t1
    Output: c1, c2, c3, c4, c5, c6, c7, c8
-   Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM regression.t1 WHERE ((1 = (c1 !)))
+   Remote SQL: SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM regression.t1 WHERE ((1 = factorial(c1)))
 (3 rows)
 
 EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE (c1 IS NOT NULL) IS DISTINCT FROM (c1 IS NOT NULL); -- DistinctExpr
