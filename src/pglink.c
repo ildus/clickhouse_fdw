@@ -867,11 +867,14 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	char		   *query,
 				   *driver;
 	List		   *result = NIL,
+				   *datts = NIL;
 	char		  **row_values;
 
 	query = psprintf("SELECT name, engine, engine_full "
 			"FROM system.tables WHERE database='%s' and name not like '.inner%%'", stmt->remote_schema);
 	cursor = conn.methods->simple_query(conn.conn, query);
+
+	datts = list_make2_int(1, 2, 3, 4, 5, 6, 7, 8);
 
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
 				list_make3_int(1,2,3), NULL, NULL, NULL)) != NULL)
@@ -913,7 +916,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		table_def = conn.methods->simple_query(conn.conn, query);
 
 		while ((dvalues = (char **) conn.methods->fetch_row(table_def,
-			list_make2_int(1, 2, 3, 4, 5, 6, 7, 8), NULL, NULL, NULL)) != NULL)
+			datts, NULL, NULL, NULL)) != NULL)
 		{
 			List   *options = NIL;
 			bool	is_nullable = false;
