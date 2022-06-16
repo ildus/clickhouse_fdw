@@ -874,12 +874,11 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			"FROM system.tables WHERE database='%s' and name not like '.inner%%'", stmt->remote_schema);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
-    #define list_make5_int(x1,x2,x3,x4,x5)		list_make4_int(x1, list_make4(x2,x3,x4,x5))
-    #define list_make6_int(x1,x2,x3,x4,x5,x6)		list_make5_int(x1, list_make5(x2,x3,x4,x5,x6))
-    #define list_make7_int(x1,x2,x3,x4,x5,x6,x7)		list_make6_int(x1, list_make6(x2,x3,x4,x5,x6,x7))
-    #define list_make8_int(x1,x2,x3,x4,x5,x6,x7,x8)		list_make7_int(x1, list_make7(x2,x3,x4,x5,x6,x7,x8))
-
-	datts = list_make8_int(1, 2, 3, 4, 5, 6, 7, 8);
+	datts = list_make4_int(1, 2, 3, 4);
+	lcons_int(5, datts);
+	lcons_int(6, datts);
+	lcons_int(7, datts);
+	lcons_int(8, datts);
 
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
 				list_make3_int(1,2,3), NULL, NULL, NULL)) != NULL)
