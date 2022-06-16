@@ -854,7 +854,7 @@ parse_type(char *colname, char *typepart, bool *is_nullable, List **options)
 		i++;
 	}
 
-	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s>", typepart)));
+	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <|%s|>", typepart)));
 }
 
 List *
