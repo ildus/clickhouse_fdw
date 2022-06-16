@@ -911,7 +911,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS \"%s\".\"%s\" (\n",
 			stmt->local_schema, table_name);
-		query = psprintf("select name, type from system.columns where database='%s' and table='%s'",
+		query = psprintf("DESCRIBE %s.%s SETTINGS describe_extend_object_types=1;",
             stmt->remote_schema, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);
 
