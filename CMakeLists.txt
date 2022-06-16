@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-project(clickhouse_fdw VERSION 1.4.0 LANGUAGES C)
+project(clickhouse_fdw VERSION 1.4.1 LANGUAGES C)
 
 set(CMAKE_COLOR_MAKEFILE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
