@@ -83,17 +83,17 @@ ch_http_connection_t *ch_http_connection(char *host, int port, char *username, c
 
 	if (username && password)
 	{
-		n = snprintf(connstring, len, "http://%s:%s@%s:%d/?default_format=JSONCompact", username, password, host, port);
+		n = snprintf(connstring, len, "http://%s:%s@%s:%d/", username, password, host, port);
 		curl_free(username);
 		curl_free(password);
 	}
 	else if (username)
 	{
-		n = snprintf(connstring, len, "http://%s@%s:%d/?default_format=JSONCompact", username, host, port);
+		n = snprintf(connstring, len, "http://%s@%s:%d/", username, host, port);
 		curl_free(username);
 	}
 	else
-		n = snprintf(connstring, len, "http://%s:%d/?default_format=JSONCompact", host, port);
+		n = snprintf(connstring, len, "http://%s:%d/", host, port);
 
 	if (n < 0)
 		goto cleanup;
@@ -139,6 +139,7 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	/* construct url */
 	url = malloc(conn->base_url_len + 37 + 12 /* query_id + ?query_id= */);
 	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
+	sprintf(url, "%s?default_format=JSONCompact", conn->base_url);
 
 	/* constant */
 	errbuffer[0] = '\0';
