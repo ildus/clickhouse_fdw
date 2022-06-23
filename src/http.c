@@ -139,7 +139,6 @@ ch_http_response_t *ch_http_simple_query(ch_http_connection_t *conn, const char 
 	/* construct url */
 	url = malloc(conn->base_url_len + 37 + 12 /* query_id + ?query_id= */);
 	sprintf(url, "%s?query_id=%s", conn->base_url, resp->query_id);
-	sprintf(url, "%s&default_format=JSONCompact", url);
 
 	/* constant */
 	errbuffer[0] = '\0';
