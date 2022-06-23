@@ -83,17 +83,17 @@ ch_http_connection_t *ch_http_connection(char *host, int port, char *username, c
 
 	if (username && password)
 	{
-		n = snprintf(connstring, len, "http://%s:%s@%s:%d/", username, password, host, port);
+		n = snprintf(connstring, len, "http://%s:%s@%s:%d/?default_format=JSONCompact", username, password, host, port);
 		curl_free(username);
 		curl_free(password);
 	}
 	else if (username)
 	{
-		n = snprintf(connstring, len, "http://%s@%s:%d/", username, host, port);
+		n = snprintf(connstring, len, "http://%s@%s:%d/?default_format=JSONCompact", username, host, port);
 		curl_free(username);
 	}
 	else
-		n = snprintf(connstring, len, "http://%s:%d/", host, port);
+		n = snprintf(connstring, len, "http://%s:%d/?default_format=JSONCompact", host, port);
 
 	if (n < 0)
 		goto cleanup;
