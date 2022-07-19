@@ -32,13 +32,13 @@ SET ( clickhouse-cpp-lib-src
 
 ADD_LIBRARY (clickhouse-cpp-lib SHARED ${clickhouse-cpp-lib-src})
 SET_TARGET_PROPERTIES(clickhouse-cpp-lib PROPERTIES LINKER_LANGUAGE CXX)
-TARGET_LINK_LIBRARIES (clickhouse-cpp-lib
+TARGET_LINK_LIBRARIES (clickhouse-cpp-lib PRIVATE
     cityhash-lib
     lz4-lib
 )
 
 ADD_LIBRARY (clickhouse-cpp-lib-static STATIC ${clickhouse-cpp-lib-src})
-TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static
+TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static PRIVATE
     cityhash-lib
     lz4-lib
 )
