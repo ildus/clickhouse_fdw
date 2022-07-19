@@ -1,11 +1,6 @@
 #pragma once
 
-#include <memory>
-
 namespace clickhouse {
-
-class InputStream;
-class OutputStream;
 
 class LocalTcpServer {
 public:
@@ -16,7 +11,9 @@ public:
     void stop();
 
 private:
+    void startImpl();
 
+private:
     int port_;
     int serverSd_;
 };

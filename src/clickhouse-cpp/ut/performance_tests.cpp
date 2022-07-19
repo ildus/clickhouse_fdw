@@ -7,15 +7,12 @@
 #include <clickhouse/columns/string.h>
 #include <clickhouse/columns/uuid.h>
 #include <clickhouse/client.h>
-#include <clickhouse/base/output.h>
-#include <clickhouse/base/input.h>
 
-#include <gtest/gtest.h>
+#include <contrib/gtest/gtest.h>
 
 #include <string>
 
 #include "utils.h"
-#include "utils_performance.h"
 
 using namespace clickhouse;
 
@@ -81,13 +78,13 @@ template <typename ColumnType>
 class ColumnPerformanceTest : public ::testing::Test {
 };
 
-TYPED_TEST_SUITE_P(ColumnPerformanceTest);
+TYPED_TEST_CASE_P(ColumnPerformanceTest);
 
 // Turns out this is the easiest way to skip test with current version of gtest
 #ifndef NDEBUG
-#  define SKIP_IN_DEBUG_BUILDS() (void)(0)
+#  define SKIP_IN_DEBUG_BUILDS() do { std::cerr << "Test skipped...\n"; return; } while(0)
 #else
-#  define SKIP_IN_DEBUG_BUILDS() GTEST_SKIP_("Test skipped for DEBUG build...")
+#  define SKIP_IN_DEBUG_BUILDS() (void)(0)
 #endif
 
 TYPED_TEST_P(ColumnPerformanceTest, SaveAndLoad) {
@@ -130,7 +127,8 @@ TYPED_TEST_P(ColumnPerformanceTest, SaveAndLoad) {
 
         for (int i = 0; i < LOAD_AND_SAVE_REPEAT_TIMES; ++i) {
             buffer.clear();
-            BufferOutput ostr(&buffer);
+            BufferOutput bufferOutput(&buffer);
+            CodedOutputStream ostr(&bufferOutput);
 
             Timer timer;
             column.Save(&ostr);
@@ -149,7 +147,8 @@ TYPED_TEST_P(ColumnPerformanceTest, SaveAndLoad) {
         Timer::DurationType total{0};
 
         for (int i = 0; i < LOAD_AND_SAVE_REPEAT_TIMES; ++i) {
-            ArrayInput istr(buffer.data(), buffer.size());
+            ArrayInput arrayInput(buffer.data(), buffer.size());
+            CodedInputStream istr(&arrayInput);
             column.Clear();
 
             Timer timer;
@@ -170,20 +169,14 @@ TYPED_TEST_P(ColumnPerformanceTest, InsertAndSelect) {
     using ColumnType = TypeParam;
     using Timer = Timer<std::chrono::microseconds>;
 
-    const std::string table_name = "PerformanceTests_ColumnTest";
+    const std::string table_name = "PerformanceTests.ColumnTest";
     const std::string column_name = "column";
 
     auto column = InstantiateColumn<ColumnType>();
-    Client client(ClientOptions()
-            .SetHost(           getEnvOrDefault("CLICKHOUSE_HOST",     "localhost"))
-            .SetPort( std::stoi(getEnvOrDefault("CLICKHOUSE_PORT",     "9000")))
-            .SetUser(           getEnvOrDefault("CLICKHOUSE_USER",     "default"))
-            .SetPassword(       getEnvOrDefault("CLICKHOUSE_PASSWORD", ""))
-            .SetDefaultDatabase(getEnvOrDefault("CLICKHOUSE_DB",       "default"))
-    );
-    // client.Execute("CREATE DATABASE IF NOT EXISTS PerformanceTests");
-    client.Execute("DROP TEMPORARY TABLE IF EXISTS PerformanceTests_ColumnTest");
-    client.Execute("CREATE TEMPORARY TABLE PerformanceTests_ColumnTest (" + column_name + " " + column.Type()->GetName() + ")");
+    Client client(ClientOptions().SetHost("localhost"));
+    client.Execute("CREATE DATABASE IF NOT EXISTS PerformanceTests");
+    client.Execute("DROP TABLE IF EXISTS PerformanceTests.ColumnTest");
+    client.Execute("CREATE TABLE PerformanceTests.ColumnTest (" + column_name + " " + column.Type()->GetName() + ") ENGINE = Memory");
 
     const size_t ITEMS_COUNT = 1'000'000;
 
@@ -218,7 +211,7 @@ TYPED_TEST_P(ColumnPerformanceTest, InsertAndSelect) {
         size_t total_rows = 0;
         Timer timer;
         Timer::DurationType inner_loop_duration{0};
-        client.Select("SELECT " + column_name +  " FROM " + table_name, [&](const Block & block) {
+        client.Select("SELECT " + column_name +  " FROM " + table_name, [&total_rows, &inner_loop_duration](const Block & block) {
             Timer timer;
             total_rows += block.GetRowCount();
             if (block.GetRowCount() == 0) {
@@ -228,21 +221,7 @@ TYPED_TEST_P(ColumnPerformanceTest, InsertAndSelect) {
             EXPECT_EQ(1u, block.GetColumnCount());
             const auto col = block[0]->As<ColumnType>();
 
-            if (col.get() == 0)
-            {
-                // If server doesn't send response back as LowCardinality(X) but rather like X.
-                if constexpr (std::is_base_of_v<ColumnLowCardinality, ColumnType>)
-                {
-                    using NestedColumnType = typename ColumnType::WrappedColumnType;
-                    EXPECT_NO_FATAL_FAILURE(ValidateColumnItems(*block[0]->As<NestedColumnType>(), ITEMS_COUNT));
-                }
-                else
-                    FAIL();
-            }
-            else
-            {
-                EXPECT_NO_FATAL_FAILURE(ValidateColumnItems(*col, ITEMS_COUNT));
-            }
+            EXPECT_NO_FATAL_FAILURE(ValidateColumnItems(*col, ITEMS_COUNT));
             inner_loop_duration += timer.Elapsed();
         });
 
@@ -253,11 +232,11 @@ TYPED_TEST_P(ColumnPerformanceTest, InsertAndSelect) {
     }
 }
 
-REGISTER_TYPED_TEST_SUITE_P(ColumnPerformanceTest,
+REGISTER_TYPED_TEST_CASE_P(ColumnPerformanceTest,
     SaveAndLoad, InsertAndSelect);
 
 using SimpleColumnTypes = testing::Types<ColumnUInt64, ColumnString, ColumnFixedString>;
-INSTANTIATE_TYPED_TEST_SUITE_P(SimpleColumns, ColumnPerformanceTest, SimpleColumnTypes);
+INSTANTIATE_TYPED_TEST_CASE_P(SimpleColumns, ColumnPerformanceTest, SimpleColumnTypes);
 
 using LowCardinalityColumnTypes = ::testing::Types<ColumnLowCardinalityT<ColumnString>, ColumnLowCardinalityT<ColumnFixedString>>;
-INSTANTIATE_TYPED_TEST_SUITE_P(LowCardinality, ColumnPerformanceTest, LowCardinalityColumnTypes);
+INSTANTIATE_TYPED_TEST_CASE_P(LowCardinality, ColumnPerformanceTest, LowCardinalityColumnTypes);

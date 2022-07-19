@@ -1,6 +1,5 @@
+
 #include "ip6.h"
-#include "../base/socket.h" // for IPv6 platform-specific stuff
-#include "../exceptions.h"
 
 #include <stdexcept>
 
@@ -16,44 +15,36 @@ ColumnIPv6::ColumnIPv6()
 
 ColumnIPv6::ColumnIPv6(ColumnRef data)
     : Column(Type::CreateIPv6())
-    , data_(data ? data->As<ColumnFixedString>() : nullptr)
+    , data_(data->As<ColumnFixedString>())
 {
-    if (!data_ || data_->FixedSize() != sizeof(in6_addr))
-        throw ValidationError("Expecting ColumnFixedString(16), got " + (data ? data->GetType().GetName() : "null"));
+    if (data_->Size() != 0) {
+        throw std::runtime_error("number of entries must be even (two 64-bit numbers for each IPv6)");
+    }
 }
 
-void ColumnIPv6::Append(const std::string_view& str) {
+void ColumnIPv6::Append(const std::string& ip) {
     unsigned char buf[16];
-    if (inet_pton(AF_INET6, str.data(), buf) != 1) {
-        throw ValidationError("invalid IPv6 format, ip: " + std::string(str));
+    if (inet_pton(AF_INET6, ip.c_str(), buf) != 1) {
+        throw std::runtime_error("invalid IPv6 format, ip: " + ip);
     }
-    data_->Append(std::string_view((const char*)buf, 16));
+    data_->Append(std::string((const char*)buf, 16));
 }
 
 void ColumnIPv6::Append(const in6_addr* addr) {
-    data_->Append(std::string_view((const char*)addr->s6_addr, 16));
-}
-
-void ColumnIPv6::Append(const in6_addr& addr) {
-    Append(&addr);
+    data_->Append(std::string((const char*)addr->s6_addr, 16));
 }
 
 void ColumnIPv6::Clear() {
     data_->Clear();
 }
 
-std::string ColumnIPv6::AsString (size_t n) const {
-    const auto& addr = this->At(n);
-
+std::string ColumnIPv6::AsString (size_t n) const{
+    const auto& addr = data_->At(n);
     char buf[INET6_ADDRSTRLEN];
-    const char* ip_str = inet_ntop(AF_INET6, &addr, buf, INET6_ADDRSTRLEN);
-
+    const char* ip_str = inet_ntop(AF_INET6, addr.data(), buf, INET6_ADDRSTRLEN);
     if (ip_str == nullptr) {
-        throw std::system_error(
-                std::error_code(errno, std::generic_category()),
-                "Invalid IPv6 data");
+        throw std::runtime_error("invalid IPv6 format: " + std::string(addr));
     }
-
     return ip_str;
 }
 
@@ -71,24 +62,20 @@ void ColumnIPv6::Append(ColumnRef column) {
     }
 }
 
-bool ColumnIPv6::LoadBody(InputStream* input, size_t rows) {
-    return data_->LoadBody(input, rows);
+bool ColumnIPv6::Load(CodedInputStream* input, size_t rows) {
+    return data_->Load(input, rows);
 }
 
-void ColumnIPv6::SaveBody(OutputStream* output) {
-    data_->SaveBody(output);
+void ColumnIPv6::Save(CodedOutputStream* output) {
+    data_->Save(output);
 }
 
 size_t ColumnIPv6::Size() const {
     return data_->Size();
 }
 
-ColumnRef ColumnIPv6::Slice(size_t begin, size_t len) const {
+ColumnRef ColumnIPv6::Slice(size_t begin, size_t len) {
     return std::make_shared<ColumnIPv6>(data_->Slice(begin, len));
-}
-
-ColumnRef ColumnIPv6::CloneEmpty() const {
-    return std::make_shared<ColumnIPv6>(data_->CloneEmpty());
 }
 
 void ColumnIPv6::Swap(Column& other) {
@@ -97,7 +84,7 @@ void ColumnIPv6::Swap(Column& other) {
 }
 
 ItemView ColumnIPv6::GetItem(size_t index) const {
-    return ItemView{Type::IPv6, data_->GetItem(index)};
+    return data_->GetItem(index);
 }
 
 }

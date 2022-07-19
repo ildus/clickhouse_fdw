@@ -1,6 +1,5 @@
 #include "uuid.h"
 #include "utils.h"
-#include "../exceptions.h"
 
 #include <stdexcept>
 
@@ -17,7 +16,7 @@ ColumnUUID::ColumnUUID(ColumnRef data)
     , data_(data->As<ColumnUInt64>())
 {
     if (data_->Size() % 2 != 0) {
-        throw ValidationError("number of entries must be even (two 64-bit numbers for each UUID)");
+        throw std::runtime_error("number of entries must be even (two 64-bit numbers for each UUID)");
     }
 }
 
@@ -44,24 +43,20 @@ void ColumnUUID::Append(ColumnRef column) {
     }
 }
 
-bool ColumnUUID::LoadBody(InputStream* input, size_t rows) {
-    return data_->LoadBody(input, rows * 2);
+bool ColumnUUID::Load(CodedInputStream* input, size_t rows) {
+    return data_->Load(input, rows * 2);
 }
 
-void ColumnUUID::SaveBody(OutputStream* output) {
-    data_->SaveBody(output);
+void ColumnUUID::Save(CodedOutputStream* output) {
+    data_->Save(output);
 }
 
 size_t ColumnUUID::Size() const {
     return data_->Size() / 2;
 }
 
-ColumnRef ColumnUUID::Slice(size_t begin, size_t len) const {
+ColumnRef ColumnUUID::Slice(size_t begin, size_t len) {
     return std::make_shared<ColumnUUID>(data_->Slice(begin * 2, len * 2));
-}
-
-ColumnRef ColumnUUID::CloneEmpty() const {
-    return std::make_shared<ColumnUUID>();
 }
 
 void ColumnUUID::Swap(Column& other) {
@@ -70,11 +65,7 @@ void ColumnUUID::Swap(Column& other) {
 }
 
 ItemView ColumnUUID::GetItem(size_t index) const {
-    // We know that ColumnUInt64 stores it's data in continius memory region,
-    // and that every 2 values from data represent 1 UUID value.
-    const auto data_item_view = data_->GetItem(index * 2);
-
-    return ItemView{Type::UUID, std::string_view{data_item_view.data.data(), data_item_view.data.size() * 2}};
+    return data_->GetItem(index);
 }
 
 }

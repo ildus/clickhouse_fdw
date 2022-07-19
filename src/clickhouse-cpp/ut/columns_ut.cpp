@@ -1,5 +1,4 @@
 #include <clickhouse/columns/array.h>
-#include <clickhouse/columns/tuple.h>
 #include <clickhouse/columns/date.h>
 #include <clickhouse/columns/enum.h>
 #include <clickhouse/columns/factory.h>
@@ -8,25 +7,44 @@
 #include <clickhouse/columns/numeric.h>
 #include <clickhouse/columns/string.h>
 #include <clickhouse/columns/uuid.h>
-#include <clickhouse/columns/ip4.h>
-#include <clickhouse/columns/ip6.h>
-#include <clickhouse/base/input.h>
-#include <clickhouse/base/output.h>
-#include <clickhouse/base/socket.h> // for ipv4-ipv6 platform-specific stuff
 
-#include <gtest/gtest.h>
+#include <contrib/gtest/gtest.h>
 #include "utils.h"
-#include "value_generators.h"
 
 #include <string_view>
-#include <sstream>
-#include <vector>
-#include <random>
+
 
 namespace {
 
 using namespace clickhouse;
 using namespace std::literals::string_view_literals;
+
+static std::vector<uint32_t> MakeNumbers() {
+    return std::vector<uint32_t>
+        {1, 2, 3, 7, 11, 13, 17, 19, 23, 29, 31};
+}
+
+static std::vector<uint8_t> MakeBools() {
+    return std::vector<uint8_t>
+        {1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0};
+}
+
+static std::vector<std::string> MakeFixedStrings() {
+    return std::vector<std::string>
+        {"aaa", "bbb", "ccc", "ddd"};
+}
+
+static std::vector<std::string> MakeStrings() {
+    return std::vector<std::string>
+        {"a", "ab", "abc", "abcd"};
+}
+
+static std::vector<uint64_t> MakeUUIDs() {
+    return std::vector<uint64_t>
+        {0xbb6a8c699ab2414cllu, 0x86697b7fd27f0825llu,
+         0x84b9f24bc26b49c6llu, 0xa03b4ab723341951llu,
+         0x3507213c178649f9llu, 0x9faf035d662f60aellu};
+}
 
 static const auto LOWCARDINALITY_STRING_FOOBAR_10_ITEMS_BINARY =
         "\x01\x00\x00\x00\x00\x00\x00\x00\x00\x06\x00\x00\x00\x00\x00\x00"
@@ -34,6 +52,73 @@ static const auto LOWCARDINALITY_STRING_FOOBAR_10_ITEMS_BINARY =
         "\x01\x31\x01\x32\x03\x46\x6f\x6f\x01\x34\x03\x42\x61\x72\x01\x37"
         "\x01\x38\x0a\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06"
         "\x04\x07\x08\x04"sv;
+
+template <typename Generator>
+auto GenerateVector(size_t items, Generator && gen) {
+    std::vector<std::result_of_t<Generator(size_t)>> result;
+    result.reserve(items);
+    for (size_t i = 0; i < items; ++i) {
+        result.push_back(std::move(gen(i)));
+    }
+
+    return result;
+}
+
+std::string FooBarSeq(size_t i) {
+    std::string result;
+    if (i % 3 == 0)
+        result += "Foo";
+    if (i % 5 == 0)
+        result += "Bar";
+    if (result.empty())
+        result = std::to_string(i);
+
+    return result;
+}
+
+template <typename T, typename U = T>
+auto SameValueSeq(const U & value) {
+    return [&value](size_t) -> T {
+        return value;
+    };
+}
+
+template <typename ResultType, typename Generator1, typename Generator2>
+auto AlternateGenerators(Generator1 && gen1, Generator2 && gen2) {
+    return [&gen1, &gen2](size_t i) -> ResultType {
+        if (i % 2 == 0)
+            return gen1(i/2);
+        else
+            return gen2(i/2);
+    };
+}
+
+template <typename T>
+std::vector<T> ConcatSequences(std::vector<T> && vec1, std::vector<T> && vec2)
+{
+    std::vector<T> result(vec1);
+
+    result.reserve(vec1.size() + vec2.size());
+    result.insert(result.end(), vec2.begin(), vec2.end());
+
+    return result;
+}
+
+static std::vector<Int64> MakeDateTime64s() {
+    static const auto seconds_multiplier = 1'000'000;
+    static const auto year = 86400ull * 365 * seconds_multiplier; // ~approx, but this doesn't matter here.
+
+    // Approximatelly +/- 200 years around epoch (and value of epoch itself)
+    // with non zero seconds and sub-seconds.
+    // Please note there are values outside of DateTime (32-bit) range that might
+    // not have correct string representation in CH yet,
+    // but still are supported as Int64 values.
+    return GenerateVector(200,
+        [] (size_t i )-> Int64 {
+            return (i - 100) * year * 2 + (i * 10) * seconds_multiplier + i;
+        });
+}
+
 }
 
 // TODO: add tests for ColumnDecimal.
@@ -59,48 +144,14 @@ TEST(ColumnsCase, NumericSlice) {
 
 
 TEST(ColumnsCase, FixedStringInit) {
-    const auto column_data = MakeFixedStrings(3);
-    auto col = std::make_shared<ColumnFixedString>(3, column_data);
-
-    ASSERT_EQ(col->Size(), column_data.size());
-
-    size_t i = 0;
-    for (const auto& s : column_data) {
-        EXPECT_EQ(s, col->At(i));
-        ++i;
-    }
-}
-
-TEST(ColumnsCase, FixedString_Append_SmallStrings) {
-    // Ensure that strings smaller than FixedString's size
-    // are padded with zeroes on insertion.
-
-    const size_t string_size = 7;
-    const auto column_data = MakeFixedStrings(3);
-
-    auto col = std::make_shared<ColumnFixedString>(string_size);
-    size_t i = 0;
-    for (const auto& s : column_data) {
+    auto col = std::make_shared<ColumnFixedString>(3);
+    for (const auto& s : MakeFixedStrings()) {
         col->Append(s);
-
-        EXPECT_EQ(string_size, col->At(i).size());
-
-        std::string expected = column_data[i];
-        expected.resize(string_size, char(0));
-        EXPECT_EQ(expected, col->At(i));
-
-        ++i;
     }
 
-    ASSERT_EQ(col->Size(), i);
-}
-
-TEST(ColumnsCase, FixedString_Append_LargeString) {
-    // Ensure that inserting strings larger than FixedString size thorws exception.
-
-    const auto col = std::make_shared<ColumnFixedString>(1);
-    EXPECT_ANY_THROW(col->Append("2c"));
-    EXPECT_ANY_THROW(col->Append("this is a long string"));
+    ASSERT_EQ(col->Size(), 4u);
+    ASSERT_EQ(col->At(1), "bbb");
+    ASSERT_EQ(col->At(3), "ddd");
 }
 
 TEST(ColumnsCase, StringInit) {
@@ -112,39 +163,25 @@ TEST(ColumnsCase, StringInit) {
 }
 
 
-TEST(ColumnsCase, TupleAppend){
-    auto tuple1 = std::make_shared<ColumnTuple>(std::vector<ColumnRef>({
-                                std::make_shared<ColumnUInt64>(),
-                                std::make_shared<ColumnString>()
-                            }));
-    auto tuple2 = std::make_shared<ColumnTuple>(std::vector<ColumnRef>({
-                                std::make_shared<ColumnUInt64>(),
-                                std::make_shared<ColumnString>()
-                            }));
-    (*tuple1)[0]->As<ColumnUInt64>()->Append(2u);
-    (*tuple1)[1]->As<ColumnString>()->Append("2");
-    tuple2->Append(tuple1);
+TEST(ColumnsCase, ArrayAppend) {
+    auto arr1 = std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>());
+    auto arr2 = std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>());
 
-    ASSERT_EQ((*tuple2)[0]->As<ColumnUInt64>()->At(0), 2u);
-    ASSERT_EQ((*tuple2)[1]->As<ColumnString>()->At(0), "2");
+    auto id = std::make_shared<ColumnUInt64>();
+    id->Append(1);
+    arr1->AppendAsColumn(id);
+
+    id->Append(3);
+    arr2->AppendAsColumn(id);
+
+    arr1->Append(arr2);
+
+    auto col = arr1->GetAsColumn(1);
+
+    ASSERT_EQ(arr1->Size(), 2u);
+    //ASSERT_EQ(col->As<ColumnUInt64>()->At(0), 1u);
+    //ASSERT_EQ(col->As<ColumnUInt64>()->At(1), 3u);
 }
-
-TEST(ColumnsCase, TupleSlice){
-    auto tuple1 = std::make_shared<ColumnTuple>(std::vector<ColumnRef>({
-                                std::make_shared<ColumnUInt64>(),
-                                std::make_shared<ColumnString>()
-                            }));
-
-    (*tuple1)[0]->As<ColumnUInt64>()->Append(2u);
-    (*tuple1)[1]->As<ColumnString>()->Append("2");
-    (*tuple1)[0]->As<ColumnUInt64>()->Append(3u);
-    (*tuple1)[1]->As<ColumnString>()->Append("3");
-    auto tuple2 = tuple1->Slice(1,1)->As<ColumnTuple>();
-
-    ASSERT_EQ((*tuple2)[0]->As<ColumnUInt64>()->At(0), 3u);
-    ASSERT_EQ((*tuple2)[1]->As<ColumnString>()->At(0), "3");
-}
-
 
 TEST(ColumnsCase, DateAppend) {
     auto col1 = std::make_shared<ColumnDate>();
@@ -179,7 +216,7 @@ TEST(ColumnsCase, DateTime64_6) {
 TEST(ColumnsCase, DateTime64_Append_At) {
     auto column = std::make_shared<ColumnDateTime64>(6ul);
 
-    const auto data = MakeDateTime64s(6ul);
+    const auto data = MakeDateTime64s();
     for (const auto & v : data) {
         column->Append(v);
     }
@@ -197,7 +234,7 @@ TEST(ColumnsCase, DateTime64_Clear) {
     ASSERT_NO_THROW(column->Clear());
     ASSERT_EQ(0u, column->Size());
 
-    const auto data = MakeDateTime64s(6ul);
+    const auto data = MakeDateTime64s();
     for (const auto & v : data) {
         column->Append(v);
     }
@@ -209,7 +246,7 @@ TEST(ColumnsCase, DateTime64_Clear) {
 TEST(ColumnsCase, DateTime64_Swap) {
     auto column = std::make_shared<ColumnDateTime64>(6ul);
 
-    const auto data = MakeDateTime64s(6ul);
+    const auto data = MakeDateTime64s();
     for (const auto & v : data) {
         column->Append(v);
     }
@@ -234,12 +271,12 @@ TEST(ColumnsCase, DateTime64_Slice) {
 
     {
         // Empty slice on empty column
-        auto slice = column->CloneEmpty()->As<ColumnDateTime64>();
+        auto slice = column->Slice(0, 0)->As<ColumnDateTime64>();
         ASSERT_EQ(0u, slice->Size());
         ASSERT_EQ(column->GetPrecision(), slice->GetPrecision());
     }
 
-    const auto data = MakeDateTime64s(6ul);
+    const auto data = MakeDateTime64s();
     const size_t size = data.size();
     ASSERT_GT(size, 4u); // so the partial slice below has half of the elements of the column
 
@@ -249,7 +286,7 @@ TEST(ColumnsCase, DateTime64_Slice) {
 
     {
         // Empty slice on non-empty column
-        auto slice = column->CloneEmpty()->As<ColumnDateTime64>();
+        auto slice = column->Slice(0, 0)->As<ColumnDateTime64>();
         ASSERT_EQ(0u, slice->Size());
         ASSERT_EQ(column->GetPrecision(), slice->GetPrecision());
     }
@@ -288,7 +325,7 @@ TEST(ColumnsCase, DateTime64_Slice_OUTOFBAND) {
     // Non-Empty slice on empty column
     EXPECT_EQ(0u, column->Slice(0, 10)->Size());
 
-    const auto data = MakeDateTime64s(6ul);
+    const auto data = MakeDateTime64s();
     for (const auto & v : data) {
         column->Append(v);
     }
@@ -307,11 +344,11 @@ TEST(ColumnsCase, DateTime64_Swap_EXCEPTION) {
 
 TEST(ColumnsCase, Date2038) {
     auto col1 = std::make_shared<ColumnDate>();
-    const std::time_t largeDate(25882ull * 86400ull);
+    std::time_t largeDate(25882ul * 86400ul);
     col1->Append(largeDate);
 
     ASSERT_EQ(col1->Size(), 1u);
-    ASSERT_EQ(largeDate, col1->At(0));
+    ASSERT_EQ(static_cast<std::uint64_t>(col1->At(0)), 25882ul * 86400ul);
 }
 
 TEST(ColumnsCase, EnumTest) {
@@ -332,8 +369,6 @@ TEST(ColumnsCase, EnumTest) {
 
     auto col16 = std::make_shared<ColumnEnum16>(Type::CreateEnum16(enum_items));
     ASSERT_TRUE(col16->Type()->IsEqual(Type::CreateEnum16(enum_items)));
-
-    ASSERT_TRUE(CreateColumnByType("Enum8('Hi' = 1, 'Hello' = 2)")->Type()->IsEqual(Type::CreateEnum8(enum_items)));
 }
 
 TEST(ColumnsCase, NullableSlice) {
@@ -351,17 +386,8 @@ TEST(ColumnsCase, NullableSlice) {
     ASSERT_EQ(subData->At(3), 17u);
 }
 
-// internal representation of UUID data in ColumnUUID
-std::vector<uint64_t> MakeUUID_data() {
-    return {
-        0xbb6a8c699ab2414cllu, 0x86697b7fd27f0825llu,
-        0x84b9f24bc26b49c6llu, 0xa03b4ab723341951llu,
-        0x3507213c178649f9llu, 0x9faf035d662f60aellu
-    };
-}
-
 TEST(ColumnsCase, UUIDInit) {
-    auto col = std::make_shared<ColumnUUID>(std::make_shared<ColumnUInt64>(MakeUUID_data()));
+    auto col = std::make_shared<ColumnUUID>(std::make_shared<ColumnUInt64>(MakeUUIDs()));
 
     ASSERT_EQ(col->Size(), 3u);
     ASSERT_EQ(col->At(0), UInt128(0xbb6a8c699ab2414cllu, 0x86697b7fd27f0825llu));
@@ -369,7 +395,7 @@ TEST(ColumnsCase, UUIDInit) {
 }
 
 TEST(ColumnsCase, UUIDSlice) {
-    auto col = std::make_shared<ColumnUUID>(std::make_shared<ColumnUInt64>(MakeUUID_data()));
+    auto col = std::make_shared<ColumnUUID>(std::make_shared<ColumnUInt64>(MakeUUIDs()));
     auto sub = col->Slice(1, 2)->As<ColumnUUID>();
 
     ASSERT_EQ(sub->Size(), 2u);
@@ -377,251 +403,10 @@ TEST(ColumnsCase, UUIDSlice) {
     ASSERT_EQ(sub->At(1), UInt128(0x3507213c178649f9llu, 0x9faf035d662f60aellu));
 }
 
-TEST(ColumnsCase, Int128) {
-    auto col = std::make_shared<ColumnInt128>(std::vector<Int128>{
-            absl::MakeInt128(0xffffffffffffffffll, 0xffffffffffffffffll), // -1
-            absl::MakeInt128(0, 0xffffffffffffffffll),  // 2^64
-            absl::MakeInt128(0xffffffffffffffffll, 0),
-            absl::MakeInt128(0x8000000000000000ll, 0),
-            Int128(0)
-    });
-
-    EXPECT_EQ(-1, col->At(0));
-
-    EXPECT_EQ(absl::MakeInt128(0, 0xffffffffffffffffll), col->At(1));
-    EXPECT_EQ(0ll,                   absl::Int128High64(col->At(1)));
-    EXPECT_EQ(0xffffffffffffffffull, absl::Int128Low64(col->At(1)));
-
-    EXPECT_EQ(absl::MakeInt128(0xffffffffffffffffll, 0), col->At(2));
-    EXPECT_EQ(static_cast<int64_t>(0xffffffffffffffffll),  absl::Int128High64(col->At(2)));
-    EXPECT_EQ(0ull,                  absl::Int128Low64(col->At(2)));
-
-    EXPECT_EQ(0, col->At(4));
-}
-
-TEST(ColumnsCase, ColumnIPv4)
-{
-    // TODO: split into proper method-level unit-tests
-    auto col = ColumnIPv4();
-
-    col.Append("255.255.255.255");
-    col.Append("127.0.0.1");
-    col.Append(3585395774);
-    col.Append(0);
-    const in_addr ip = MakeIPv4(0x12345678);
-    col.Append(ip);
-
-    ASSERT_EQ(5u, col.Size());
-    EXPECT_EQ(MakeIPv4(0xffffffff), col.At(0));
-    EXPECT_EQ(MakeIPv4(0x0100007f), col.At(1));
-    EXPECT_EQ(MakeIPv4(3585395774), col.At(2));
-    EXPECT_EQ(MakeIPv4(0),          col.At(3));
-    EXPECT_EQ(ip,                  col.At(4));
-
-    EXPECT_EQ("255.255.255.255", col.AsString(0));
-    EXPECT_EQ("127.0.0.1",       col.AsString(1));
-    EXPECT_EQ("62.204.180.213",  col.AsString(2));
-    EXPECT_EQ("0.0.0.0",         col.AsString(3));
-    EXPECT_EQ("120.86.52.18",    col.AsString(4));
-
-    col.Clear();
-    EXPECT_EQ(0u, col.Size());
-}
-
-TEST(ColumnsCase, ColumnIPv4_construct_from_data)
-{
-    const auto vals = {
-        MakeIPv4(0x12345678),
-        MakeIPv4(0x0),
-        MakeIPv4(0x0100007f)
-    };
-
-    {
-        // Column is usable after being initialized with empty data column
-        auto col = ColumnIPv4(std::make_shared<ColumnUInt32>());
-        EXPECT_EQ(0u, col.Size());
-
-        // Make sure that `Append` and `At`/`[]` work properly
-        size_t i = 0;
-        for (const auto & v : vals) {
-            col.Append(v);
-            EXPECT_EQ(v, col[col.Size() - 1]) << "At pos " << i;
-            EXPECT_EQ(v, col.At(col.Size() - 1)) << "At pos " << i;
-            ++i;
-        }
-
-        EXPECT_EQ(vals.size(), col.Size());
-    }
-
-    {
-        // Column reports values from data column exactly, and also can be modified afterwards.
-        const auto values = std::vector<uint32_t>{std::numeric_limits<uint32_t>::min(), 123, 456, 789101112, std::numeric_limits<uint32_t>::max()};
-        auto col = ColumnIPv4(std::make_shared<ColumnUInt32>(values));
-
-        EXPECT_EQ(values.size(), col.Size());
-        for (size_t i = 0; i < values.size(); ++i) {
-            EXPECT_EQ(ntohl(values[i]), col[i]) << " At pos: " << i;
-        }
-
-        // Make sure that `Append` and `At`/`[]` work properly
-        size_t i = 0;
-        for (const auto & v : vals) {
-            col.Append(v);
-            EXPECT_EQ(v, col[col.Size() - 1]) << "At pos " << i;
-            EXPECT_EQ(v, col.At(col.Size() - 1)) << "At pos " << i;
-            ++i;
-        }
-
-        EXPECT_EQ(values.size() + vals.size(), col.Size());
-    }
-
-    EXPECT_ANY_THROW(ColumnIPv4(nullptr));
-    EXPECT_ANY_THROW(ColumnIPv4(ColumnRef(std::make_shared<ColumnInt8>())));
-    EXPECT_ANY_THROW(ColumnIPv4(ColumnRef(std::make_shared<ColumnInt32>())));
-
-    EXPECT_ANY_THROW(ColumnIPv4(ColumnRef(std::make_shared<ColumnUInt8>())));
-
-    EXPECT_ANY_THROW(ColumnIPv4(ColumnRef(std::make_shared<ColumnInt128>())));
-    EXPECT_ANY_THROW(ColumnIPv4(ColumnRef(std::make_shared<ColumnString>())));
-}
-
-TEST(ColumnsCase, ColumnIPv6)
-{
-    // TODO: split into proper method-level unit-tests
-    auto col = ColumnIPv6();
-    col.Append("0:0:0:0:0:0:0:1");
-    col.Append("::");
-    col.Append("::FFFF:204.152.189.116");
-
-    const auto ipv6 = MakeIPv6(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
-    col.Append(ipv6);
-
-    ASSERT_EQ(4u, col.Size());
-    EXPECT_EQ(MakeIPv6(0, 0, 0, 0, 0, 1),               col.At(0));
-    EXPECT_EQ(MakeIPv6(0, 0, 0, 0, 0, 0),               col.At(1));
-    EXPECT_EQ(MakeIPv6(0xff, 0xff, 204, 152, 189, 116), col.At(2));
-
-    EXPECT_EQ(ipv6, col.At(3));
-
-    EXPECT_EQ("::1",                    col.AsString(0));
-    EXPECT_EQ("::",                     col.AsString(1));
-    EXPECT_EQ("::ffff:204.152.189.116", col.AsString(2));
-    EXPECT_EQ("1:203:405:607:809:a0b:c0d:e0f", col.AsString(3));
-
-    col.Clear();
-    EXPECT_EQ(0u, col.Size());
-}
-
-TEST(ColumnsCase, ColumnIPv6_construct_from_data)
-{
-    const auto vals = {
-        MakeIPv6(0xff, 0xff, 204, 152, 189, 116),
-        MakeIPv6(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
-    };
-
-    {
-        // Column is usable after being initialized with empty data column
-        auto col = ColumnIPv6(std::make_shared<ColumnFixedString>(16));
-        EXPECT_EQ(0u, col.Size());
-
-        // Make sure that `Append` and `At`/`[]` work properly
-        size_t i = 0;
-        for (const auto & v : vals) {
-            col.Append(v);
-            EXPECT_EQ(v, col[col.Size() - 1]) << "At pos " << i;
-            EXPECT_EQ(v, col.At(col.Size() - 1)) << "At pos " << i;
-            ++i;
-        }
-
-        EXPECT_EQ(vals.size(), col.Size());
-    }
-
-    {
-        // Column reports values from data column exactly, and also can be modified afterwards.
-        using namespace std::literals;
-        const auto values = std::vector<std::string_view>{
-                "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F"sv,
-                "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F"sv,
-                "\xF0\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9\xFA\xFB\xFC\xFD\xFE\xFF"sv};
-        auto col = ColumnIPv6(std::make_shared<ColumnFixedString>(16, values));
-
-        EXPECT_EQ(values.size(), col.Size());
-        for (size_t i = 0; i < values.size(); ++i) {
-            EXPECT_EQ(values[i], col[i]) << " At pos: " << i;
-        }
-
-        // Make sure that `Append` and `At`/`[]` work properly
-        size_t i = 0;
-        for (const auto & v : vals) {
-            col.Append(v);
-            EXPECT_EQ(v, col[col.Size() - 1]) << "At pos " << i;
-            EXPECT_EQ(v, col.At(col.Size() - 1)) << "At pos " << i;
-            ++i;
-        }
-
-        EXPECT_EQ(values.size() + vals.size(), col.Size());
-    }
-
-    // Make sure that column can't be constructed with wrong data columns (wrong size/wrong type or null)
-    EXPECT_ANY_THROW(ColumnIPv4(nullptr));
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnFixedString>(15))));
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnFixedString>(17))));
-
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnInt8>())));
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnInt32>())));
-
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnUInt8>())));
-
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnInt128>())));
-    EXPECT_ANY_THROW(ColumnIPv6(ColumnRef(std::make_shared<ColumnString>())));
-}
-
-TEST(ColumnsCase, ColumnDecimal128_from_string) {
-    auto col = std::make_shared<ColumnDecimal>(38, 0);
-
-    const auto values = {
-        Int128(0),
-        Int128(-1),
-        Int128(1),
-        std::numeric_limits<Int128>::min() + 1,
-        std::numeric_limits<Int128>::max(),
-    };
-
-    for (size_t i = 0; i < values.size(); ++i) {
-        const auto value = values.begin()[i];
-        SCOPED_TRACE(::testing::Message() << "# index: " << i << " Int128 value: " << value);
-
-        {
-            std::stringstream sstr;
-            sstr << value;
-            const auto string_value = sstr.str();
-
-            EXPECT_NO_THROW(col->Append(string_value));
-        }
-
-        ASSERT_EQ(i + 1, col->Size());
-        EXPECT_EQ(value, col->At(i));
-    }
-}
-
-TEST(ColumnsCase, ColumnDecimal128_from_string_overflow) {
-    auto col = std::make_shared<ColumnDecimal>(38, 0);
-
-    // 2^128 overflows
-    EXPECT_ANY_THROW(col->Append("340282366920938463463374607431768211456"));
-    // special case for number bigger than 2^128, ending in zeroes.
-    EXPECT_ANY_THROW(col->Append("400000000000000000000000000000000000000"));
-
-#ifndef ABSL_HAVE_INTRINSIC_INT128
-    // unfortunatelly std::numeric_limits<Int128>::min() overflows when there is no __int128 intrinsic type.
-    EXPECT_ANY_THROW(col->Append("-170141183460469231731687303715884105728"));
-#endif
-}
-
 TEST(ColumnsCase, ColumnLowCardinalityString_Append_and_Read) {
     const size_t items_count = 11;
     ColumnLowCardinalityT<ColumnString> col;
-    for (const auto & item : GenerateVector(items_count, &FooBarGenerator)) {
+    for (const auto & item : GenerateVector(items_count, &FooBarSeq)) {
         col.Append(item);
     }
 
@@ -629,15 +414,15 @@ TEST(ColumnsCase, ColumnLowCardinalityString_Append_and_Read) {
     ASSERT_EQ(col.GetDictionarySize(), 8u + 1); // 8 unique items from sequence + 1 null-item
 
     for (size_t i = 0; i < items_count; ++i) {
-        ASSERT_EQ(col.At(i), FooBarGenerator(i)) << " at pos: " << i;
-        ASSERT_EQ(col[i], FooBarGenerator(i)) << " at pos: " << i;
+        ASSERT_EQ(col.At(i), FooBarSeq(i)) << " at pos: " << i;
+        ASSERT_EQ(col[i], FooBarSeq(i)) << " at pos: " << i;
     }
 }
 
 TEST(ColumnsCase, ColumnLowCardinalityString_Clear_and_Append) {
     const size_t items_count = 11;
     ColumnLowCardinalityT<ColumnString> col;
-    for (const auto & item : GenerateVector(items_count, &FooBarGenerator))
+    for (const auto & item : GenerateVector(items_count, &FooBarSeq))
     {
         col.Append(item);
     }
@@ -646,7 +431,7 @@ TEST(ColumnsCase, ColumnLowCardinalityString_Clear_and_Append) {
     ASSERT_EQ(col.Size(), 0u);
     ASSERT_EQ(col.GetDictionarySize(), 1u); // null-item
 
-    for (const auto & item : GenerateVector(items_count, &FooBarGenerator))
+    for (const auto & item : GenerateVector(items_count, &FooBarSeq))
     {
         col.Append(item);
     }
@@ -661,11 +446,12 @@ TEST(ColumnsCase, ColumnLowCardinalityString_Load) {
 
     const auto & data = LOWCARDINALITY_STRING_FOOBAR_10_ITEMS_BINARY;
     ArrayInput buffer(data.data(), data.size());
+    CodedInputStream stream(&buffer);
 
-    ASSERT_TRUE(col.Load(&buffer, items_count));
+    EXPECT_TRUE(col.Load(&stream, items_count));
 
     for (size_t i = 0; i < items_count; ++i) {
-        EXPECT_EQ(col.At(i), FooBarGenerator(i)) << " at pos: " << i;
+        EXPECT_EQ(col.At(i), FooBarSeq(i)) << " at pos: " << i;
     }
 }
 
@@ -674,28 +460,29 @@ TEST(ColumnsCase, ColumnLowCardinalityString_Load) {
 TEST(ColumnsCase, DISABLED_ColumnLowCardinalityString_Save) {
     const size_t items_count = 10;
     ColumnLowCardinalityT<ColumnString> col;
-    for (const auto & item : GenerateVector(items_count, &FooBarGenerator)) {
+    for (const auto & item : GenerateVector(items_count, &FooBarSeq)) {
         col.Append(item);
     }
 
     ArrayOutput output(0, 0);
+    CodedOutputStream output_stream(&output);
 
     const size_t expected_output_size = LOWCARDINALITY_STRING_FOOBAR_10_ITEMS_BINARY.size();
     // Enough space to account for possible overflow from both right and left sides.
-    std::string buffer(expected_output_size * 10, '\0');// = {'\0'};
+    char buffer[expected_output_size * 10] = {'\0'};
     const char margin_content[sizeof(buffer)] = {'\0'};
 
     const size_t left_margin_size = 10;
     const size_t right_margin_size = sizeof(buffer) - left_margin_size - expected_output_size;
 
     // Since overflow from left side is less likely to happen, leave only tiny margin there.
-    auto write_pos = buffer.data() + left_margin_size;
-    const auto left_margin = buffer.data();
+    auto write_pos = buffer + left_margin_size;
+    const auto left_margin = buffer;
     const auto right_margin = write_pos + expected_output_size;
 
     output.Reset(write_pos, expected_output_size);
 
-    EXPECT_NO_THROW(col.Save(&output));
+    EXPECT_NO_THROW(col.Save(&output_stream));
 
     // Left margin should be blank
     EXPECT_EQ(std::string_view(margin_content, left_margin_size), std::string_view(left_margin, left_margin_size));
@@ -711,7 +498,7 @@ TEST(ColumnsCase, ColumnLowCardinalityString_SaveAndLoad) {
     // Verify that we can load binary representation back
     ColumnLowCardinalityT<ColumnString> col;
 
-    const auto items = GenerateVector(10, &FooBarGenerator);
+    const auto items = GenerateVector(10, &FooBarSeq);
     for (const auto & item : items) {
         col.Append(item);
     }
@@ -719,7 +506,8 @@ TEST(ColumnsCase, ColumnLowCardinalityString_SaveAndLoad) {
     char buffer[256] = {'\0'}; // about 3 times more space than needed for this set of values.
     {
         ArrayOutput output(buffer, sizeof(buffer));
-        EXPECT_NO_THROW(col.Save(&output));
+        CodedOutputStream output_stream(&output);
+        EXPECT_NO_THROW(col.Save(&output_stream));
     }
 
     col.Clear();
@@ -727,7 +515,8 @@ TEST(ColumnsCase, ColumnLowCardinalityString_SaveAndLoad) {
     {
         // Load the data back
         ArrayInput input(buffer, sizeof(buffer));
-        EXPECT_TRUE(col.Load(&input, items.size()));
+        CodedInputStream input_stream(&input);
+        EXPECT_TRUE(col.Load(&input_stream, items.size()));
     }
 
     for (size_t i = 0; i < items.size(); ++i) {
@@ -738,7 +527,7 @@ TEST(ColumnsCase, ColumnLowCardinalityString_SaveAndLoad) {
 TEST(ColumnsCase, ColumnLowCardinalityString_WithEmptyString_1) {
     // Verify that when empty string is added to a LC column it can be retrieved back as empty string.
     ColumnLowCardinalityT<ColumnString> col;
-    const auto values = GenerateVector(10, AlternateGenerators<std::string>(SameValueGenerator<std::string>(""), FooBarGenerator));
+    const auto values = GenerateVector(10, AlternateGenerators<std::string>(SameValueSeq<std::string>(""), FooBarSeq));
     for (const auto & item : values) {
         col.Append(item);
     }
@@ -752,7 +541,7 @@ TEST(ColumnsCase, ColumnLowCardinalityString_WithEmptyString_2) {
     // Verify that when empty string is added to a LC column it can be retrieved back as empty string.
     // (Ver2): Make sure that outcome doesn't depend if empty values are on odd positions
     ColumnLowCardinalityT<ColumnString> col;
-    const auto values = GenerateVector(10, AlternateGenerators<std::string>(FooBarGenerator, SameValueGenerator<std::string>("")));
+    const auto values = GenerateVector(10, AlternateGenerators<std::string>(FooBarSeq, SameValueSeq<std::string>("")));
     for (const auto & item : values) {
         col.Append(item);
     }
@@ -765,7 +554,7 @@ TEST(ColumnsCase, ColumnLowCardinalityString_WithEmptyString_2) {
 TEST(ColumnsCase, ColumnLowCardinalityString_WithEmptyString_3) {
     // When we have many leading empty strings and some non-empty values.
     ColumnLowCardinalityT<ColumnString> col;
-    const auto values = ConcatSequences(GenerateVector(100, SameValueGenerator<std::string>("")), GenerateVector(5, FooBarGenerator));
+    const auto values = ConcatSequences(GenerateVector(100, SameValueSeq<std::string>("")), GenerateVector(5, FooBarSeq));
     for (const auto & item : values) {
         col.Append(item);
     }
@@ -775,3 +564,25 @@ TEST(ColumnsCase, ColumnLowCardinalityString_WithEmptyString_3) {
     }
 }
 
+TEST(ColumnsCase, CreateSimpleAggregateFunction) {
+    auto col = CreateColumnByType("SimpleAggregateFunction(funt, Int32)");
+
+    ASSERT_EQ("Int32", col->Type()->GetName());
+    ASSERT_EQ(Type::Int32, col->Type()->GetCode());
+    ASSERT_NE(nullptr, col->As<ColumnInt32>());
+}
+
+
+TEST(CreateColumnByType, UnmatchedBrackets) {
+    // When type string has unmatched brackets, CreateColumnByType must return nullptr.
+    ASSERT_EQ(nullptr, CreateColumnByType("FixedString(10"));
+    ASSERT_EQ(nullptr, CreateColumnByType("Nullable(FixedString(10000"));
+    ASSERT_EQ(nullptr, CreateColumnByType("Nullable(FixedString(10000)"));
+    ASSERT_EQ(nullptr, CreateColumnByType("LowCardinality(Nullable(FixedString(10000"));
+    ASSERT_EQ(nullptr, CreateColumnByType("LowCardinality(Nullable(FixedString(10000)"));
+    ASSERT_EQ(nullptr, CreateColumnByType("LowCardinality(Nullable(FixedString(10000))"));
+    ASSERT_EQ(nullptr, CreateColumnByType("Array(LowCardinality(Nullable(FixedString(10000"));
+    ASSERT_EQ(nullptr, CreateColumnByType("Array(LowCardinality(Nullable(FixedString(10000)"));
+    ASSERT_EQ(nullptr, CreateColumnByType("Array(LowCardinality(Nullable(FixedString(10000))"));
+    ASSERT_EQ(nullptr, CreateColumnByType("Array(LowCardinality(Nullable(FixedString(10000)))"));
+}

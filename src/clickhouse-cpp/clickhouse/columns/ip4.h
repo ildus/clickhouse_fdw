@@ -1,22 +1,13 @@
 #pragma once
 
 #include "numeric.h"
-
-struct in_addr;
+#include "../base/socket.h"
 
 namespace clickhouse {
 
 class ColumnIPv4 : public Column {
 public:
-    using DataType = in_addr;
-    using ValueType = in_addr;
-
     ColumnIPv4();
-    /** Takes ownership of the data, expects ColumnUInt32.
-     * Modifying memory pointed by `data` from outside is UB.
-     *
-     * TODO: deprecate and remove as it is too dangerous and error-prone.
-     */
     explicit ColumnIPv4(ColumnRef data);
 
     /// Appends one element to the column.
@@ -24,9 +15,6 @@ public:
 
     /// @params ip numeric value with host byte order.
     void Append(uint32_t ip);
-
-    ///
-    void Append(in_addr ip);
 
     /// Returns element at given row number.
     in_addr At(size_t n) const;
@@ -41,10 +29,10 @@ public:
     void Append(ColumnRef column) override;
 
     /// Loads column data from input stream.
-    bool LoadBody(InputStream* input, size_t rows) override;
+    bool Load(CodedInputStream* input, size_t rows) override;
 
     /// Saves column data to output stream.
-    void SaveBody(OutputStream* output) override;
+    void Save(CodedOutputStream* output) override;
 
     /// Clear column data .
     void Clear() override;
@@ -53,8 +41,8 @@ public:
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t begin, size_t len) const override;
-    ColumnRef CloneEmpty() const override;
+    ColumnRef Slice(size_t begin, size_t len) override;
+
     void Swap(Column& other) override;
 
     ItemView GetItem(size_t index) const override;

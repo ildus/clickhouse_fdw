@@ -1,7 +1,6 @@
 #pragma once
 
 #include "column.h"
-#include "absl/numeric/int128.h"
 
 namespace clickhouse {
 
@@ -12,7 +11,6 @@ template <typename T>
 class ColumnVector : public Column {
 public:
     using DataType = T;
-    using ValueType = T;
 
     ColumnVector();
 
@@ -35,10 +33,10 @@ public:
     void Append(ColumnRef column) override;
 
     /// Loads column data from input stream.
-    bool LoadBody(InputStream* input, size_t rows) override;
+    bool Load(CodedInputStream* input, size_t rows) override;
 
     /// Saves column data to output stream.
-    void SaveBody(OutputStream* output) override;
+    void Save(CodedOutputStream* output) override;
 
     /// Clear column data .
     void Clear() override;
@@ -47,8 +45,7 @@ public:
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t begin, size_t len) const override;
-    ColumnRef CloneEmpty() const override;
+    ColumnRef Slice(size_t begin, size_t len) override;
     void Swap(Column& other) override;
 
     ItemView GetItem(size_t index) const override;
@@ -57,7 +54,7 @@ private:
     std::vector<T> data_;
 };
 
-using Int128 = absl::int128;
+using Int128 = __int128;
 using Int64 = int64_t;
 
 using ColumnUInt8   = ColumnVector<uint8_t>;

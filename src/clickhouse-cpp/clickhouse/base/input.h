@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-#include <memory>
 
 namespace clickhouse {
 
@@ -22,9 +21,6 @@ public:
         return DoRead(buf, len);
     }
 
-    // Skips a number of bytes.  Returns false if an underlying read error occurs.
-    virtual bool Skip(size_t bytes) = 0;
-
 protected:
     virtual size_t DoRead(void* buf, size_t len) = 0;
 };
@@ -35,8 +31,6 @@ public:
     inline size_t Next(const void** buf, size_t len) {
         return DoNext(buf, len);
     }
-
-    bool Skip(size_t bytes) override;
 
 protected:
     virtual size_t DoNext(const void** ptr, size_t len) = 0;
@@ -85,7 +79,7 @@ private:
 
 class BufferedInput : public ZeroCopyInput {
 public:
-    BufferedInput(std::unique_ptr<InputStream> source, size_t buflen = 8192);
+     BufferedInput(InputStream* slave, size_t buflen = 8192);
     ~BufferedInput() override;
 
     void Reset();
@@ -95,7 +89,7 @@ protected:
     size_t DoNext(const void** ptr, size_t len) override;
 
 private:
-    std::unique_ptr<InputStream> const source_;
+    InputStream* const slave_;
     ArrayInput array_input_;
     std::vector<uint8_t> buffer_;
 };

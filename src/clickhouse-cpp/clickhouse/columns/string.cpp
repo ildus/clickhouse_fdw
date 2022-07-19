@@ -31,23 +31,17 @@ ColumnFixedString::ColumnFixedString(size_t n)
 }
 
 void ColumnFixedString::Append(std::string_view str) {
-    if (str.size() > string_size_) {
-        throw ValidationError("Expected string of length not greater than "
-                                 + std::to_string(string_size_) + " bytes, received "
-                                 + std::to_string(str.size()) + " bytes.");
-    }
+    std::string s{str};
 
-    if (data_.capacity() - data_.size() < str.size())
+    s.resize(string_size_);
+    if (data_.capacity() < string_size_)
     {
         // round up to the next block size
         const auto new_size = (((data_.size() + string_size_) / DEFAULT_BLOCK_SIZE) + 1) * DEFAULT_BLOCK_SIZE;
         data_.reserve(new_size);
     }
 
-    data_.insert(data_.size(), str);
-    // Pad up to string_size_ with zeroes.
-    const auto padding_size = string_size_ - str.size();
-    data_.resize(data_.size() + padding_size, char(0));
+    data_.insert(data_.size(), s);
 }
 
 void ColumnFixedString::Clear() {
@@ -77,24 +71,24 @@ void ColumnFixedString::Append(ColumnRef column) {
     }
 }
 
-bool ColumnFixedString::LoadBody(InputStream * input, size_t rows) {
+bool ColumnFixedString::Load(CodedInputStream* input, size_t rows) {
     data_.resize(string_size_ * rows);
-    if (!WireFormat::ReadBytes(*input, &data_[0], data_.size())) {
+    if (!WireFormat::ReadBytes(input, &data_[0], data_.size())) {
         return false;
     }
 
     return true;
 }
 
-void ColumnFixedString::SaveBody(OutputStream* output) {
-    WireFormat::WriteBytes(*output, data_.data(), data_.size());
+void ColumnFixedString::Save(CodedOutputStream* output) {
+    WireFormat::WriteBytes(output, data_.data(), data_.size());
 }
 
 size_t ColumnFixedString::Size() const {
     return data_.size() / string_size_;
 }
 
-ColumnRef ColumnFixedString::Slice(size_t begin, size_t len) const {
+ColumnRef ColumnFixedString::Slice(size_t begin, size_t len) {
     auto result = std::make_shared<ColumnFixedString>(string_size_);
 
     if (begin < Size()) {
@@ -104,10 +98,6 @@ ColumnRef ColumnFixedString::Slice(size_t begin, size_t len) const {
     }
 
     return result;
-}
-
-ColumnRef ColumnFixedString::CloneEmpty() const {
-    return std::make_shared<ColumnFixedString>(string_size_);
 }
 
 void ColumnFixedString::Swap(Column& other) {
@@ -130,7 +120,7 @@ struct ColumnString::Block
           data_(new CharT[capacity])
     {}
 
-    inline auto GetAvailable() const
+    inline auto GetAvailble() const
     {
         return capacity - size;
     }
@@ -183,7 +173,7 @@ ColumnString::~ColumnString()
 {}
 
 void ColumnString::Append(std::string_view str) {
-    if (blocks_.size() == 0 || blocks_.back().GetAvailable() < str.length())
+    if (blocks_.size() == 0 || blocks_.back().GetAvailble() < str.length())
     {
         blocks_.emplace_back(std::max(DEFAULT_BLOCK_SIZE, str.size()));
     }
@@ -214,7 +204,7 @@ void ColumnString::Append(ColumnRef column) {
         const auto total_size = ComputeTotalSize(col->items_);
 
         // TODO: fill up existing block with some items and then add a new one for the rest of items
-        if (blocks_.size() == 0 || blocks_.back().GetAvailable() < total_size)
+        if (blocks_.size() == 0 || blocks_.back().GetAvailble() < total_size)
             blocks_.emplace_back(std::max(DEFAULT_BLOCK_SIZE, total_size));
         items_.reserve(items_.size() + col->Size());
 
@@ -224,7 +214,7 @@ void ColumnString::Append(ColumnRef column) {
     }
 }
 
-bool ColumnString::LoadBody(InputStream* input, size_t rows) {
+bool ColumnString::Load(CodedInputStream* input, size_t rows) {
     items_.clear();
     blocks_.clear();
 
@@ -234,13 +224,13 @@ bool ColumnString::LoadBody(InputStream* input, size_t rows) {
     // TODO(performance): unroll a loop to a first row (to get rid of `blocks_.size() == 0` check) and the rest.
     for (size_t i = 0; i < rows; ++i) {
         uint64_t len;
-        if (!WireFormat::ReadUInt64(*input, &len))
+        if (!WireFormat::ReadUInt64(input, &len))
             return false;
 
-        if (blocks_.size() == 0 || len > block->GetAvailable())
+        if (blocks_.size() == 0 || len > block->GetAvailble())
             block = &blocks_.emplace_back(std::max<size_t>(DEFAULT_BLOCK_SIZE, len));
 
-        if (!WireFormat::ReadBytes(*input, block->GetCurrentWritePos(), len))
+        if (!WireFormat::ReadBytes(input, block->GetCurrentWritePos(), len))
             return false;
 
         items_.emplace_back(block->ConsumeTailAsStringViewUnsafe(len));
@@ -249,9 +239,9 @@ bool ColumnString::LoadBody(InputStream* input, size_t rows) {
     return true;
 }
 
-void ColumnString::SaveBody(OutputStream* output) {
+void ColumnString::Save(CodedOutputStream* output) {
     for (const auto & item : items_) {
-        WireFormat::WriteString(*output, item);
+        WireFormat::WriteString(output, item);
     }
 }
 
@@ -259,7 +249,7 @@ size_t ColumnString::Size() const {
     return items_.size();
 }
 
-ColumnRef ColumnString::Slice(size_t begin, size_t len) const {
+ColumnRef ColumnString::Slice(size_t begin, size_t len) {
     auto result = std::make_shared<ColumnString>();
 
     if (begin < items_.size()) {
@@ -273,10 +263,6 @@ ColumnRef ColumnString::Slice(size_t begin, size_t len) const {
     }
 
     return result;
-}
-
-ColumnRef ColumnString::CloneEmpty() const {
-    return std::make_shared<ColumnString>();
 }
 
 void ColumnString::Swap(Column& other) {

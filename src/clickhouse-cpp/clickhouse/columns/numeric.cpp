@@ -1,8 +1,6 @@
 #include "numeric.h"
 #include "utils.h"
 
-#include "../base/wire_format.h"
-
 namespace clickhouse {
 
 template <typename T>
@@ -61,15 +59,15 @@ void ColumnVector<T>::Append(ColumnRef column) {
 }
 
 template <typename T>
-bool ColumnVector<T>::LoadBody(InputStream* input, size_t rows) {
+bool ColumnVector<T>::Load(CodedInputStream* input, size_t rows) {
     data_.resize(rows);
 
-    return WireFormat::ReadBytes(*input, data_.data(), data_.size() * sizeof(T));
+    return input->ReadRaw(data_.data(), data_.size() * sizeof(T));
 }
 
 template <typename T>
-void ColumnVector<T>::SaveBody(OutputStream* output) {
-    WireFormat::WriteBytes(*output, data_.data(), data_.size() * sizeof(T));
+void ColumnVector<T>::Save(CodedOutputStream* output) {
+    output->WriteRaw(data_.data(), data_.size() * sizeof(T));
 }
 
 template <typename T>
@@ -78,13 +76,8 @@ size_t ColumnVector<T>::Size() const {
 }
 
 template <typename T>
-ColumnRef ColumnVector<T>::Slice(size_t begin, size_t len) const {
+ColumnRef ColumnVector<T>::Slice(size_t begin, size_t len) {
     return std::make_shared<ColumnVector<T>>(SliceVector(data_, begin, len));
-}
-
-template <typename T>
-ColumnRef ColumnVector<T>::CloneEmpty() const {
-    return std::make_shared<ColumnVector<T>>();
 }
 
 template <typename T>

@@ -1,83 +1,55 @@
 #include "types.h"
 
-#include "../exceptions.h"
-
-#include <cityhash/city.h>
-
+#include <assert.h>
 #include <stdexcept>
 
 namespace clickhouse {
 
-Type::Type(const Code code)
-    : code_(code)
-    , type_unique_id_(0)
-{}
-
-const char* Type::TypeName(Type::Code code) {
-    switch (code) {
-        case Type::Code::Void:           return "Void";
-        case Type::Code::Int8:           return "Int8";
-        case Type::Code::Int16:          return "Int16";
-        case Type::Code::Int32:          return "Int32";
-        case Type::Code::Int64:          return "Int64";
-        case Type::Code::UInt8:          return "UInt8";
-        case Type::Code::UInt16:         return "UInt16";
-        case Type::Code::UInt32:         return "UInt32";
-        case Type::Code::UInt64:         return "UInt64";
-        case Type::Code::Float32:        return "Float32";
-        case Type::Code::Float64:        return "Float64";
-        case Type::Code::String:         return "String";
-        case Type::Code::FixedString:    return "FixedString";
-        case Type::Code::DateTime:       return "DateTime";
-        case Type::Code::Date:           return "Date";
-        case Type::Code::Array:          return "Array";
-        case Type::Code::Nullable:       return "Nullable";
-        case Type::Code::Tuple:          return "Tuple";
-        case Type::Code::Enum8:          return "Enum8";
-        case Type::Code::Enum16:         return "Enum16";
-        case Type::Code::UUID:           return "UUID";
-        case Type::Code::IPv4:           return "IPv4";
-        case Type::Code::IPv6:           return "IPv6";
-        case Type::Code::Int128:         return "Int128";
-        case Type::Code::Decimal:        return "Decimal";
-        case Type::Code::Decimal32:      return "Decimal32";
-        case Type::Code::Decimal64:      return "Decimal64";
-        case Type::Code::Decimal128:     return "Decimal128";
-        case Type::Code::LowCardinality: return "LowCardinality";
-        case Type::Code::DateTime64:     return "DateTime64";
-        case Type::Code::Date32:         return "Date32";
-    }
-
-    return "Unknown type";
+Type::Type(const Code code) : code_(code) {
 }
 
 std::string Type::GetName() const {
     switch (code_) {
         case Void:
+            return "Void";
         case Int8:
+            return "Int8";
         case Int16:
+            return "Int16";
         case Int32:
+            return "Int32";
         case Int64:
+            return "Int64";
         case Int128:
+            return "Int128";
         case UInt8:
+            return "UInt8";
         case UInt16:
+            return "UInt16";
         case UInt32:
+            return "UInt32";
         case UInt64:
+            return "UInt64";
         case UUID:
+            return "UUID";
         case Float32:
+            return "Float32";
         case Float64:
+            return "Float64";
         case String:
-        case IPv4:
-        case IPv6:
-        case Date:
-        case Date32:
-            return TypeName(code_);
+            return "String";
         case FixedString:
             return As<FixedStringType>()->GetName();
+        case IPv4:
+            return "IPv4";
+        case IPv6:
+            return "IPv6";
         case DateTime:
-            return As<DateTimeType>()->GetName();
+            return "DateTime";
         case DateTime64:
             return As<DateTime64Type>()->GetName();
+        case Date:
+            return "Date";
         case Array:
             return As<ArrayType>()->GetName();
         case Nullable:
@@ -100,63 +72,6 @@ std::string Type::GetName() const {
     return std::string();
 }
 
-uint64_t Type::GetTypeUniqueId() const {
-    // Helper method to optimize equality checks of types with Type::IsEqual(),
-    // base invariant: types with same names produce same unique id (and hence considered equal).
-    // As an optimization, full type name is constructed at most once, and only for complex types.
-    switch (code_) {
-        case Void:
-        case Int8:
-        case Int16:
-        case Int32:
-        case Int64:
-        case Int128:
-        case UInt8:
-        case UInt16:
-        case UInt32:
-        case UInt64:
-        case UUID:
-        case Float32:
-        case Float64:
-        case String:
-        case IPv4:
-        case IPv6:
-        case Date:
-        case Date32:
-            // For simple types, unique ID is the same as Type::Code
-            return code_;
-
-        case FixedString:
-        case DateTime:
-        case DateTime64:
-        case Array:
-        case Nullable:
-        case Tuple:
-        case Enum8:
-        case Enum16:
-        case Decimal:
-        case Decimal32:
-        case Decimal64:
-        case Decimal128:
-        case LowCardinality: {
-            // For complex types, exact unique ID depends on nested types and/or parameters,
-            // the easiest way is to lazy-compute unique ID from name once.
-            // Here we do not care if multiple threads are computing value simultaneosly since it is both:
-            //   1. going to be the same
-            //   2. going to be stored atomically
-
-            if (type_unique_id_.load(std::memory_order::memory_order_relaxed) == 0) {
-                const auto name = GetName();
-                type_unique_id_.store(CityHash64WithSeed(name.c_str(), name.size(), code_), std::memory_order::memory_order_relaxed);
-            }
-
-            return type_unique_id_;
-        }
-    }
-    assert(false);
-    return 0;
-}
-
 TypeRef Type::CreateArray(TypeRef item_type) {
     return TypeRef(new ArrayType(item_type));
 }
@@ -165,16 +80,12 @@ TypeRef Type::CreateDate() {
     return TypeRef(new Type(Type::Date));
 }
 
-TypeRef Type::CreateDate32() {
-    return TypeRef(new Type(Type::Date32));
+TypeRef Type::CreateDateTime() {
+    return TypeRef(new Type(Type::DateTime));
 }
 
-TypeRef Type::CreateDateTime(std::string timezone) {
-    return TypeRef(new DateTimeType(std::move(timezone)));
-}
-
-TypeRef Type::CreateDateTime64(size_t precision, std::string timezone) {
-    return TypeRef(new DateTime64Type(precision, std::move(timezone)));
+TypeRef Type::CreateDateTime64(size_t precision) {
+    return TypeRef(new DateTime64Type(precision));
 }
 
 TypeRef Type::CreateDecimal(size_t precision, size_t scale) {
@@ -259,8 +170,8 @@ std::string DecimalType::GetName() const {
 
 EnumType::EnumType(Type::Code type, const std::vector<EnumItem>& items) : Type(type) {
     for (const auto& item : items) {
-        auto result = name_to_value_.insert(item);
-        value_to_name_[item.second] = result.first->first;
+        value_to_name_[item.second] = item.first;
+        name_to_value_[item.first]  = item.second;
     }
 }
 
@@ -273,7 +184,7 @@ std::string EnumType::GetName() const {
         result = "Enum16(";
     }
 
-    for (auto ei = value_to_name_.begin(); ei != value_to_name_.end();) {
+    for (auto ei = value_to_name_.begin();;) {
         result += "'";
         result += ei->second;
         result += "' = ";
@@ -291,7 +202,7 @@ std::string EnumType::GetName() const {
     return result;
 }
 
-std::string_view EnumType::GetEnumName(int16_t value) const {
+const std::string& EnumType::GetEnumName(int16_t value) const {
     return value_to_name_.at(value);
 }
 
@@ -315,39 +226,13 @@ EnumType::ValueToNameIterator EnumType::EndValueToName() const {
     return value_to_name_.end();
 }
 
-
-namespace details
-{
-TypeWithTimeZoneMixin::TypeWithTimeZoneMixin(std::string timezone)
-    : timezone_(std::move(timezone)) {
-}
-
-const std::string & TypeWithTimeZoneMixin::Timezone() const {
-    return timezone_;
-}
-}
-
-/// class DateTimeType
-DateTimeType::DateTimeType(std::string timezone)
-    : Type(DateTime), details::TypeWithTimeZoneMixin(std::move(timezone)) {
-}
-
-std::string DateTimeType::GetName() const {
-    std::string datetime_representation = "DateTime";
-    const auto & timezone = Timezone();
-    if (!timezone.empty())
-        datetime_representation += "('" + timezone + "')";
-
-    return datetime_representation;
-}
-
 /// class DateTime64Type
 
-DateTime64Type::DateTime64Type(size_t precision, std::string timezone)
-    : Type(DateTime64), details::TypeWithTimeZoneMixin(std::move(timezone)), precision_(precision) {
+DateTime64Type::DateTime64Type(size_t precision)
+    : Type(DateTime64), precision_(precision) {
 
     if (precision_ > 18) {
-        throw ValidationError("DateTime64 precision is > 18");
+        throw std::runtime_error("DateTime64 precision is > 18");
     }
 }
 
@@ -356,12 +241,6 @@ std::string DateTime64Type::GetName() const {
     datetime64_representation.reserve(14);
     datetime64_representation += "DateTime64(";
     datetime64_representation += std::to_string(precision_);
-
-    const auto & timezone = Timezone();
-    if (!timezone.empty()) {
-        datetime64_representation += ", '" + timezone + "'";
-    }
-
     datetime64_representation += ")";
     return datetime64_representation;
 }
@@ -384,9 +263,8 @@ TupleType::TupleType(const std::vector<TypeRef>& item_types) : Type(Tuple), item
 /// class LowCardinalityType
 LowCardinalityType::LowCardinalityType(TypeRef nested_type) : Type(LowCardinality), nested_type_(nested_type) {
 }
-
-LowCardinalityType::~LowCardinalityType() {
-}
+LowCardinalityType::~LowCardinalityType()
+{}
 
 std::string TupleType::GetName() const {
     std::string result("Tuple(");

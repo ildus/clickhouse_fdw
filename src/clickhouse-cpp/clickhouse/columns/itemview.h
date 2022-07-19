@@ -1,11 +1,9 @@
 #pragma once
 
 #include "../types/types.h"
-#include "../exceptions.h"
 
 #include <string_view>
 #include <stdexcept>
-#include <type_traits>
 
 namespace clickhouse {
 
@@ -28,10 +26,10 @@ private:
     inline auto ConvertToStorageValue(const T& t) {
         if constexpr (std::is_same_v<std::string_view, T> || std::is_same_v<std::string, T>) {
             return std::string_view{t};
-        } else if constexpr (std::is_fundamental_v<T> || std::is_same_v<Int128, std::decay_t<T>>) {
+        } else if constexpr (std::is_fundamental_v<T>) {
             return std::string_view{reinterpret_cast<const char*>(&t), sizeof(T)};
         } else {
-            static_assert(!std::is_same_v<T, T>, "Unknown type, which can't be stored in ItemView");
+            // will caue error at compile-time
             return;
         }
     }
@@ -44,15 +42,8 @@ public:
         ValidateData(type, data);
     }
 
-    ItemView(Type::Code type, ItemView other)
-        : type(type),
-          data(other.data)
-    {
-        ValidateData(type, data);
-    }
-
     explicit ItemView()
-        : ItemView(Type::Void, std::string_view{})
+        : ItemView(Type::Void, {nullptr, 0})
     {}
 
     template <typename T>
@@ -61,16 +52,14 @@ public:
     {}
 
     template <typename T>
-    auto get() const {
-        using ValueType = std::remove_cv_t<std::decay_t<T>>;
-        if constexpr (std::is_same_v<std::string_view, ValueType> || std::is_same_v<std::string, ValueType>) {
+    T get() const {
+        if constexpr (std::is_same_v<std::string_view, T> || std::is_same_v<std::string, T>) {
             return data;
-        } else if constexpr (std::is_fundamental_v<ValueType> || std::is_same_v<Int128, ValueType>) {
-            if (sizeof(ValueType) == data.size()) {
+        } else if constexpr (std::is_fundamental_v<T>) {
+            if (sizeof(T) == data.size()) {
                 return *reinterpret_cast<const T*>(data.data());
             } else {
-                throw AssertionError("Incompatitable value type and size. Requested size: "
-                        + std::to_string(sizeof(ValueType)) + " stored size: " + std::to_string(data.size()));
+                throw std::runtime_error("Incompatitable value type and size.");
             }
         }
     }
@@ -81,6 +70,8 @@ public:
 
     // Validate that value matches type, will throw an exception if validation fails.
     static void ValidateData(Type::Code type, DataType data);
+
+    Type::Code GetType() { return type; };
 };
 
 }

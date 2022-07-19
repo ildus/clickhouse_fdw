@@ -2,7 +2,6 @@
 
 #include "column.h"
 #include "numeric.h"
-#include "nullable.h"
 
 #include <functional>
 #include <string>
@@ -33,11 +32,6 @@ struct LowCardinalityHashKeyHash {
 
 }
 
-/*
- * LC column contains an "invisible" default item at the beginning of the collection. [default, ...]
- * If the nested type is Nullable, it contains a null-item at the beginning and a default item at the second position. [null, default, ...]
- * Null map is not serialized in LC columns. Instead, nulls are tracked by having an index of 0.
- * */
 class ColumnLowCardinality : public Column {
 public:
     using UniqueItems = std::unordered_map<details::LowCardinalityHashKey, size_t /*dictionary index*/, details::LowCardinalityHashKeyHash>;
@@ -55,22 +49,19 @@ private:
 public:
     // c-tor makes a deep copy of the dictionary_column.
     explicit ColumnLowCardinality(ColumnRef dictionary_column);
-    explicit ColumnLowCardinality(std::shared_ptr<ColumnNullable> dictionary_column);
     ~ColumnLowCardinality();
 
     /// Appends another LowCardinality column to the end of this one, updating dictionary.
     void Append(ColumnRef /*column*/) override;
 
-    bool LoadPrefix(InputStream* input, size_t rows) override;
+    /// Appends one element to the column.
+    void Append(ItemView &item);
 
     /// Loads column data from input stream.
-    bool LoadBody(InputStream* input, size_t rows) override;
-
-    /// Saves column prefix to output stream.
-    void SavePrefix(OutputStream* output) override;
+    bool Load(CodedInputStream* input, size_t rows) override;
 
     /// Saves column data to output stream.
-    void SaveBody(OutputStream* output) override;
+    void Save(CodedOutputStream* output) override;
 
     /// Clear column data.
     void Clear() override;
@@ -79,8 +70,8 @@ public:
     size_t Size() const override;
 
     /// Makes slice of current column, with compacted dictionary
-    ColumnRef Slice(size_t begin, size_t len) const override;
-    ColumnRef CloneEmpty() const override;
+    ColumnRef Slice(size_t begin, size_t len) override;
+
     void Swap(Column& other) override;
     ItemView GetItem(size_t index) const override;
 
@@ -91,14 +82,13 @@ protected:
     std::uint64_t getDictionaryIndex(std::uint64_t item_index) const;
     void appendIndex(std::uint64_t item_index);
     void removeLastIndex();
+
     ColumnRef GetDictionary();
 
     void AppendUnsafe(const ItemView &);
 
 private:
-    void Setup(ColumnRef dictionary_column);
-    void AppendNullItem();
-    void AppendDefaultItem();
+    void AppendNullItemToEmptyColumn();
 
 public:
     static details::LowCardinalityHashKey computeHashKey(const ItemView &);
@@ -119,12 +109,7 @@ public:
 
     template <typename ...Args>
     explicit ColumnLowCardinalityT(Args &&... args)
-        : ColumnLowCardinalityT(std::make_shared<DictionaryColumnType>(std::forward<Args>(args)...))
-    {}
-
-    // Create LC<T> column from existing T-column, making a deep copy of all contents.
-    explicit ColumnLowCardinalityT(std::shared_ptr<DictionaryColumnType> dictionary_col)
-        : ColumnLowCardinality(dictionary_col),
+        : ColumnLowCardinality(std::make_shared<DictionaryColumnType>(std::forward<Args>(args)...)),
           typed_dictionary_(dynamic_cast<DictionaryColumnType &>(*GetDictionary())),
           type_(typed_dictionary_.Type()->GetCode())
     {}

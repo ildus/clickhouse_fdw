@@ -1,60 +1,45 @@
 #include "array.h"
-#include "numeric.h"
-
 #include <stdexcept>
 
 namespace clickhouse {
 
 ColumnArray::ColumnArray(ColumnRef data)
-    : ColumnArray(data, std::make_shared<ColumnUInt64>())
-{
-}
-
-ColumnArray::ColumnArray(ColumnRef data, std::shared_ptr<ColumnUInt64> offsets)
     : Column(Type::CreateArray(data->Type()))
     , data_(data)
-    , offsets_(offsets)
-{
-}
-
-ColumnArray::ColumnArray(ColumnArray&& other)
-    : Column(other.Type())
-    , data_(std::move(other.data_))
-    , offsets_(std::move(other.offsets_))
+    , offsets_(std::make_shared<ColumnUInt64>())
 {
 }
 
 void ColumnArray::AppendAsColumn(ColumnRef array) {
     if (!data_->Type()->IsEqual(array->Type())) {
-        throw ValidationError(
+        throw std::runtime_error(
             "can't append column of type " + array->Type()->GetName() + " "
             "to column type " + data_->Type()->GetName());
     }
 
-    AddOffset(array->Size());
+    if (offsets_->Size() == 0) {
+        offsets_->Append(array->Size());
+    } else {
+        offsets_->Append((*offsets_)[offsets_->Size() - 1] + array->Size());
+    }
+
     data_->Append(array);
 }
 
 ColumnRef ColumnArray::GetAsColumn(size_t n) const {
-    if (n >= Size())
-        throw ValidationError("Index is out ouf bounds: " + std::to_string(n));
-
     return data_->Slice(GetOffset(n), GetSize(n));
 }
 
-ColumnRef ColumnArray::Slice(size_t begin, size_t size) const {
-    if (size && begin + size > Size())
-        throw ValidationError("Slice indexes are out of bounds");
+ColumnRef ColumnArray::Slice(size_t begin, size_t size) {
+    auto result = std::make_shared<ColumnArray>(GetAsColumn(begin));
+    result->OffsetsIncrease(1);
 
-    auto result = std::make_shared<ColumnArray>(data_->Slice(GetOffset(begin), GetOffset(begin + size) - GetOffset(begin)));
-    for (size_t i = 0; i < size; i++)
-        result->AddOffset(GetSize(begin + i));
+    for (size_t i = 1; i < size; i++)
+    {
+        result->Append(std::make_shared<ColumnArray>(GetAsColumn(begin + i)));
+    }
 
     return result;
-}
-
-ColumnRef ColumnArray::CloneEmpty() const {
-    return std::make_shared<ColumnArray>(data_->CloneEmpty());
 }
 
 void ColumnArray::Append(ColumnRef column) {
@@ -69,34 +54,22 @@ void ColumnArray::Append(ColumnRef column) {
     }
 }
 
-bool ColumnArray::LoadPrefix(InputStream* input, size_t rows) {
+bool ColumnArray::Load(CodedInputStream* input, size_t rows) {
     if (!rows) {
         return true;
     }
-
-    return data_->LoadPrefix(input, rows);
-}
-
-bool ColumnArray::LoadBody(InputStream* input, size_t rows) {
-    if (!rows) {
-        return true;
-    }
-    if (!offsets_->LoadBody(input, rows)) {
+    if (!offsets_->Load(input, rows)) {
         return false;
     }
-    if (!data_->LoadBody(input, (*offsets_)[rows - 1])) {
+    if (!data_->Load(input, (*offsets_)[rows - 1])) {
         return false;
     }
     return true;
 }
 
-void ColumnArray::SavePrefix(OutputStream* output) {
-    data_->SavePrefix(output);
-}
-
-void ColumnArray::SaveBody(OutputStream* output) {
-    offsets_->SaveBody(output);
-    data_->SaveBody(output);
+void ColumnArray::Save(CodedOutputStream* output) {
+    offsets_->Save(output);
+    data_->Save(output);
 }
 
 void ColumnArray::Clear() {
@@ -115,15 +88,6 @@ void ColumnArray::Swap(Column& other) {
 }
 
 void ColumnArray::OffsetsIncrease(size_t n) {
-    offsets_->Append(n);
-}
-
-size_t ColumnArray::GetOffset(size_t n) const {
-
-    return (n == 0) ? 0 : (*offsets_)[n - 1];
-}
-
-void ColumnArray::AddOffset(size_t n) {
     if (offsets_->Size() == 0) {
         offsets_->Append(n);
     } else {
@@ -131,17 +95,12 @@ void ColumnArray::AddOffset(size_t n) {
     }
 }
 
+size_t ColumnArray::GetOffset(size_t n) const {
+    return (n == 0) ? 0 : (*offsets_)[n - 1];
+}
+
 size_t ColumnArray::GetSize(size_t n) const {
     return (n == 0) ? (*offsets_)[n] : ((*offsets_)[n] - (*offsets_)[n - 1]);
-}
-
-ColumnRef ColumnArray::GetData() {
-    return data_;
-}
-
-void ColumnArray::Reset() {
-    data_.reset();
-    offsets_.reset();
 }
 
 }

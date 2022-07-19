@@ -6,8 +6,7 @@
 
 namespace clickhouse {
 
-size_t ZeroCopyOutput::DoWrite(const void* data, size_t len) {
-    const size_t original_len = len;
+void ZeroCopyOutput::DoWrite(const void* data, size_t len) {
     while (len > 0) {
         void* ptr;
         size_t result = DoNext(&ptr, len);
@@ -20,15 +19,12 @@ size_t ZeroCopyOutput::DoWrite(const void* data, size_t len) {
             break;
         }
     }
-
-    return original_len - len;
 }
 
 
 ArrayOutput::ArrayOutput(void* buf, size_t len)
     : buf_(static_cast<uint8_t*>(buf))
     , end_(buf_ + len)
-    , buffer_size_(len)
 {
 }
 
@@ -66,14 +62,26 @@ size_t BufferOutput::DoNext(void** data, size_t len) {
 }
 
 
-BufferedOutput::BufferedOutput(std::unique_ptr<OutputStream> destination, size_t buflen)
-    : destination_(std::move(destination))
+BufferedOutput::BufferedOutput(OutputStream* slave, size_t buflen)
+    : slave_(slave)
     , buffer_(buflen)
     , array_output_(buffer_.data(), buflen)
 {
 }
 
-BufferedOutput::~BufferedOutput() { }
+BufferedOutput::~BufferedOutput() {
+    try
+    {
+        Flush();
+    }
+    catch (...)
+    {
+        // That means we've failed to flush some data e.g. to the socket,
+        // but there is nothing we can do at this point (can't bring the socket back),
+        // and throwing in destructor is really a bad idea.
+        // The best we can do is to log the error and ignore it, but currently there is no logging subsystem.
+    }
+}
 
 void BufferedOutput::Reset() {
     array_output_.Reset(buffer_.data(), buffer_.size());
@@ -81,8 +89,8 @@ void BufferedOutput::Reset() {
 
 void BufferedOutput::DoFlush() {
     if (array_output_.Data() != buffer_.data()) {
-        destination_->Write(buffer_.data(), array_output_.Data() - buffer_.data());
-        destination_->Flush();
+        slave_->Write(buffer_.data(), array_output_.Data() - buffer_.data());
+        slave_->Flush();
 
         array_output_.Reset(buffer_.data(), buffer_.size());
     }
@@ -97,16 +105,17 @@ size_t BufferedOutput::DoNext(void** data, size_t len) {
 
 }
 
-size_t BufferedOutput::DoWrite(const void* data, size_t len) {
+void BufferedOutput::DoWrite(const void* data, size_t len) {
     if (array_output_.Avail() < len) {
         Flush();
 
         if (len > buffer_.size() / 2) {
-            return destination_->Write(data, len);
+            slave_->Write(data, len);
+            return;
         }
     }
 
-    return array_output_.Write(data, len);
+    array_output_.Write(data, len);
 }
 
 }

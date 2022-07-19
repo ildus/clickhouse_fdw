@@ -1,47 +1,15 @@
 #pragma once
 
-#include "server_exception.h"
+#include "query.h"
 
 #include <stdexcept>
 
 namespace clickhouse {
 
-class Error : public std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
-
-// Caused by any user-related code, like invalid column types or arguments passed to any method.
-class ValidationError : public Error {
-    using Error::Error;
-};
-
-// Buffers+IO errors, failure to serialize/deserialize, checksum mismatches, etc.
-class ProtocolError : public Error {
-    using Error::Error;
-};
-
-class UnimplementedError : public Error {
-    using Error::Error;
-};
-
-// Internal validation error.
-class AssertionError : public Error {
-    using Error::Error;
-};
-
-class OpenSSLError : public Error {
-    using Error::Error;
-};
-
-class LZ4Error : public Error {
-    using Error::Error;
-};
-
-// Exception received from server.
-class ServerException : public Error {
+class ServerException : public std::runtime_error {
 public:
     ServerException(std::unique_ptr<Exception> e)
-        : Error(std::string())
+        : runtime_error(std::string())
         , exception_(std::move(e))
     {
     }
@@ -61,6 +29,5 @@ public:
 private:
     std::unique_ptr<Exception> exception_;
 };
-using ServerError = ServerException;
 
 }

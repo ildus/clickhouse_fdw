@@ -32,7 +32,6 @@ static const std::unordered_map<std::string, Type::Code> kTypeCode = {
     { "DateTime",    Type::DateTime },
     { "DateTime64",  Type::DateTime64 },
     { "Date",        Type::Date },
-    { "Date32",      Type::Date32 },
     { "Array",       Type::Array },
     { "Nullable",    Type::Nullable },
     { "Tuple",       Type::Tuple },
@@ -41,7 +40,6 @@ static const std::unordered_map<std::string, Type::Code> kTypeCode = {
     { "UUID",        Type::UUID },
     { "IPv4",        Type::IPv4 },
     { "IPv6",        Type::IPv6 },
-    { "Int128",      Type::Int128 },
     { "Decimal",     Type::Decimal },
     { "Decimal32",   Type::Decimal32 },
     { "Decimal64",   Type::Decimal64 },
@@ -110,9 +108,9 @@ bool TypeParser::Parse(TypeAst* type) {
             {
                 type_->meta = TypeAst::Terminal;
                 if (token.value.length() < 1)
-                    type_->value_string = {};
+                    type_->name = {};
                 else
-                    type_->value_string = token.value.substr(1, token.value.length() - 2).to_string();
+                    type_->name = token.value.substr(1, token.value.length() - 2).to_string();
                 type_->code = Type::String;
                 break;
             }
@@ -125,10 +123,6 @@ bool TypeParser::Parse(TypeAst* type) {
                 type_->meta = TypeAst::Number;
                 type_->value = std::stol(token.value.to_string());
                 break;
-            case Token::String:
-                type_->meta = TypeAst::String;
-                type_->value_string = std::string(token.value);
-                break;
             case Token::LPar:
                 type_->elements.emplace_back(TypeAst());
                 open_elements_.push(type_);
@@ -138,7 +132,6 @@ bool TypeParser::Parse(TypeAst* type) {
                 type_ = open_elements_.top();
                 open_elements_.pop();
                 break;
-            case Token::Assign:
             case Token::Comma:
                 type_ = open_elements_.top();
                 open_elements_.pop();
@@ -167,8 +160,10 @@ TypeParser::Token TypeParser::NextToken() {
             case '\t':
             case '\0':
                 continue;
+
             case '=':
-                return Token{Token::Assign, StringView(cur_++, 1)};
+                continue;
+
             case '(':
                 return Token{Token::LPar, StringView(cur_++, 1)};
             case ')':
@@ -194,16 +189,6 @@ TypeParser::Token TypeParser::NextToken() {
 
             default: {
                 const char* st = cur_;
-
-                if (*cur_ == '\'') {
-                    for (st = ++cur_; cur_ < end_; ++cur_) {
-                        if (*cur_ == '\'') {
-                            return Token{Token::String, StringView(st, cur_++ - st)};
-                        }
-                    }
-
-                    return Token{Token::Invalid, StringView()};
-                }
 
                 if (isalpha(*cur_) || *cur_ == '_') {
                     for (; cur_ < end_; ++cur_) {

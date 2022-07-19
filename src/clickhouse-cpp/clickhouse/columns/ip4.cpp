@@ -1,7 +1,11 @@
+
 #include "ip4.h"
 
-#include "../base/socket.h" // for platform-specific IPv4-related functions
 #include <stdexcept>
+
+#if defined(_win_)
+using in_addr_t = unsigned long;
+#endif
 
 namespace clickhouse {
 
@@ -13,25 +17,23 @@ ColumnIPv4::ColumnIPv4()
 
 ColumnIPv4::ColumnIPv4(ColumnRef data)
     : Column(Type::CreateIPv4())
-    , data_(data ? data->As<ColumnUInt32>() : nullptr)
+    , data_(data->As<ColumnUInt32>())
 {
-    if (!data_)
-        throw ValidationError("Expecting ColumnUInt32, got " + (data ? data->GetType().GetName() : "null"));
+    if (data_->Size() != 0) {
+        throw std::runtime_error("number of entries must be even (32-bit numbers for each IPv4)");
+    }
 }
 
 void ColumnIPv4::Append(const std::string& str) {
-    uint32_t address;
-    if (inet_pton(AF_INET, str.c_str(), &address) != 1)
-        throw ValidationError("invalid IPv4 format, ip: " + str);
-    data_->Append(htonl(address));
+    in_addr_t addr = inet_addr(str.c_str());
+    if (addr == INADDR_NONE) {
+        throw std::runtime_error("invalid IPv4 format, ip: " + str);
+    }
+    data_->Append(htonl(addr));
 }
 
 void ColumnIPv4::Append(uint32_t ip) {
     data_->Append(htonl(ip));
-}
-
-void ColumnIPv4::Append(in_addr ip) {
-    data_->Append(htonl(ip.s_addr));
 }
 
 void ColumnIPv4::Clear() {
@@ -39,30 +41,19 @@ void ColumnIPv4::Clear() {
 }
 
 in_addr ColumnIPv4::At(size_t n) const {
-    in_addr addr;
+    struct in_addr addr;
     addr.s_addr = ntohl(data_->At(n));
     return addr;
 }
 
 in_addr ColumnIPv4::operator [] (size_t n) const {
-    in_addr addr;
+    struct in_addr addr;
     addr.s_addr = ntohl(data_->operator[](n));
     return addr;
 }
 
 std::string ColumnIPv4::AsString(size_t n) const {
-    const auto& addr = this->At(n);
-
-    char buf[INET_ADDRSTRLEN];
-    const char* ip_str = inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
-
-    if (ip_str == nullptr) {
-        throw std::system_error(
-                std::error_code(errno, std::generic_category()),
-                "Invalid IPv4 data");
-    }
-
-    return ip_str;
+    return inet_ntoa(this->At(n));
 }
 
 void ColumnIPv4::Append(ColumnRef column) {
@@ -71,24 +62,20 @@ void ColumnIPv4::Append(ColumnRef column) {
     }
 }
 
-bool ColumnIPv4::LoadBody(InputStream * input, size_t rows) {
-    return data_->LoadBody(input, rows);
+bool ColumnIPv4::Load(CodedInputStream* input, size_t rows) {
+    return data_->Load(input, rows);
 }
 
-void ColumnIPv4::SaveBody(OutputStream* output) {
-    data_->SaveBody(output);
+void ColumnIPv4::Save(CodedOutputStream* output) {
+    data_->Save(output);
 }
 
 size_t ColumnIPv4::Size() const {
     return data_->Size();
 }
 
-ColumnRef ColumnIPv4::Slice(size_t begin, size_t len) const {
+ColumnRef ColumnIPv4::Slice(size_t begin, size_t len) {
     return std::make_shared<ColumnIPv4>(data_->Slice(begin, len));
-}
-
-ColumnRef ColumnIPv4::CloneEmpty() const {
-    return std::make_shared<ColumnIPv4>(data_->CloneEmpty());
 }
 
 void ColumnIPv4::Swap(Column& other) {
@@ -97,7 +84,7 @@ void ColumnIPv4::Swap(Column& other) {
 }
 
 ItemView ColumnIPv4::GetItem(size_t index) const {
-    return ItemView(Type::IPv4, data_->GetItem(index));
+    return data_->GetItem(index);
 }
 
 }

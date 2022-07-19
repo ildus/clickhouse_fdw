@@ -5,11 +5,7 @@
 namespace clickhouse {
 
 Client g_client(ClientOptions()
-        .SetHost(           getEnvOrDefault("CLICKHOUSE_HOST",     "localhost"))
-        .SetPort( std::stoi(getEnvOrDefault("CLICKHOUSE_PORT",     "9000")))
-        .SetUser(           getEnvOrDefault("CLICKHOUSE_USER",     "default"))
-        .SetPassword(       getEnvOrDefault("CLICKHOUSE_PASSWORD", ""))
-        .SetDefaultDatabase(getEnvOrDefault("CLICKHOUSE_DB",       "default"))
+        .SetHost("localhost")
         .SetPingBeforeQuery(false));
 
 static void SelectNumber(benchmark::State& state) {

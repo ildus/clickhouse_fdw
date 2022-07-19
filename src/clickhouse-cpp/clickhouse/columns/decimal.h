@@ -10,8 +10,6 @@ namespace clickhouse {
  */
 class ColumnDecimal : public Column {
 public:
-    using ValueType = Int128;
-
     ColumnDecimal(size_t precision, size_t scale);
 
     void Append(const Int128& value);
@@ -21,12 +19,11 @@ public:
 
 public:
     void Append(ColumnRef column) override;
-    bool LoadBody(InputStream* input, size_t rows) override;
-    void SaveBody(OutputStream* output) override;
+    bool Load(CodedInputStream* input, size_t rows) override;
+    void Save(CodedOutputStream* output) override;
     void Clear() override;
     size_t Size() const override;
-    ColumnRef Slice(size_t begin, size_t len) const override;
-    ColumnRef CloneEmpty() const override;
+    ColumnRef Slice(size_t begin, size_t len) override;
     void Swap(Column& other) override;
     ItemView GetItem(size_t index) const override;
 
