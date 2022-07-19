@@ -1,54 +1,96 @@
 #include "../columns/itemview.h"
 
+#include <algorithm>
+#include <sstream>
+
+namespace {
+
+template <typename Container>
+std::string ContainerToString(Container container, const char * separator = ", ") {
+    std::stringstream sstr;
+    const auto end = std::end(container);
+    for (auto i = std::begin(container); i != end; /*intentionally no ++i*/) {
+        const auto & elem = *i;
+        sstr << elem;
+
+        if (++i != end) {
+            sstr << separator;
+        }
+    }
+
+    return sstr.str();
+}
+
+}
+
 namespace clickhouse {
 
 void ItemView::ValidateData(Type::Code type, DataType data) {
-    static const int ANY = -1; // value can be of any size
-    static const int ERR = -2; // value is not allowed inside ItemView
-    static const int value_size_by_type[] = {
-        0,   /*Void*/
-        1,   /*Int8*/
-        2,   /*Int16*/
-        4,   /*Int32*/
-        8,   /*Int64*/
-        1,   /*UInt8*/
-        2,   /*UInt16*/
-        4,   /*UInt32*/
-        8,   /*UInt64*/
-        4,   /*Float32*/
-        8,   /*Float64*/
-        ANY, /*String*/
-        ANY, /*FixedString*/
-        4,   /*DateTime*/
-        8,   /*DateTime64*/
-        2,   /*Date*/
-        ERR, /*Array*/
-        ERR, /*Nullable*/
-        ERR, /*Tuple*/
-        1,   /*Enum8*/
-        2,   /*Enum16*/
-        16,  /*UUID*/
-        4,   /*IPv4*/
-        8,   /*IPv6*/
-        16,  /*Int128*/
-        16,  /*Decimal*/
-        4,   /*Decimal32*/
-        8,   /*Decimal64*/
-        16,  /*Decimal128*/
-        ERR, /*LowCardinality*/
+
+    auto AssertSize = [type, &data](std::initializer_list<int> allowed_sizes) -> void {
+        const auto end = std::end(allowed_sizes);
+        if (std::find(std::begin(allowed_sizes), end, static_cast<int>(data.size())) == end) {
+            throw AssertionError(std::string("ItemView value size mismatch for ")
+                    + Type::TypeName(type)
+                    + " expected: " + ContainerToString(allowed_sizes, " or ")
+                    + ", got: " + std::to_string(data.size()));
+        }
     };
 
-    if (type >= sizeof(value_size_by_type)/sizeof(value_size_by_type[0]) || type < 0) {
-        throw std::runtime_error("Unknon type code:" + std::to_string(static_cast<int>(type)));
-    } else {
-        const auto expected_size = value_size_by_type[type];
-        if (expected_size == ERR) {
-            throw std::runtime_error("Unsupported type in ItemView: " + std::to_string(static_cast<int>(type)));
-        } else if (expected_size != ANY && expected_size != static_cast<int>(data.size())) {
-            throw std::runtime_error("Value size mismatch for type "
-                    + std::to_string(static_cast<int>(type)) + " expected: "
-                    + std::to_string(expected_size) + ", got: " + std::to_string(data.size()));
-        }
+    switch (type) {
+        case Type::Code::Void:
+            return AssertSize({0});
+
+        case Type::Code::Int8:
+        case Type::Code::UInt8:
+        case Type::Code::Enum8:
+            return AssertSize({1});
+
+        case Type::Code::Int16:
+        case Type::Code::UInt16:
+        case Type::Code::Date:
+        case Type::Code::Enum16:
+            return AssertSize({2});
+
+        case Type::Code::Int32:
+        case Type::Code::UInt32:
+        case Type::Code::Float32:
+        case Type::Code::DateTime:
+        case Type::Code::Date32:
+        case Type::Code::IPv4:
+        case Type::Code::Decimal32:
+            return AssertSize({4});
+
+        case Type::Code::Int64:
+        case Type::Code::UInt64:
+        case Type::Code::Float64:
+        case Type::Code::DateTime64:
+        case Type::Code::Decimal64:
+            return AssertSize({8});
+
+        case Type::Code::String:
+        case Type::Code::FixedString:
+            // value can be of any size
+            return;
+
+        case Type::Code::Array:
+        case Type::Code::Nullable:
+        case Type::Code::Tuple:
+        case Type::Code::LowCardinality:
+            throw AssertionError("Unsupported type in ItemView: " + std::string(Type::TypeName(type)));
+
+        case Type::Code::IPv6:
+        case Type::Code::UUID:
+        case Type::Code::Int128:
+        case Type::Code::Decimal128:
+            return AssertSize({16});
+
+        case Type::Code::Decimal:
+            // Could be either Decimal32, Decimal64 or Decimal128
+            return AssertSize({4, 8, 16});
+
+        default:
+            throw UnimplementedError("Unknon type code:" + std::to_string(static_cast<int>(type)));
     }
 }
 

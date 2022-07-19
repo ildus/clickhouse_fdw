@@ -1,6 +1,10 @@
 #include "enum.h"
 #include "utils.h"
 
+#include "../base/input.h"
+#include "../base/output.h"
+#include "../base/wire_format.h"
+
 namespace clickhouse {
 
 template <typename T>
@@ -40,7 +44,7 @@ const T& ColumnEnum<T>::At(size_t n) const {
 }
 
 template <typename T>
-const std::string ColumnEnum<T>::NameAt(size_t n) const {
+std::string_view ColumnEnum<T>::NameAt(size_t n) const {
     return type_->As<EnumType>()->GetEnumName(data_.at(n));
 }
 
@@ -70,14 +74,14 @@ void ColumnEnum<T>::Append(ColumnRef column) {
 }
 
 template <typename T>
-bool ColumnEnum<T>::Load(CodedInputStream* input, size_t rows) {
+bool ColumnEnum<T>::LoadBody(InputStream* input, size_t rows) {
     data_.resize(rows);
-    return input->ReadRaw(data_.data(), data_.size() * sizeof(T));
+    return WireFormat::ReadBytes(*input, data_.data(), data_.size() * sizeof(T));
 }
 
 template <typename T>
-void ColumnEnum<T>::Save(CodedOutputStream* output) {
-    output->WriteRaw(data_.data(), data_.size() * sizeof(T));
+void ColumnEnum<T>::SaveBody(OutputStream* output) {
+    WireFormat::WriteBytes(*output, data_.data(), data_.size() * sizeof(T));
 }
 
 template <typename T>
@@ -86,8 +90,13 @@ size_t ColumnEnum<T>::Size() const {
 }
 
 template <typename T>
-ColumnRef ColumnEnum<T>::Slice(size_t begin, size_t len) {
+ColumnRef ColumnEnum<T>::Slice(size_t begin, size_t len) const {
     return std::make_shared<ColumnEnum<T>>(type_, SliceVector(data_, begin, len));
+}
+
+template <typename T>
+ColumnRef ColumnEnum<T>::CloneEmpty() const {
+    return std::make_shared<ColumnEnum<T>>(type_);
 }
 
 template <typename T>

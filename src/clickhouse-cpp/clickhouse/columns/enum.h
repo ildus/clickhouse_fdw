@@ -8,6 +8,8 @@ namespace clickhouse {
 template <typename T>
 class ColumnEnum : public Column {
 public:
+    using ValueType = T;
+
     ColumnEnum(TypeRef type);
     ColumnEnum(TypeRef type, const std::vector<T>& data);
 
@@ -17,7 +19,7 @@ public:
 
     /// Returns element at given row number.
     const T& At(size_t n) const;
-    const std::string NameAt(size_t n) const;
+    std::string_view NameAt(size_t n) const;
 
     /// Returns element at given row number.
     const T& operator[] (size_t n) const;
@@ -31,20 +33,20 @@ public:
     void Append(ColumnRef column) override;
 
     /// Loads column data from input stream.
-    bool Load(CodedInputStream* input, size_t rows) override;
+    bool LoadBody(InputStream* input, size_t rows) override;
 
     /// Saves column data to output stream.
-    void Save(CodedOutputStream* output) override;
-    
-    /// Clear column data .
+    void SaveBody(OutputStream* output) override;
+
+    /// Clear column data.
     void Clear() override;
 
     /// Returns count of rows in the column.
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t begin, size_t len) override;
-
+    ColumnRef Slice(size_t begin, size_t len) const override;
+    ColumnRef CloneEmpty() const override;
     void Swap(Column& other) override;
 
     ItemView GetItem(size_t index) const override;

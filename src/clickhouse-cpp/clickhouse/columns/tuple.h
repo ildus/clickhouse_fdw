@@ -22,13 +22,19 @@ public:
 
 public:
     /// Appends content of given column to the end of current one.
-    void Append(ColumnRef) override { }
+    void Append(ColumnRef column) override;
+
+    /// Loads column prefix from input stream.
+    bool LoadPrefix(InputStream* input, size_t rows) override;
 
     /// Loads column data from input stream.
-    bool Load(CodedInputStream* input, size_t rows) override;
+    bool LoadBody(InputStream* input, size_t rows) override;
+
+    /// Saves column prefix to output stream.
+    void SavePrefix(OutputStream* output) override;
 
     /// Saves column data to output stream.
-    void Save(CodedOutputStream* output) override;
+    void SaveBody(OutputStream* output) override;
 
     /// Clear column data .
     void Clear() override;
@@ -37,7 +43,8 @@ public:
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t, size_t) override { return ColumnRef(); }
+    ColumnRef Slice(size_t, size_t) const override;
+    ColumnRef CloneEmpty() const override;
     void Swap(Column& other) override;
 
 private:

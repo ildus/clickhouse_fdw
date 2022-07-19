@@ -18,6 +18,14 @@ public:
 
     explicit ColumnFixedString(size_t n);
 
+    template <typename Values>
+    ColumnFixedString(size_t n, const Values & values)
+        : ColumnFixedString(n)
+    {
+        for (const auto & v : values)
+            Append(v);
+    }
+
     /// Appends one element to the column.
     void Append(std::string_view str);
 
@@ -35,10 +43,10 @@ public:
     void Append(ColumnRef column) override;
 
     /// Loads column data from input stream.
-    bool Load(CodedInputStream* input, size_t rows) override;
+    bool LoadBody(InputStream* input, size_t rows) override;
 
     /// Saves column data to output stream.
-    void Save(CodedOutputStream* output) override;
+    void SaveBody(OutputStream* output) override;
 
     /// Clear column data .
     void Clear() override;
@@ -47,8 +55,8 @@ public:
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t begin, size_t len) override;
-
+    ColumnRef Slice(size_t begin, size_t len) const override;
+    ColumnRef CloneEmpty() const override;
     void Swap(Column& other) override;
 
     ItemView GetItem(size_t) const override;
@@ -87,10 +95,10 @@ public:
     void Append(ColumnRef column) override;
 
     /// Loads column data from input stream.
-    bool Load(CodedInputStream* input, size_t rows) override;
+    bool LoadBody(InputStream* input, size_t rows) override;
 
     /// Saves column data to output stream.
-    void Save(CodedOutputStream* output) override;
+    void SaveBody(OutputStream* output) override;
 
     /// Clear column data .
     void Clear() override;
@@ -99,7 +107,8 @@ public:
     size_t Size() const override;
 
     /// Makes slice of the current column.
-    ColumnRef Slice(size_t begin, size_t len) override;
+    ColumnRef Slice(size_t begin, size_t len) const override;
+    ColumnRef CloneEmpty() const override;
     void Swap(Column& other) override;
     ItemView GetItem(size_t) const override;
 

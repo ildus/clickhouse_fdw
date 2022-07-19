@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <vector>
 #include <memory.h>
+#include <memory>
 
 namespace clickhouse {
 
@@ -18,14 +19,14 @@ public:
         DoFlush();
     }
 
-    inline void Write(const void* data, size_t len) {
-        DoWrite(data, len);
+    inline size_t Write(const void* data, size_t len) {
+        return DoWrite(data, len);
     }
 
 protected:
     virtual void DoFlush() { }
 
-    virtual void DoWrite(const void* data, size_t len) = 0;
+    virtual size_t DoWrite(const void* data, size_t len) = 0;
 };
 
 
@@ -41,7 +42,7 @@ protected:
     // be written to the output.
     virtual size_t DoNext(void** data, size_t len) = 0;
 
-    void DoWrite(const void* data, size_t len) override;
+    size_t DoWrite(const void* data, size_t len) override;
 };
 
 
@@ -72,6 +73,12 @@ public:
     inline void Reset(void* buf, size_t len) noexcept {
         buf_ = static_cast<uint8_t*>(buf);
         end_ = buf_ + len;
+        buffer_size_ = len;
+    }
+
+    /// Number of bytes written to the buffer.
+    inline size_t Size() const noexcept {
+        return buffer_size_ - Avail();
     }
 
 protected:
@@ -80,16 +87,19 @@ protected:
 private:
     uint8_t* buf_;
     uint8_t* end_;
+    size_t buffer_size_;
 };
 
 
 /**
- * A ZeroCopyOutput stream backed by an vector of bytes.
+ * A ZeroCopyOutput stream backed by a vector.
+ *
+ * Doesn't Flush() in destructor, client must ensure to do it manually at some point.
  */
 class BufferOutput : public ZeroCopyOutput {
 public:
      BufferOutput(Buffer* buf);
-    ~BufferOutput();
+    ~BufferOutput() override;
 
 protected:
     size_t DoNext(void** data, size_t len) override;
@@ -99,10 +109,16 @@ private:
     size_t pos_;
 };
 
-
+/** BufferedOutput writes data to internal buffer first.
+ *
+ *  Any data goes to underlying stream only if internal buffer is full
+ *  or when client invokes Flush() on this.
+ *
+ * Doesn't Flush() in destructor, client must ensure to do it manually at some point.
+ */
 class BufferedOutput : public ZeroCopyOutput {
 public:
-     BufferedOutput(OutputStream* slave, size_t buflen = 8192);
+    explicit BufferedOutput(std::unique_ptr<OutputStream> destination, size_t buflen = 8192);
     ~BufferedOutput() override;
 
     void Reset();
@@ -110,10 +126,10 @@ public:
 protected:
     void DoFlush() override;
     size_t DoNext(void** data, size_t len) override;
-    void DoWrite(const void* data, size_t len) override;
+    size_t DoWrite(const void* data, size_t len) override;
 
 private:
-    OutputStream* const slave_;
+    std::unique_ptr<OutputStream> const destination_;
     Buffer buffer_;
     ArrayOutput array_output_;
 };

@@ -5,6 +5,21 @@
 
 namespace clickhouse {
 
+bool ZeroCopyInput::Skip(size_t bytes) {
+    while (bytes > 0) {
+        const void* ptr;
+        size_t len = Next(&ptr, bytes);
+
+        if (len == 0) {
+            return false;
+        }
+
+        bytes -= len;
+    }
+
+    return true;
+}
+
 size_t ZeroCopyInput::DoRead(void* buf, size_t len) {
     const void* ptr;
     size_t result = DoNext(&ptr, len);
@@ -41,8 +56,8 @@ size_t ArrayInput::DoNext(const void** ptr, size_t len) {
 }
 
 
-BufferedInput::BufferedInput(InputStream* slave, size_t buflen)
-    : slave_(slave)
+BufferedInput::BufferedInput(std::unique_ptr<InputStream> source, size_t buflen)
+    : source_(std::move(source))
     , array_input_(nullptr, 0)
     , buffer_(buflen)
 {
@@ -57,7 +72,7 @@ void BufferedInput::Reset() {
 size_t BufferedInput::DoNext(const void** ptr, size_t len)  {
     if (array_input_.Exhausted()) {
         array_input_.Reset(
-            buffer_.data(), slave_->Read(buffer_.data(), buffer_.size())
+            buffer_.data(), source_->Read(buffer_.data(), buffer_.size())
         );
     }
 
@@ -67,11 +82,11 @@ size_t BufferedInput::DoNext(const void** ptr, size_t len)  {
 size_t BufferedInput::DoRead(void* buf, size_t len) {
     if (array_input_.Exhausted()) {
         if (len > buffer_.size() / 2) {
-            return slave_->Read(buf, len);
+            return source_->Read(buf, len);
         }
 
         array_input_.Reset(
-            buffer_.data(), slave_->Read(buffer_.data(), buffer_.size())
+            buffer_.data(), source_->Read(buffer_.data(), buffer_.size())
         );
     }
 

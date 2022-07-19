@@ -27,19 +27,19 @@ void ColumnDate::Append(ColumnRef column) {
     }
 }
 
-bool ColumnDate::Load(CodedInputStream* input, size_t rows) {
-    return data_->Load(input, rows);
+bool ColumnDate::LoadBody(InputStream* input, size_t rows) {
+    return data_->LoadBody(input, rows);
 }
 
-void ColumnDate::Save(CodedOutputStream* output) {
-    data_->Save(output);
+void ColumnDate::SaveBody(OutputStream* output) {
+    data_->SaveBody(output);
 }
 
 size_t ColumnDate::Size() const {
     return data_->Size();
 }
 
-ColumnRef ColumnDate::Slice(size_t begin, size_t len) {
+ColumnRef ColumnDate::Slice(size_t begin, size_t len) const {
     auto col = data_->Slice(begin, len)->As<ColumnUInt16>();
     auto result = std::make_shared<ColumnDate>();
 
@@ -48,19 +48,89 @@ ColumnRef ColumnDate::Slice(size_t begin, size_t len) {
     return result;
 }
 
+ColumnRef ColumnDate::CloneEmpty() const {
+    return std::make_shared<ColumnDate>();
+}
+
 void ColumnDate::Swap(Column& other) {
     auto & col = dynamic_cast<ColumnDate &>(other);
     data_.swap(col.data_);
 }
 
 ItemView ColumnDate::GetItem(size_t index) const {
-    return data_->GetItem(index);
+    return ItemView(Type::Date, data_->GetItem(index));
 }
 
 
 
+ColumnDate32::ColumnDate32()
+    : Column(Type::CreateDate32())
+    , data_(std::make_shared<ColumnInt32>())
+{
+}
+
+void ColumnDate32::Append(const std::time_t& value) {
+    /// TODO: This code is fundamentally wrong.
+    data_->Append(static_cast<int32_t>(value / std::time_t(86400)));
+}
+
+void ColumnDate32::Clear() {
+    data_->Clear();
+}
+
+std::time_t ColumnDate32::At(size_t n) const {
+    return static_cast<std::time_t>(data_->At(n)) * 86400;
+}
+
+void ColumnDate32::Append(ColumnRef column) {
+    if (auto col = column->As<ColumnDate32>()) {
+        data_->Append(col->data_);
+    }
+}
+
+bool ColumnDate32::LoadBody(InputStream* input, size_t rows) {
+    return data_->LoadBody(input, rows);
+}
+
+void ColumnDate32::SaveBody(OutputStream* output) {
+    data_->SaveBody(output);
+}
+
+size_t ColumnDate32::Size() const {
+    return data_->Size();
+}
+
+ColumnRef ColumnDate32::Slice(size_t begin, size_t len) const {
+    auto col = data_->Slice(begin, len)->As<ColumnInt32>();
+    auto result = std::make_shared<ColumnDate32>();
+
+    result->data_->Append(col);
+
+    return result;
+}
+
+ColumnRef ColumnDate32::CloneEmpty() const {
+    return std::make_shared<ColumnDate32>();
+}
+
+void ColumnDate32::Swap(Column& other) {
+    auto & col = dynamic_cast<ColumnDate32 &>(other);
+    data_.swap(col.data_);
+}
+
+ItemView ColumnDate32::GetItem(size_t index) const {
+    return ItemView{Type()->GetCode(), data_->GetItem(index)};
+}
+
+
 ColumnDateTime::ColumnDateTime()
     : Column(Type::CreateDateTime())
+    , data_(std::make_shared<ColumnUInt32>())
+{
+}
+
+ColumnDateTime::ColumnDateTime(std::string timezone)
+    : Column(Type::CreateDateTime(std::move(timezone)))
     , data_(std::make_shared<ColumnUInt32>())
 {
 }
@@ -73,18 +143,22 @@ std::time_t ColumnDateTime::At(size_t n) const {
     return data_->At(n);
 }
 
+std::string ColumnDateTime::Timezone() const {
+    return type_->As<DateTimeType>()->Timezone();
+}
+
 void ColumnDateTime::Append(ColumnRef column) {
     if (auto col = column->As<ColumnDateTime>()) {
         data_->Append(col->data_);
     }
 }
 
-bool ColumnDateTime::Load(CodedInputStream* input, size_t rows) {
-    return data_->Load(input, rows);
+bool ColumnDateTime::LoadBody(InputStream* input, size_t rows) {
+    return data_->LoadBody(input, rows);
 }
 
-void ColumnDateTime::Save(CodedOutputStream* output) {
-    data_->Save(output);
+void ColumnDateTime::SaveBody(OutputStream* output) {
+    data_->SaveBody(output);
 }
 
 size_t ColumnDateTime::Size() const {
@@ -95,7 +169,7 @@ void ColumnDateTime::Clear() {
     data_->Clear();
 }
 
-ColumnRef ColumnDateTime::Slice(size_t begin, size_t len) {
+ColumnRef ColumnDateTime::Slice(size_t begin, size_t len) const {
     auto col = data_->Slice(begin, len)->As<ColumnUInt32>();
     auto result = std::make_shared<ColumnDateTime>();
 
@@ -104,17 +178,25 @@ ColumnRef ColumnDateTime::Slice(size_t begin, size_t len) {
     return result;
 }
 
+ColumnRef ColumnDateTime::CloneEmpty() const {
+    return std::make_shared<ColumnDateTime>();
+}
+
 void ColumnDateTime::Swap(Column& other) {
     auto & col = dynamic_cast<ColumnDateTime &>(other);
     data_.swap(col.data_);
 }
 
 ItemView ColumnDateTime::GetItem(size_t index) const {
-    return data_->GetItem(index);
+    return ItemView(Type::DateTime, data_->GetItem(index));
 }
 
 ColumnDateTime64::ColumnDateTime64(size_t precision)
     : ColumnDateTime64(Type::CreateDateTime64(precision), std::make_shared<ColumnDecimal>(18ul, precision))
+{}
+
+ColumnDateTime64::ColumnDateTime64(size_t precision, std::string timezone)
+    : ColumnDateTime64(Type::CreateDateTime64(precision, std::move(timezone)), std::make_shared<ColumnDecimal>(18ul, precision))
 {}
 
 ColumnDateTime64::ColumnDateTime64(TypeRef type, std::shared_ptr<ColumnDecimal> data)
@@ -134,7 +216,12 @@ void ColumnDateTime64::Append(const Int64& value) {
 //}
 
 Int64 ColumnDateTime64::At(size_t n) const {
-    return data_->At(n);
+    // make sure to use Absl's Int128 conversion
+    return static_cast<Int64>(data_->At(n));
+}
+
+std::string ColumnDateTime64::Timezone() const {
+    return type_->As<DateTime64Type>()->Timezone();
 }
 
 void ColumnDateTime64::Append(ColumnRef column) {
@@ -143,12 +230,12 @@ void ColumnDateTime64::Append(ColumnRef column) {
     }
 }
 
-bool ColumnDateTime64::Load(CodedInputStream* input, size_t rows) {
-    return data_->Load(input, rows);
+bool ColumnDateTime64::LoadBody(InputStream* input, size_t rows) {
+    return data_->LoadBody(input, rows);
 }
 
-void ColumnDateTime64::Save(CodedOutputStream* output) {
-    data_->Save(output);
+void ColumnDateTime64::SaveBody(OutputStream* output) {
+    data_->SaveBody(output);
 }
 
 void ColumnDateTime64::Clear() {
@@ -159,23 +246,27 @@ size_t ColumnDateTime64::Size() const {
 }
 
 ItemView ColumnDateTime64::GetItem(size_t index) const {
-    return data_->GetItem(index);
+    return ItemView(Type::DateTime64, data_->GetItem(index));
 }
 
 void ColumnDateTime64::Swap(Column& other) {
     auto& col = dynamic_cast<ColumnDateTime64&>(other);
     if (col.GetPrecision() != GetPrecision()) {
-        throw std::runtime_error("Can't swap DateTime64 columns when precisions are not the same: "
+        throw ValidationError("Can't swap DateTime64 columns when precisions are not the same: "
                 + std::to_string(GetPrecision()) + "(this) != " + std::to_string(col.GetPrecision()) + "(that)");
     }
 
     data_.swap(col.data_);
 }
 
-ColumnRef ColumnDateTime64::Slice(size_t begin, size_t len) {
+ColumnRef ColumnDateTime64::Slice(size_t begin, size_t len) const {
     auto sliced_data = data_->Slice(begin, len)->As<ColumnDecimal>();
 
     return ColumnRef{new ColumnDateTime64(type_, sliced_data)};
+}
+
+ColumnRef ColumnDateTime64::CloneEmpty() const {
+    return ColumnRef{new ColumnDateTime64(type_, data_->CloneEmpty()->As<ColumnDecimal>())};
 }
 
 size_t ColumnDateTime64::GetPrecision() const {

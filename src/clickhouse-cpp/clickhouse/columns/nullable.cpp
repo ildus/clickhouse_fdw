@@ -11,7 +11,7 @@ ColumnNullable::ColumnNullable(ColumnRef nested, ColumnRef nulls)
     , nulls_(nulls->As<ColumnUInt8>())
 {
     if (nested_->Size() != nulls->Size()) {
-        throw std::runtime_error("count of elements in nested and nulls should be the same");
+        throw ValidationError("count of elements in nested and nulls should be the same");
     }
 }
 
@@ -50,34 +50,45 @@ void ColumnNullable::Clear() {
     nulls_->Clear();
 }
 
-bool ColumnNullable::Load(CodedInputStream* input, size_t rows) {
-    if (!nulls_->Load(input, rows)) {
+bool ColumnNullable::LoadPrefix(InputStream* input, size_t rows) {
+    return nested_->LoadPrefix(input, rows);
+}
+
+bool ColumnNullable::LoadBody(InputStream* input, size_t rows) {
+    if (!nulls_->LoadBody(input, rows)) {
         return false;
     }
-    if (!nested_->Load(input, rows)) {
+    if (!nested_->LoadBody(input, rows)) {
         return false;
     }
     return true;
 }
 
-void ColumnNullable::Save(CodedOutputStream* output) {
-    nulls_->Save(output);
-    nested_->Save(output);
+void ColumnNullable::SavePrefix(OutputStream* output) {
+    nested_->SavePrefix(output);
+}
+
+void ColumnNullable::SaveBody(OutputStream* output) {
+    nulls_->SaveBody(output);
+    nested_->SaveBody(output);
 }
 
 size_t ColumnNullable::Size() const {
-    assert(nested_->Size() == nulls_->Size());
     return nulls_->Size();
 }
 
-ColumnRef ColumnNullable::Slice(size_t begin, size_t len) {
+ColumnRef ColumnNullable::Slice(size_t begin, size_t len) const {
     return std::make_shared<ColumnNullable>(nested_->Slice(begin, len), nulls_->Slice(begin, len));
+}
+
+ColumnRef ColumnNullable::CloneEmpty() const {
+    return std::make_shared<ColumnNullable>(nested_->CloneEmpty(), nulls_->CloneEmpty());
 }
 
 void ColumnNullable::Swap(Column& other) {
     auto & col = dynamic_cast<ColumnNullable &>(other);
     if (!nested_->Type()->IsEqual(col.nested_->Type()))
-        throw std::runtime_error("Can't swap() Nullable columns of different types.");
+        throw ValidationError("Can't swap() Nullable columns of different types.");
 
     nested_.swap(col.nested_);
     nulls_.swap(col.nulls_);

@@ -1,11 +1,13 @@
 #include "socket.h"
 #include "singleton.h"
+#include "../client.h"
 
 #include <assert.h>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_set>
 #include <memory.h>
+#include <thread>
 
 #if !defined(_win_)
 #   include <errno.h>
@@ -14,10 +16,33 @@
 #   include <netinet/tcp.h>
 #   include <signal.h>
 #   include <unistd.h>
-#   include <netinet/tcp.h>
 #endif
 
 namespace clickhouse {
+
+#if defined(_win_)
+char const* windowsErrorCategory::name() const noexcept {
+    return "WindowsSocketError";
+}
+
+std::string windowsErrorCategory::message(int c) const {
+    char error[UINT8_MAX];
+    auto len = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, static_cast<DWORD>(c), 0, error, sizeof(error), nullptr);
+    if (len == 0) {
+        return "unknown";
+    }
+    while (len && (error[len - 1] == '\r' || error[len - 1] == '\n')) {
+        --len;
+    }
+    return std::string(error, len);
+}
+
+windowsErrorCategory const& windowsErrorCategory::category() {
+    static windowsErrorCategory c;
+    return c;
+}
+#endif
+
 namespace {
 
 class LocalNames : public std::unordered_set<std::string> {
@@ -36,8 +61,24 @@ public:
     }
 };
 
+inline int getSocketErrorCode() {
+#if defined(_win_)
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+const std::error_category& getErrorCategory() noexcept {
+#if defined(_win_)
+    return windowsErrorCategory::category();
+#else
+    return std::system_category();
+#endif
+}
+
 void SetNonBlock(SOCKET fd, bool value) {
-#if defined(_unix_)
+#if defined(_unix_) || defined(__CYGWIN__)
     int flags;
     int ret;
     #if defined(O_NONBLOCK)
@@ -54,8 +95,7 @@ void SetNonBlock(SOCKET fd, bool value) {
         return ioctl(fd, FIOBIO, &flags);
     #endif
     if (ret == -1) {
-        throw std::system_error(
-            errno, std::system_category(), "fail to set nonblocking mode");
+        throw std::system_error(getSocketErrorCode(), getErrorCategory(), "fail to set nonblocking mode");
     }
 #elif defined(_win_)
     unsigned long inbuf = value;
@@ -67,23 +107,83 @@ void SetNonBlock(SOCKET fd, bool value) {
     }
 
     if (WSAIoctl(fd, FIONBIO, &inbuf, sizeof(inbuf), &outbuf, sizeof(outbuf), &written, 0, 0) == SOCKET_ERROR) {
-        throw std::system_error(
-            errno, std::system_category(), "fail to set nonblocking mode");
+        throw std::system_error(getSocketErrorCode(), getErrorCategory(), "fail to set nonblocking mode");
     }
 #endif
+}
+
+ssize_t Poll(struct pollfd* fds, int nfds, int timeout) noexcept {
+#if defined(_win_)
+    return WSAPoll(fds, nfds, timeout);
+#else
+    return poll(fds, nfds, timeout);
+#endif
+}
+
+SOCKET SocketConnect(const NetworkAddress& addr) {
+    int last_err = 0;
+    for (auto res = addr.Info(); res != nullptr; res = res->ai_next) {
+        SOCKET s(socket(res->ai_family, res->ai_socktype, res->ai_protocol));
+
+        if (s == -1) {
+            continue;
+        }
+
+        SetNonBlock(s, true);
+
+        if (connect(s, res->ai_addr, (int)res->ai_addrlen) != 0) {
+            int err = getSocketErrorCode();
+            if (
+                err == EINPROGRESS || err == EAGAIN || err == EWOULDBLOCK
+#if defined(_win_)
+                || err == WSAEWOULDBLOCK || err == WSAEINPROGRESS
+#endif
+            ) {
+                pollfd fd;
+                fd.fd = s;
+                fd.events = POLLOUT;
+                fd.revents = 0;
+                ssize_t rval = Poll(&fd, 1, 5000);
+
+                if (rval == -1) {
+                    throw std::system_error(getSocketErrorCode(), getErrorCategory(), "fail to connect");
+                }
+                if (rval > 0) {
+                    socklen_t len = sizeof(err);
+                    getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
+
+                    if (!err) {
+                        SetNonBlock(s, false);
+                        return s;
+                    }
+                   last_err = err;
+                }
+            }
+        } else {
+            SetNonBlock(s, false);
+            return s;
+        }
+    }
+    if (last_err > 0) {
+        throw std::system_error(last_err, getErrorCategory(), "fail to connect");
+    }
+    throw std::system_error(getSocketErrorCode(), getErrorCategory(), "fail to connect");
 }
 
 } // namespace
 
 NetworkAddress::NetworkAddress(const std::string& host, const std::string& port)
-    : info_(nullptr)
+    : host_(host)
+    , info_(nullptr)
 {
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
 
     hints.ai_family = PF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-
+    // using AI_ADDRCONFIG on windows will cause getaddrinfo to return WSAHOST_NOT_FOUND
+    // for more information, see https://github.com/ClickHouse/clickhouse-cpp/issues/195
+#if defined(_unix_) 
     if (!Singleton<LocalNames>()->IsLocalName(host)) {
         // https://linux.die.net/man/3/getaddrinfo
         // If hints.ai_flags includes the AI_ADDRCONFIG flag,
@@ -95,11 +195,12 @@ NetworkAddress::NetworkAddress(const std::string& host, const std::string& port)
         // as valid as a configured address.
         hints.ai_flags |= AI_ADDRCONFIG;
     }
+#endif
 
     const int error = getaddrinfo(host.c_str(), port.c_str(), &hints, &info_);
 
     if (error) {
-        throw std::system_error(errno, std::system_category());
+        throw std::system_error(getSocketErrorCode(), getErrorCategory());
     }
 }
 
@@ -112,29 +213,46 @@ NetworkAddress::~NetworkAddress() {
 const struct addrinfo* NetworkAddress::Info() const {
     return info_;
 }
-
-
-SocketHolder::SocketHolder()
-    : handle_(-1)
-{
+const std::string & NetworkAddress::Host() const {
+    return host_;
 }
 
-SocketHolder::SocketHolder(SOCKET s)
-    : handle_(s)
-{
+
+SocketBase::~SocketBase() = default;
+
+SocketFactory::~SocketFactory() = default;
+
+void SocketFactory::sleepFor(const std::chrono::milliseconds& duration) {
+    std::this_thread::sleep_for(duration);
 }
 
-SocketHolder::SocketHolder(SocketHolder&& other) noexcept
+
+Socket::Socket(const NetworkAddress& addr)
+    : handle_(SocketConnect(addr))
+{}
+
+Socket::Socket(Socket&& other) noexcept
     : handle_(other.handle_)
 {
     other.handle_ = -1;
 }
 
-SocketHolder::~SocketHolder() {
+Socket& Socket::operator=(Socket&& other) noexcept {
+    if (this != &other) {
+        Close();
+
+        handle_ = other.handle_;
+        other.handle_ = -1;
+    }
+
+    return *this;
+}
+
+Socket::~Socket() {
     Close();
 }
 
-void SocketHolder::Close() noexcept {
+void Socket::Close() {
     if (handle_ != -1) {
 #if defined(_win_)
         closesocket(handle_);
@@ -145,11 +263,7 @@ void SocketHolder::Close() noexcept {
     }
 }
 
-bool SocketHolder::Closed() const noexcept {
-    return handle_ == -1;
-}
-
-void SocketHolder::SetTcpKeepAlive(int idle, int intvl, int cnt) noexcept {
+void Socket::SetTcpKeepAlive(int idle, int intvl, int cnt) noexcept {
     int val = 1;
 
 #if defined(_unix_)
@@ -169,21 +283,49 @@ void SocketHolder::SetTcpKeepAlive(int idle, int intvl, int cnt) noexcept {
 #endif
 }
 
-SocketHolder& SocketHolder::operator = (SocketHolder&& other) noexcept {
-    if (this != &other) {
-        Close();
+void Socket::SetTcpNoDelay(bool nodelay) noexcept {
+    int val = nodelay;
+#if defined(_unix_)
+    setsockopt(handle_, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
+#else
+    setsockopt(handle_, IPPROTO_TCP, TCP_NODELAY, (const char*)&val, sizeof(val));
+#endif
+}
 
-        handle_ = other.handle_;
-        other.handle_ = -1;
+std::unique_ptr<InputStream> Socket::makeInputStream() const {
+    return std::make_unique<SocketInput>(handle_);
+}
+
+std::unique_ptr<OutputStream> Socket::makeOutputStream() const {
+    return std::make_unique<SocketOutput>(handle_);
+}
+
+NonSecureSocketFactory::~NonSecureSocketFactory()  {}
+
+std::unique_ptr<SocketBase> NonSecureSocketFactory::connect(const ClientOptions &opts) {
+    const auto address = NetworkAddress(opts.host, std::to_string(opts.port));
+
+    auto socket = doConnect(address);
+    setSocketOptions(*socket, opts);
+
+    return socket;
+}
+
+std::unique_ptr<Socket> NonSecureSocketFactory::doConnect(const NetworkAddress& address) {
+    return std::make_unique<Socket>(address);
+}
+
+void NonSecureSocketFactory::setSocketOptions(Socket &socket, const ClientOptions &opts) {
+    if (opts.tcp_keepalive) {
+        socket.SetTcpKeepAlive(
+                static_cast<int>(opts.tcp_keepalive_idle.count()),
+                static_cast<int>(opts.tcp_keepalive_intvl.count()),
+                static_cast<int>(opts.tcp_keepalive_cnt));
     }
-
-    return *this;
+    if (opts.tcp_nodelay) {
+        socket.SetTcpNoDelay(opts.tcp_nodelay);
+    }
 }
-
-SocketHolder::operator SOCKET () const noexcept {
-    return handle_;
-}
-
 
 SocketInput::SocketInput(SOCKET s)
     : s_(s)
@@ -200,14 +342,14 @@ size_t SocketInput::DoRead(void* buf, size_t len) {
     }
 
     if (ret == 0) {
-        throw std::system_error(
-            errno, std::system_category(), "closed"
-        );
+        throw std::system_error(getSocketErrorCode(), getErrorCategory(), "closed");
     }
 
-    throw std::system_error(
-        errno, std::system_category(), "can't receive string data"
-    );
+    throw std::system_error(getSocketErrorCode(), getErrorCategory(), "can't receive string data");
+}
+
+bool SocketInput::Skip(size_t /*bytes*/) {
+    return false;
 }
 
 
@@ -218,7 +360,7 @@ SocketOutput::SocketOutput(SOCKET s)
 
 SocketOutput::~SocketOutput() = default;
 
-void SocketOutput::DoWrite(const void* data, size_t len) {
+size_t SocketOutput::DoWrite(const void* data, size_t len) {
 #if defined (_linux_)
     static const int flags = MSG_NOSIGNAL;
 #else
@@ -226,10 +368,10 @@ void SocketOutput::DoWrite(const void* data, size_t len) {
 #endif
 
     if (::send(s_, (const char*)data, (int)len, flags) != (int)len) {
-        throw std::system_error(
-            errno, std::system_category(), "fail to send data"
-        );
+        throw std::system_error(getSocketErrorCode(), getErrorCategory(), "fail to send " + std::to_string(len) + " bytes of data");
     }
+
+    return len;
 }
 
 
@@ -251,64 +393,6 @@ NetrworkInitializer::NetrworkInitializer() {
 
 
     (void)Singleton<NetrworkInitializerImpl>();
-}
-
-
-SOCKET SocketConnect(const NetworkAddress& addr) {
-    int last_err = 0;
-    for (auto res = addr.Info(); res != nullptr; res = res->ai_next) {
-        SOCKET s(socket(res->ai_family, res->ai_socktype, res->ai_protocol));
-
-        if (s == -1) {
-            continue;
-        }
-
-        SetNonBlock(s, true);
-
-        if (connect(s, res->ai_addr, (int)res->ai_addrlen) != 0) {
-            int err = errno;
-            if (err == EINPROGRESS || err == EAGAIN || err == EWOULDBLOCK) {
-                pollfd fd;
-                fd.fd = s;
-                fd.events = POLLOUT;
-                fd.revents = 0;
-                ssize_t rval = Poll(&fd, 1, 5000);
-
-                if (rval == -1) {
-                    throw std::system_error(errno, std::system_category(), "fail to connect");
-                }
-                if (rval > 0) {
-                    socklen_t len = sizeof(err);
-                    getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
-
-                    if (!err) {
-                        SetNonBlock(s, false);
-                        return s;
-                    }
-                   last_err = err;
-                }
-            }
-        } else {
-            SetNonBlock(s, false);
-            return s;
-        }
-    }
-    if (last_err > 0) {
-        throw std::system_error(last_err, std::system_category(), "fail to connect");
-    }
-    throw std::system_error(
-        errno, std::system_category(), "fail to connect"
-    );
-}
-
-
-ssize_t Poll(struct pollfd* fds, int nfds, int timeout) noexcept {
-#if defined(_win_)
-    int rval = WSAPoll(fds, nfds, timeout);
-#else
-    return poll(fds, nfds, timeout);
-#endif
-    return -1;
 }
 
 }

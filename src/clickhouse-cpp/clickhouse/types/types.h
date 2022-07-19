@@ -1,11 +1,18 @@
 #pragma once
 
+#include "absl/numeric/int128.h"
+
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 namespace clickhouse {
+
+using Int128 = absl::int128;
+using Int64 = int64_t;
 
 using TypeRef = std::shared_ptr<class Type>;
 
@@ -42,6 +49,7 @@ public:
         Decimal128,
         LowCardinality,
         DateTime64,
+        Date32,
     };
 
     using EnumItem = std::pair<std::string /* name */, int16_t /* value */>;
@@ -67,17 +75,28 @@ public:
     std::string GetName() const;
 
     /// Is given type same as current one.
-    bool IsEqual(const Type& other) const { return this->GetName() == other.GetName(); }
+    bool IsEqual(const Type& other) const {
+        // Types are equal only if both code_ and type_unique_id_ are equal.
+        return this == &other
+                // GetTypeUniqueId() is relatively heavy, so avoid calling it when comparing obviously different types.
+                || (this->GetCode() == other.GetCode() && this->GetTypeUniqueId() == other.GetTypeUniqueId());
+    }
+
     bool IsEqual(const TypeRef& other) const { return IsEqual(*other); }
+
+    /// Simple name, doesn't depend on parameters and\or nested types, caller MUST NOT free returned value.
+    static const char* TypeName(Code);
 
 public:
     static TypeRef CreateArray(TypeRef item_type);
 
     static TypeRef CreateDate();
 
-    static TypeRef CreateDateTime();
+    static TypeRef CreateDate32();    
 
-    static TypeRef CreateDateTime64(size_t precision);
+    static TypeRef CreateDateTime(std::string timezone = std::string());
+
+    static TypeRef CreateDateTime64(size_t precision, std::string timezone = std::string());
 
     static TypeRef CreateDecimal(size_t precision, size_t scale);
 
@@ -107,7 +126,10 @@ public:
     static TypeRef CreateLowCardinality(TypeRef item_type);
 
 private:
+    uint64_t GetTypeUniqueId() const;
+
     const Code code_;
+    mutable std::atomic<uint64_t> type_unique_id_;
 };
 
 inline bool operator==(const Type & left, const Type & right) {
@@ -140,6 +162,8 @@ public:
     DecimalType(size_t precision, size_t scale);
 
     std::string GetName() const;
+    friend class EnumType;
+    friend class DateTimeType;
 
     inline size_t GetScale() const { return scale_; }
     inline size_t GetPrecision() const { return precision_; }
@@ -148,14 +172,35 @@ private:
     const size_t precision_, scale_;
 };
 
-class DateTime64Type: public Type {
+namespace details
+{
+class TypeWithTimeZoneMixin
+{
 public:
-    explicit DateTime64Type(size_t precision);
+    TypeWithTimeZoneMixin(std::string timezone);
+
+    /// Timezone associated with a data column.
+    const std::string & Timezone() const;
+
+private:
+    std::string timezone_;
+};
+}
+
+class DateTimeType : public Type, public details::TypeWithTimeZoneMixin {
+public:
+    explicit DateTimeType(std::string timezone);
+
+    std::string GetName() const;
+};
+
+class DateTime64Type: public Type, public details::TypeWithTimeZoneMixin {
+public:
+    explicit DateTime64Type(size_t precision, std::string timezone_);
 
     std::string GetName() const;
 
     inline size_t GetPrecision() const { return precision_; }
-
 private:
     size_t precision_;
 };
@@ -167,13 +212,13 @@ public:
     std::string GetName() const;
 
     /// Methods to work with enum types.
-    const std::string& GetEnumName(int16_t value) const;
+    std::string_view GetEnumName(int16_t value) const;
     int16_t GetEnumValue(const std::string& name) const;
     bool HasEnumName(const std::string& name) const;
     bool HasEnumValue(int16_t value) const;
 
 private:
-    using ValueToNameType     = std::map<int16_t, std::string>;
+    using ValueToNameType     = std::map<int16_t, std::string_view>;
     using NameToValueType     = std::map<std::string, int16_t>;
     using ValueToNameIterator = ValueToNameType::const_iterator;
 
@@ -256,7 +301,7 @@ inline TypeRef Type::CreateSimple<int64_t>() {
 }
 
 template <>
-inline TypeRef Type::CreateSimple<__int128>() {
+inline TypeRef Type::CreateSimple<Int128>() {
     return TypeRef(new Type(Int128));
 }
 

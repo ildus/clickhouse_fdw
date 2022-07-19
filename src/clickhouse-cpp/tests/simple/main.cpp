@@ -1,6 +1,9 @@
 #include <clickhouse/client.h>
 #include <clickhouse/error_codes.h>
 #include <clickhouse/types/type_parser.h>
+#include <clickhouse/base/socket.h>
+
+#include <ut/utils.h>
 
 #include <stdexcept>
 #include <iostream>
@@ -17,19 +20,14 @@ inline void PrintBlock(const Block& block) {
     for (Block::Iterator bi(block); bi.IsValid(); bi.Next()) {
         std::cout << bi.Name() << " ";
     }
-    std::cout << std::endl;
-
-    for (size_t i = 0; i < block.GetRowCount(); ++i) {
-        std::cout << (*block[0]->As<ColumnUInt64>())[i] << " "
-                  << (*block[1]->As<ColumnString>())[i] << "\n";
-    }
+    std::cout << std::endl << block;
 }
 
 inline void ArrayExample(Client& client) {
     Block b;
 
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.array (arr Array(UInt64)) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_array (arr Array(UInt64))");
 
     auto arr = std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>());
 
@@ -47,9 +45,9 @@ inline void ArrayExample(Client& client) {
     arr->AppendAsColumn(id);
 
     b.AppendColumn("arr", arr);
-    client.Insert("test.array", b);
+    client.Insert("test_array", b);
 
-    client.Select("SELECT arr FROM test.array", [](const Block& block)
+    client.Select("SELECT arr FROM test_array", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
                 auto col = block[0]->As<ColumnArray>()->GetAsColumn(c);
@@ -62,14 +60,14 @@ inline void ArrayExample(Client& client) {
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.array");
+    client.Execute("DROP TEMPORARY TABLE test_array");
 }
 
 inline void MultiArrayExample(Client& client) {
     Block b;
 
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.multiarray (arr Array(Array(UInt64))) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_multiarray (arr Array(Array(UInt64)))");
 
     auto arr = std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>());
 
@@ -80,9 +78,9 @@ inline void MultiArrayExample(Client& client) {
     auto a2 = std::make_shared<ColumnArray>(std::make_shared<ColumnArray>(std::make_shared<ColumnUInt64>()));
     a2->AppendAsColumn(arr);
     b.AppendColumn("arr", a2);
-    client.Insert("test.multiarray", b);
+    client.Insert("test_multiarray", b);
 
-    client.Select("SELECT arr FROM test.multiarray", [](const Block& block)
+    client.Select("SELECT arr FROM test_multiarray", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
                 auto col = block[0]->As<ColumnArray>()->GetAsColumn(c);
@@ -102,76 +100,85 @@ inline void MultiArrayExample(Client& client) {
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.multiarray");
+    client.Execute("DROP TEMPORARY TABLE test_multiarray");
 }
 
 inline void DateExample(Client& client) {
     Block b;
 
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.date (d DateTime) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_date (d DateTime, dz DateTime('Europe/Moscow'))");
 
     auto d = std::make_shared<ColumnDateTime>();
+    auto dz = std::make_shared<ColumnDateTime>();
     d->Append(std::time(nullptr));
+    dz->Append(std::time(nullptr));
     b.AppendColumn("d", d);
-    client.Insert("test.date", b);
+    b.AppendColumn("dz", dz);
+    client.Insert("test_date", b);
 
-    client.Select("SELECT d FROM test.date", [](const Block& block)
+    client.Select("SELECT d, dz FROM test_date", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
-                auto col = block[0]->As<ColumnDateTime>();
-                std::time_t t = col->At(c);
-                std::cerr << std::asctime(std::localtime(&t)) << " " << std::endl;
+
+                auto print_value = [&](const auto& col) {
+                    std::time_t t = col->At(c);
+                    std::cerr << std::asctime(std::localtime(&t));
+                    std::cerr << col->Timezone() << std::endl;
+                };
+
+                print_value(block[0]->As<ColumnDateTime>());
+                print_value(block[1]->As<ColumnDateTime>());
             }
         }
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.date");
+    client.Execute("DROP TEMPORARY TABLE test_date");
 }
 
 inline void DateTime64Example(Client& client) {
     Block b;
 
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.datetime64 (dt64 DateTime64(6)) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_datetime64 (dt64 DateTime64(6))");
 
-    size_t precision = 6ul;
-    auto d = std::make_shared<ColumnDateTime64>(precision);
-    assert(d->GetPrecision() == precision);
-    Int64 precision_multiplier = std::pow(10ull, precision);
-    Int64 datetime = Int64(std::time(nullptr)) * precision_multiplier;
+    auto d = std::make_shared<ColumnDateTime64>(6);
+    d->Append(std::time(nullptr) * 1000000 + 123456);
 
-    d->Append(datetime);
     b.AppendColumn("dt64", d);
-    client.Insert("test.date", b);
+    client.Insert("test_datetime64", b);
 
-    client.Select("SELECT d FROM test.datetime64", [precision_multiplier](const Block& block)
+    client.Select("SELECT dt64 FROM test_datetime64", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
                 auto col = block[0]->As<ColumnDateTime64>();
-                const time_t t = static_cast<time_t>(col->At(c) / precision_multiplier);
-                std::cerr << std::asctime(std::localtime(&t)) << " " << std::endl;
+                uint64_t t = col->As<ColumnDateTime64>()->At(c);
+
+                std::time_t ct = t / 1000000;
+                uint64_t us = t % 1000000;
+                std::cerr << "ctime: " << std::asctime(std::localtime(&ct));
+                std::cerr << "us: " << us << std::endl;
             }
         }
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.datetime64");
+    client.Execute("DROP TEMPORARY TABLE test_datetime64");
 }
 
 inline void DecimalExample(Client& client) {
     Block b;
 
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.decimal (d Decimal64(4)) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_decimal (d Decimal64(4))");
 
     auto d = std::make_shared<ColumnDecimal>(18, 4);
     d->Append(21111);
     b.AppendColumn("d", d);
-    client.Insert("test.decimal", b);
+    client.Insert("test_decimal", b);
 
-    client.Select("SELECT d FROM test.decimal", [](const Block& block)
+    client.Select("SELECT d FROM test_decimal", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
                 auto col = block[0]->As<ColumnDecimal>();
@@ -190,12 +197,12 @@ inline void DecimalExample(Client& client) {
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.decimal");
+    client.Execute("DROP TEMPORARY TABLE test_decimal");
 }
 
 inline void GenericExample(Client& client) {
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.client (id UInt64, name String) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_client (id UInt64, name String)");
 
     /// Insert some values.
     {
@@ -212,23 +219,23 @@ inline void GenericExample(Client& client) {
         block.AppendColumn("id"  , id);
         block.AppendColumn("name", name);
 
-        client.Insert("test.client", block);
+        client.Insert("test_client", block);
     }
 
     /// Select values inserted in the previous step.
-    client.Select("SELECT id, name FROM test.client", [](const Block& block)
+    client.Select("SELECT id, name FROM test_client", [](const Block& block)
         {
-            PrintBlock(block);
+            std::cout << PrettyPrintBlock{block} << std::endl;
         }
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.client");
+    client.Execute("DROP TEMPORARY TABLE test_client");
 }
 
 inline void NullableExample(Client& client) {
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.client (id Nullable(UInt64), date Nullable(Date)) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_client (id Nullable(UInt64), date Nullable(Date))");
 
     /// Insert some values.
     {
@@ -258,11 +265,11 @@ inline void NullableExample(Client& client) {
             block.AppendColumn("date", std::make_shared<ColumnNullable>(date, nulls));
         }
 
-        client.Insert("test.client", block);
+        client.Insert("test_client", block);
     }
 
     /// Select values inserted in the previous step.
-    client.Select("SELECT id, date FROM test.client", [](const Block& block)
+    client.Select("SELECT id, date FROM test_client", [](const Block& block)
         {
             for (size_t c = 0; c < block.GetRowCount(); ++c) {
                 auto col_id   = block[0]->As<ColumnNullable>();
@@ -287,7 +294,7 @@ inline void NullableExample(Client& client) {
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.client");
+    client.Execute("DROP TEMPORARY TABLE test_client");
 }
 
 inline void NumbersExample(Client& client) {
@@ -312,7 +319,7 @@ inline void NumbersExample(Client& client) {
 
 inline void CancelableExample(Client& client) {
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.client (x UInt64) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_client (x UInt64)");
 
     /// Insert a few blocks.
     for (unsigned j = 0; j < 10; j++) {
@@ -324,28 +331,28 @@ inline void CancelableExample(Client& client) {
         }
 
         b.AppendColumn("x", x);
-        client.Insert("test.client", b);
+        client.Insert("test_client", b);
     }
 
     /// Send a query which is canceled after receiving the first block (note:
     /// due to the low number of rows in this test, this will not actually have
     /// any effect, it just tests for errors)
-    client.SelectCancelable("SELECT * FROM test.client", [](const Block&)
+    client.SelectCancelable("SELECT * FROM test_client", [](const Block&)
         {
             return false;
         }
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.client");
+    client.Execute("DROP TEMPORARY TABLE test_client");
 }
 
 inline void ExecptionExample(Client& client) {
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.exceptions (id UInt64, name String) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_exceptions (id UInt64, name String)");
     /// Expect failing on table creation.
     try {
-        client.Execute("CREATE TABLE test.exceptions (id UInt64, name String) ENGINE = Memory");
+        client.Execute("CREATE TEMPORARY TABLE test_exceptions (id UInt64, name String)");
     } catch (const ServerException& e) {
         if (e.GetCode() == ErrorCodes::TABLE_ALREADY_EXISTS) {
             // OK
@@ -355,12 +362,12 @@ inline void ExecptionExample(Client& client) {
     }
 
     /// Delete table.
-    client.Execute("DROP TABLE test.exceptions");
+    client.Execute("DROP TEMPORARY TABLE test_exceptions");
 }
 
 inline void EnumExample(Client& client) {
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.enums (id UInt64, e Enum8('One' = 1, 'Two' = 2)) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_enums (id UInt64, e Enum8('One' = 1, 'Two' = 2))");
 
     /// Insert some values.
     {
@@ -377,11 +384,11 @@ inline void EnumExample(Client& client) {
         block.AppendColumn("id", id);
         block.AppendColumn("e", e);
 
-        client.Insert("test.enums", block);
+        client.Insert("test_enums", block);
     }
 
     /// Select values inserted in the previous step.
-    client.Select("SELECT id, e FROM test.enums", [](const Block& block)
+    client.Select("SELECT id, e FROM test_enums", [](const Block& block)
         {
             for (Block::Iterator bi(block); bi.IsValid(); bi.Next()) {
                 std::cout << bi.Name() << " ";
@@ -396,7 +403,7 @@ inline void EnumExample(Client& client) {
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.enums");
+    client.Execute("DROP TEMPORARY TABLE test_enums");
 }
 
 inline void SelectNull(Client& client) {
@@ -421,7 +428,7 @@ inline void ShowTables(Client& client) {
 
 inline void IPExample(Client &client) {
     /// Create a table.
-    client.Execute("CREATE TABLE IF NOT EXISTS test.ips (id UInt64, v4 IPv4, v6 IPv6) ENGINE = Memory");
+    client.Execute("CREATE TEMPORARY TABLE IF NOT EXISTS test_ips (id UInt64, v4 IPv4, v6 IPv6)");
 
     /// Insert some values.
     {
@@ -446,11 +453,11 @@ inline void IPExample(Client &client) {
         block.AppendColumn("v4", v4);
         block.AppendColumn("v6", v6);
 
-        client.Insert("test.ips", block);
+        client.Insert("test_ips", block);
     }
 
     /// Select values inserted in the previous step.
-    client.Select("SELECT id, v4, v6 FROM test.ips", [](const Block& block)
+    client.Select("SELECT id, v4, v6 FROM test_ips", [](const Block& block)
         {
             for (Block::Iterator bi(block); bi.IsValid(); bi.Next()) {
                 std::cout << bi.Name() << " ";
@@ -466,7 +473,7 @@ inline void IPExample(Client &client) {
     );
 
     /// Delete table.
-    client.Execute("DROP TABLE test.ips");
+    client.Execute("DROP TEMPORARY TABLE test_ips");
 }
 
 static void RunTests(Client& client) {
@@ -488,18 +495,23 @@ static void RunTests(Client& client) {
 
 int main() {
     try {
+        const auto localHostEndpoint = ClientOptions()
+                .SetHost(           getEnvOrDefault("CLICKHOUSE_HOST",     "localhost"))
+                .SetPort(   getEnvOrDefault<size_t>("CLICKHOUSE_PORT",     "9000"))
+                .SetUser(           getEnvOrDefault("CLICKHOUSE_USER",     "default"))
+                .SetPassword(       getEnvOrDefault("CLICKHOUSE_PASSWORD", ""))
+                .SetDefaultDatabase(getEnvOrDefault("CLICKHOUSE_DB",       "default"));
+
         {
-            Client client(ClientOptions()
-                            .SetHost("localhost")
-                            .SetPingBeforeQuery(true));
+            Client client(ClientOptions(localHostEndpoint)
+                    .SetPingBeforeQuery(true));
             RunTests(client);
         }
 
         {
-            Client client(ClientOptions()
-                            .SetHost("localhost")
-                            .SetPingBeforeQuery(true)
-                            .SetCompressionMethod(CompressionMethod::LZ4));
+            Client client(ClientOptions(localHostEndpoint)
+                    .SetPingBeforeQuery(true)
+                    .SetCompressionMethod(CompressionMethod::LZ4));
             RunTests(client);
         }
     } catch (const std::exception& e) {
