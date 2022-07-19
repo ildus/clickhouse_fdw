@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="cb15ff9c-d6e1-41ea-983c-e5bfe210675d" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="cb15ff9c-d6e1-41ea-983c-e5bfe210675d" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -35,19 +33,20 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "WebServerToolWindowFactoryState": "false",
     "com.google.cloudcode.ide_session_index": "20220719_0001",
-    "last_opened_file_path": "/Users/iosif/Documents/Projects/clickhouse_fdw/src/clickhouse-cpp",
+    "last_opened_file_path": "/Users/iosif/Documents/Projects/clickhouse_fdw/src/clickhouse-cpp/contrib/absl",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "project.structure.last.edited": "Project",
-    "project.structure.proportion": "0.0",
+    "project.structure.last.edited": "Modules",
+    "project.structure.proportion": "0.15",
     "project.structure.side.proportion": "0.2"
   }
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/clickhouse-cpp/contrib/absl" />
       <recent name="$PROJECT_DIR$/src/clickhouse-cpp" />
       <recent name="$PROJECT_DIR$/src" />
     </key>
@@ -72,7 +71,7 @@
       <workItem from="1655981315208" duration="1794000" />
       <workItem from="1656152163735" duration="1798000" />
       <workItem from="1658214991993" duration="188000" />
-      <workItem from="1658215186167" duration="697000" />
+      <workItem from="1658215186167" duration="3076000" />
     </task>
     <servers />
   </component>
