@@ -45,8 +45,8 @@ TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static PRIVATE
 
 IF (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --rtlib=compiler-rt")
-    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib gcc_s)
-    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static gcc_s)
+    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib PRIVATE gcc_s)
+    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static PRIVATE gcc_s)
 ENDIF ()
 
 if (CLICKHOUSE_CPP_ENABLE_INSTALL)
