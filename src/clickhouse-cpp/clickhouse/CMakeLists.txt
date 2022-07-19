@@ -54,7 +54,7 @@ IF (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         # the error looks like: ... undefined reference to `__muloti4' ...
         # caused by clang bug https://bugs.llvm.org/show_bug.cgi?id=16404
         # explicit linking to compiler-rt allows to workaround the problem
-        SET (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --rtlib=compiler-rt)
+        SET (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --rtlib=compiler-rt")
 
         # some workaround for linking issues on linux:
         # /usr/bin/ld: CMakeFiles/simple-test.dir/main.cpp.o: undefined reference to symbol '_Unwind_Resume@@GCC_3.0'
