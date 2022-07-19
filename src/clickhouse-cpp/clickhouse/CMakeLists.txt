@@ -32,19 +32,21 @@ SET ( clickhouse-cpp-lib-src
 
 ADD_LIBRARY (clickhouse-cpp-lib SHARED ${clickhouse-cpp-lib-src})
 SET_TARGET_PROPERTIES(clickhouse-cpp-lib PROPERTIES LINKER_LANGUAGE CXX)
-TARGET_LINK_LIBRARIES (cityhash-lib
+TARGET_LINK_LIBRARIES (clickhouse-cpp-lib
+    cityhash-lib
     lz4-lib
 )
 
 ADD_LIBRARY (clickhouse-cpp-lib-static STATIC ${clickhouse-cpp-lib-src})
-TARGET_LINK_LIBRARIES (cityhash-lib
+TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static
+    cityhash-lib
     lz4-lib
 )
 
 IF (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --rtlib=compiler-rt")
-    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib PUBLIC gcc_s)
-    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static PUBLIC gcc_s)
+    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib gcc_s)
+    TARGET_LINK_LIBRARIES (clickhouse-cpp-lib-static gcc_s)
 ENDIF ()
 
 if (CLICKHOUSE_CPP_ENABLE_INSTALL)
