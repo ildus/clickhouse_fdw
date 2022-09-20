@@ -134,7 +134,7 @@ lookup_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 /*
  * Return true if given object is one of PostgreSQL's built-in objects.
  *
- * We use FirstBootstrapObjectId as the cutoff, so that we only consider
+ * We use FirstUnpinnedObjectId as the cutoff, so that we only consider
  * objects with hand-assigned OIDs to be "built in", not for instance any
  * function or type defined in the information_schema.
  *
@@ -151,7 +151,7 @@ lookup_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo)
 bool
 chfdw_is_builtin(Oid objectId)
 {
-	return (objectId < FirstBootstrapObjectId);
+	return (objectId < FirstUnpinnedObjectId);
 }
 
 /*
