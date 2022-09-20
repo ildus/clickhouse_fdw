@@ -940,7 +940,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 				appendStringInfoString(&buf, " OPTIONS (");
 				foreach(lc, options)
 				{
-					Value	*val = lfirst(lc);
+					Node	*val = lfirst(lc);
 					if (IsA(val, Integer))
 					{
 						if (!first)
