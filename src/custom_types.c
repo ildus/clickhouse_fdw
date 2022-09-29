@@ -43,7 +43,7 @@ create_custom_objects_cache(void)
 	ctl.keysize = sizeof(Oid);
 	ctl.entrysize = sizeof(CustomObjectDef);
 
-	return hash_create("clickhouse_fdw custom functions", 20, &ctl, HASH_ELEM);
+	return hash_create("clickhouse_fdw custom functions", 20, &ctl, HASH_ELEM | HASH_BLOBS);
 }
 
 static void

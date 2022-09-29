@@ -25,6 +25,10 @@
 #include "nodes/pathnodes.h"
 #endif
 
+#if PG_VERSION_NUM < 150000
+#define FirstUnpinnedObjectId FirstBootstrapObjectId
+#endif
+
 /* libclickhouse_link.c */
 typedef struct ch_cursor ch_cursor;
 typedef struct ch_cursor
