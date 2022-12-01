@@ -137,6 +137,8 @@ InitChFdwOptions(void)
 		{"driver", ForeignServerRelationId, false},
 		{"aggregatefunction", AttributeRelationId, false},
 		{"simpleaggregatefunction", AttributeRelationId, false},
+		{"column_name", AttributeRelationId, false},
+		{"arrays", AttributeRelationId, false},
 		{NULL, InvalidOid, false}
 	};
 
