@@ -31,11 +31,6 @@ make clean
 make -j10
 make install
 
-git clone https://github.com/adjust/istore.git
-pushd istore
-make && make install
-popd
-
 # check build
 status=$?
 if [ $status -ne 0 ]; then exit $status; fi

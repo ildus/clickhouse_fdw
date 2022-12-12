@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-project(clickhouse_fdw VERSION 1.3.0 LANGUAGES C)
+project(clickhouse_fdw VERSION 1.4.0 LANGUAGES C)
 
 set(CMAKE_COLOR_MAKEFILE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
@@ -53,8 +53,6 @@ LIST(APPEND REGRESS_TESTS
 	http
 	binary
 	import_schema
-	istore
-	istore_binary
 	binary_queries
 	binary_inserts
 	functions

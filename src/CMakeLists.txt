@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-project(clickhouse_fdw VERSION 1.2.0 LANGUAGES C CXX)
+project(clickhouse_fdw VERSION 1.4.0 LANGUAGES C CXX)
 
 include (clickhouse-cpp/cmake/cpp17.cmake)
 
@@ -76,6 +76,7 @@ set(sql_out "${CMAKE_BINARY_DIR}/clickhouse_fdw--${EXT_VERSION}.sql")
 set(sql_migration_11 "${CMAKE_CURRENT_SOURCE_DIR}/sql/clickhouse_fdw--1.0--1.1.sql")
 set(sql_migration_12 "${CMAKE_CURRENT_SOURCE_DIR}/sql/clickhouse_fdw--1.1--1.2.sql")
 set(sql_migration_13 "${CMAKE_CURRENT_SOURCE_DIR}/sql/clickhouse_fdw--1.2--1.3.sql")
+set(sql_migration_14 "${CMAKE_CURRENT_SOURCE_DIR}/sql/clickhouse_fdw--1.3--1.4.sql")
 
 add_custom_command(
 	OUTPUT ${sql_out}
@@ -83,7 +84,7 @@ add_custom_command(
 	DEPENDS sql/init.sql sql/functions.sql
 )
 add_custom_target(clickhouse_fdw_sql
-	ALL DEPENDS ${sql_out} ${sql_migration_11} ${sql_migration_12} ${sql_migration_13})
+	ALL DEPENDS ${sql_out} ${sql_migration_11} ${sql_migration_12} ${sql_migration_13} ${sql_migration_14})
 add_dependencies(clickhouse_fdw clickhouse_fdw_sql)
 
 #------------------------------------------------------------------------------
@@ -94,6 +95,7 @@ set (install_files
 	"${sql_migration_11}"
 	"${sql_migration_12}"
 	"${sql_migration_13}"
+	"${sql_migration_14}"
 	"${CMAKE_SOURCE_DIR}/src/clickhouse_fdw.control"
 )
 
