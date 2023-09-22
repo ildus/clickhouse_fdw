@@ -853,7 +853,7 @@ parse_type(char *colname, char *typepart, bool *is_nullable, List **options)
 		i++;
 	}
 
-	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <%s>", typepart)));
+	ereport(ERROR, (errmsg("clickhouse_fdw: could not map type <|%s|>", typepart)));
 }
 
 List *
@@ -873,7 +873,11 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			"FROM system.tables WHERE database='%s' and name not like '.inner%%'", stmt->remote_schema);
 	cursor = conn.methods->simple_query(conn.conn, query);
 
-	datts = list_make2_int(1,2);
+	datts = list_make4_int(1, 2, 3, 4);
+	lcons_int(5, datts);
+	lcons_int(6, datts);
+	lcons_int(7, datts);
+	lcons_int(8, datts);
 
 	while ((row_values = (char **) conn.methods->fetch_row(cursor,
 				list_make3_int(1,2,3), NULL, NULL, NULL)) != NULL)
@@ -910,7 +914,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS \"%s\".\"%s\" (\n",
 			stmt->local_schema, table_name);
-		query = psprintf("select name, type from system.columns where database='%s' and table='%s'",
+		query = psprintf("DESCRIBE %s.%s SETTINGS describe_extend_object_types=1, describe_include_subcolumns=1;",
             stmt->remote_schema, table_name);
 		table_def = conn.methods->simple_query(conn.conn, query);
 
