@@ -50,6 +50,15 @@ sudo yum install libmetalink
 yum install libuuid-devel
 ```
 
+###### Build docker images
+
+```
+docker build -f docker/Dockerfile.pg-alpine --build-arg POSTGRES_VERSION=13 .
+
+docker build -f docker/Dockerfile.pg --build-arg POSTGRES_VERSION=13 .
+```
+
+
 Usage
 -----
 
