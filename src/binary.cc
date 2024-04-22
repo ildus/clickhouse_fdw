@@ -58,7 +58,7 @@ static void * exc_palloc(Size size)
 	void * ret;
 	MemoryContext context = CurrentMemoryContext;
 
-	AssertArg(MemoryContextIsValid(context));
+	Assert(MemoryContextIsValid(context));
 
 	if (!AllocSizeIsValid(size))
 		throw std::bad_alloc();
@@ -80,7 +80,7 @@ void * exc_palloc0(Size size)
 	void * ret;
 	MemoryContext context = CurrentMemoryContext;
 
-	AssertArg(MemoryContextIsValid(context));
+	Assert(MemoryContextIsValid(context));
 
 	if (!AllocSizeIsValid(size))
 		throw std::bad_alloc();
