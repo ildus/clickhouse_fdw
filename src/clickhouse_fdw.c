@@ -768,7 +768,11 @@ clickhouseBeginForeignScan(ForeignScanState *node, int eflags)
 	else
 		rtindex = bms_next_member(fsplan->fs_relids, -1);
 	rte = rt_fetch(rtindex, estate->es_range_table);
+#if PG_VERSION_NUM >= 160000
+	userid = OidIsValid(fsplan->checkAsUser) ? fsplan->checkAsUser : GetUserId();
+#else
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+#endif
 
 	/* Get info about foreign table. */
 	table = GetForeignTable(rte->relid);
@@ -1377,7 +1381,11 @@ create_foreign_modify(EState *estate,
 	 * Identify which user to do the remote access as.  This should match what
 	 * ExecCheckRTEPerms() does.
 	 */
+#if PG_VERSION_NUM >= 160000
+	userid = ExecGetResultRelCheckAsUser(rri, estate);
+#else
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+#endif
 
 	/* Get info about foreign table. */
 	table = GetForeignTable(RelationGetRelid(rel));
@@ -2171,6 +2179,9 @@ foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 									  expr,
 									  true,
 									  false,
+#if PG_VERSION_NUM >= 160000
+									  false,
+#endif
 									  false,
 									  root->qual_security_level,
 									  grouped_rel->relids,
