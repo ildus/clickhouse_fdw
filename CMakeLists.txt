@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 project(clickhouse_fdw VERSION 1.4.0 LANGUAGES C)
 
 set(CMAKE_COLOR_MAKEFILE ON)
