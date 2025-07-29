@@ -720,7 +720,7 @@ SELECT COUNT(DISTINCT c1) FROM ft2;
 /* DISTINCT with IF */
 EXPLAIN (VERBOSE, COSTS OFF) SELECT COUNT(DISTINCT c1) FILTER (WHERE c1 < 20) FROM ft2;
                       QUERY PLAN                       
--------------------------------------------------------
+------------------------------------------------------------------
  Aggregate
    Output: count(DISTINCT c1) FILTER (WHERE (c1 < 20))
    ->  Foreign Scan on public.ft2
