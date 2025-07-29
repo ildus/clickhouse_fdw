@@ -49,12 +49,6 @@
 
 PG_MODULE_MAGIC;
 
-#if PG_VERSION_NUM >= 100000
-#define textDatumToCString text_to_cstring
-#else
-#define TextDatumGetCString text_to_cstring
-#endif
-
 /* Default CPU cost to start up a foreign query. */
 #define DEFAULT_FDW_STARTUP_COST	100.0
 
