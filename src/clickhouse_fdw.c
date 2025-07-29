@@ -49,6 +49,11 @@
 
 PG_MODULE_MAGIC;
 
+#if PG_VERSION_NUM >= 100000
+#define textDatumToCString text_to_cstring
+#else
+#define TextDatumGetCString text_to_cstring
+#endif
 
 /* Default CPU cost to start up a foreign query. */
 #define DEFAULT_FDW_STARTUP_COST	100.0
@@ -296,10 +301,10 @@ void _PG_init(void){}
 Datum
 clickhousedb_raw_query(PG_FUNCTION_ARGS)
 {
-	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
-		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
+	char *connstring = text_to_cstring(PG_GETARG_TEXT_P(1)),
+		 *query = text_to_cstring(PG_GETARG_TEXT_P(0));
 
-    ch_connection_details *details = connstring_parse(connstring);
+	ch_connection_details *details = connstring_parse(connstring);
 	ch_connection	conn = chfdw_http_connect(details);
 	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
 	text		   *res = chfdw_http_fetch_raw_data(cursor);
