@@ -6,7 +6,7 @@ The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for `Cli
 Supported PostgreSQL Versions
 ------------------------------
 
-PostgreSQL 11-14
+PostgreSQL 11-17
 
 Installation
 ----------------
