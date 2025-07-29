@@ -1858,6 +1858,9 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 											 useful_pathkeys,
 											 NULL,
 											 sorted_epq_path,
+#if PG_VERSION_NUM >= 170000
+											 NIL,
+#endif
 											 NIL));
 		else
 			add_path(rel, (Path *)
@@ -1869,6 +1872,9 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 											  useful_pathkeys,
 											  NULL,
 											  sorted_epq_path,
+#if PG_VERSION_NUM >= 170000
+											  NIL,
+#endif
 											  NIL));
 	}
 }
