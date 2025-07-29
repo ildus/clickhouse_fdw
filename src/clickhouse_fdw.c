@@ -510,9 +510,13 @@ clickhouseGetForeignPaths(PlannerInfo *root,
 	ForeignPath			*path;
 	CHFdwRelationInfo	*fpinfo = (CHFdwRelationInfo *) baserel->fdw_private;
 
-	path= create_foreignscan_path(root, baserel, NULL,
+	path = create_foreignscan_path(root, baserel, NULL,
 		fpinfo->rows, fpinfo->startup_cost, fpinfo->total_cost,
-		NULL, NULL, NULL, NIL);
+		NULL, NULL, NULL, NIL
+#if PG_VERSION_NUM >= 170000
+		, NIL
+#endif
+		);
 
 	add_path(baserel, (Path *) path);
 	add_paths_with_pathkeys_for_rel(root, baserel, NULL);
@@ -1205,7 +1209,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                NULL,
 	                                sql.data,
 	                                targetAttrs,
-									table_name);
+					table_name);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -2024,6 +2028,9 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 										NIL,	/* no pathkeys */
 										NULL,
 										epq_path,
+#if PG_VERSION_NUM >= 170000
+										NIL,
+#endif
 										NIL);	/* no fdw_private */
 
 	/* Add generated path into joinrel by add_path(). */
@@ -2394,6 +2401,9 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										  total_cost,
 										  NIL,	/* no pathkeys */
 										  NULL,
+#if PG_VERSION_NUM >= 170000
+										  NIL,
+#endif
 										  NIL); /* no fdw_private */
 #endif
 
@@ -2532,6 +2542,9 @@ add_foreign_ordered_paths(PlannerInfo *root, RelOptInfo *input_rel,
 											 total_cost,
 											 root->sort_pathkeys,
 											 NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+											 NIL,
+#endif
 											 fdw_private);
 #endif
 
@@ -2677,6 +2690,9 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										   -10,
 										   pathkeys,
 										   NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+										   NIL,
+#endif
 										   fdw_private);
 
 	/* and add it to the final_rel */
