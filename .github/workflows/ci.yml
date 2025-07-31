@@ -11,13 +11,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: [14, 13, 12, 11]
+        pg: [17, 16, 15, 14, 13, 12, 11]
         check_code: ["false", "clang"]
+        exclude:
+        - pg: 16
+          check_code: "false"
+        - pg: 17
+          check_code: "false"
 
     name: Test clickhouse_fdw
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Pull `clickhouse`
         run: docker compose pull clickhouse
       - name: Run `clickhouse`

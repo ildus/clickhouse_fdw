@@ -65,7 +65,11 @@ static void * exc_palloc(Size size)
 
 	context->isReset = false;
 
+#if PG_VERSION_NUM >= 170000
+	ret = context->methods->alloc(context, size, 0);
+#else
 	ret = context->methods->alloc(context, size);
+#endif
 	if (unlikely(ret == NULL))
 		throw std::bad_alloc();
 
@@ -87,7 +91,11 @@ void * exc_palloc0(Size size)
 
 	context->isReset = false;
 
+#if PG_VERSION_NUM >= 170000
+	ret = context->methods->alloc(context, size, 0);
+#else
 	ret = context->methods->alloc(context, size);
+#endif
 	if (unlikely(ret == NULL))
 		throw std::bad_alloc();
 

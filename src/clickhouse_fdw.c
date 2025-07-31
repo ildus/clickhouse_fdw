@@ -49,7 +49,6 @@
 
 PG_MODULE_MAGIC;
 
-
 /* Default CPU cost to start up a foreign query. */
 #define DEFAULT_FDW_STARTUP_COST	100.0
 
@@ -296,10 +295,10 @@ void _PG_init(void){}
 Datum
 clickhousedb_raw_query(PG_FUNCTION_ARGS)
 {
-	char *connstring = TextDatumGetCString(PG_GETARG_TEXT_P(1)),
-		 *query = TextDatumGetCString(PG_GETARG_TEXT_P(0));
+	char *connstring = text_to_cstring(PG_GETARG_TEXT_P(1)),
+		 *query = text_to_cstring(PG_GETARG_TEXT_P(0));
 
-    ch_connection_details *details = connstring_parse(connstring);
+	ch_connection_details *details = connstring_parse(connstring);
 	ch_connection	conn = chfdw_http_connect(details);
 	ch_cursor	   *cursor = conn.methods->simple_query(conn.conn, query);
 	text		   *res = chfdw_http_fetch_raw_data(cursor);
@@ -511,9 +510,13 @@ clickhouseGetForeignPaths(PlannerInfo *root,
 	ForeignPath			*path;
 	CHFdwRelationInfo	*fpinfo = (CHFdwRelationInfo *) baserel->fdw_private;
 
-	path= create_foreignscan_path(root, baserel, NULL,
+	path = create_foreignscan_path(root, baserel, NULL,
 		fpinfo->rows, fpinfo->startup_cost, fpinfo->total_cost,
-		NULL, NULL, NULL, NIL);
+		NULL, NULL, NULL, NIL
+#if PG_VERSION_NUM >= 170000
+		, NIL
+#endif
+		);
 
 	add_path(baserel, (Path *) path);
 	add_paths_with_pathkeys_for_rel(root, baserel, NULL);
@@ -1206,7 +1209,7 @@ clickhouseBeginForeignInsert(ModifyTableState *mtstate,
 	                                NULL,
 	                                sql.data,
 	                                targetAttrs,
-									table_name);
+					table_name);
 
 	resultRelInfo->ri_FdwState = fmstate;
 }
@@ -1855,6 +1858,9 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 											 useful_pathkeys,
 											 NULL,
 											 sorted_epq_path,
+#if PG_VERSION_NUM >= 170000
+											 NIL,
+#endif
 											 NIL));
 		else
 			add_path(rel, (Path *)
@@ -1866,6 +1872,9 @@ add_paths_with_pathkeys_for_rel(PlannerInfo *root, RelOptInfo *rel,
 											  useful_pathkeys,
 											  NULL,
 											  sorted_epq_path,
+#if PG_VERSION_NUM >= 170000
+											  NIL,
+#endif
 											  NIL));
 	}
 }
@@ -2025,6 +2034,9 @@ clickhouseGetForeignJoinPaths(PlannerInfo *root,
 										NIL,	/* no pathkeys */
 										NULL,
 										epq_path,
+#if PG_VERSION_NUM >= 170000
+										NIL,
+#endif
 										NIL);	/* no fdw_private */
 
 	/* Add generated path into joinrel by add_path(). */
@@ -2395,6 +2407,9 @@ add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										  total_cost,
 										  NIL,	/* no pathkeys */
 										  NULL,
+#if PG_VERSION_NUM >= 170000
+										  NIL,
+#endif
 										  NIL); /* no fdw_private */
 #endif
 
@@ -2533,6 +2548,9 @@ add_foreign_ordered_paths(PlannerInfo *root, RelOptInfo *input_rel,
 											 total_cost,
 											 root->sort_pathkeys,
 											 NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+											 NIL,
+#endif
 											 fdw_private);
 #endif
 
@@ -2678,6 +2696,9 @@ add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 										   -10,
 										   pathkeys,
 										   NULL,	/* no extra plan */
+#if PG_VERSION_NUM >= 170000
+										   NIL,
+#endif
 										   fdw_private);
 
 	/* and add it to the final_rel */
