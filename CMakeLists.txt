@@ -44,6 +44,10 @@ exec_program(${PG_CONFIG} ARGS --bindir OUTPUT_VARIABLE PGSQL_BINDIR)
 exec_program(${PG_CONFIG} ARGS --cppflags OUTPUT_VARIABLE PGSQL_CPPFLAGS)
 exec_program(${PG_CONFIG} ARGS --ldflags OUTPUT_VARIABLE PGSQL_LDFLAGS)
 exec_program(${PG_CONFIG} ARGS --libs OUTPUT_VARIABLE PGSQL_LIBS)
+if(APPLE)
+string(REGEX REPLACE "-isysroot[ ]+[^ ]+ " "" PGSQL_LDFLAGS ${PGSQL_LDFLAGS})
+string(REGEX REPLACE "-isysroot[ ]+[^ ]+ " "" PGSQL_CPPFLAGS ${PGSQL_CPPFLAGS})
+endif(APPLE)
 
 #------------------------------------------------------------------------------
 # tests
