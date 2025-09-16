@@ -51,6 +51,7 @@ endif()
 set_target_properties (clickhouse_fdw PROPERTIES
   OUTPUT_NAME "clickhouse_fdw"
   PREFIX ""
+  SUFFIX ${CMAKE_SHARED_LIBRARY_SUFFIX}
 )
 set_target_properties(clickhouse_fdw PROPERTIES
 	BUILD_WITH_INSTALL_RPATH TRUE
