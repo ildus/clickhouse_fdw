@@ -1,3 +1,14 @@
+/*-------------------------------------------------------------------------
+ *
+ * clickhousedb_fdw.c
+ *		  Foreign-data wrapper for remote ClickHouse servers
+ *
+ * Portions Copyright (c) 2012-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2025, ClickHouse
+ *
+ *-------------------------------------------------------------------------
+ */
+
 #include "postgres.h"
 
 #include "access/htup_details.h"
@@ -140,7 +151,8 @@ static void
 kill_query(void *conn, const char *query_id)
 {
 	ch_http_response_t *resp;
-	char *query = psprintf("kill query where query_id='%s'", query_id);
+	char *query = psprintf("kill query where query_id='%s'",
+            ch_quote_literal(query_id));
 
 	ch_http_set_progress_func(NULL);
 	resp = ch_http_simple_query(conn, query);
@@ -870,7 +882,8 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 	char		  **row_values;
 
 	query = psprintf("SELECT name, engine, engine_full "
-			"FROM system.tables WHERE database='%s' and name not like '.inner%%'", stmt->remote_schema);
+			"FROM system.tables WHERE database='%s' and name not like '.inner%%'",
+            ch_quote_literal(stmt->remote_schema));
 	cursor = conn.methods->simple_query(conn.conn, query);
 
 	datts = list_make2_int(1,2);
@@ -908,10 +921,12 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 		}
 
 		initStringInfo(&buf);
-		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS \"%s\".\"%s\" (\n",
-			stmt->local_schema, table_name);
-		query = psprintf("select name, type from system.columns where database='%s' and table='%s'",
-            stmt->remote_schema, table_name);
+		appendStringInfo(&buf, "CREATE FOREIGN TABLE IF NOT EXISTS %s.%s (\n",
+			quote_identifier(stmt->local_schema),
+            quote_identifier(table_name));
+		query = psprintf("select name, type from system.columns where database=%s and table=%s",
+            ch_quote_literal(stmt->remote_schema),
+            quote_identifier(table_name));
 		table_def = conn.methods->simple_query(conn.conn, query);
 
 		while ((dvalues = (char **) conn.methods->fetch_row(table_def,
@@ -927,7 +942,7 @@ chfdw_construct_create_tables(ImportForeignSchemaStmt *stmt, ForeignServer *serv
 			first = false;
 
 			/* name */
-			appendStringInfo(&buf, "\t\"%s\" ", colname);
+            appendStringInfo(&buf, "\t%s ", quote_identifier(colname));
 
 			/* type */
 			appendStringInfoString(&buf, remote_type);
@@ -1091,4 +1106,45 @@ escape_string(char *to, const char *from, size_t length)
 	*target = '\0';
 
 	return target - to;
+}
+
+/*
+ * Convenience function to single-quote a literal SQL string. Differs from
+ * PostgreSQL's quote_literal_cstr() by never returning an E-quoted string.
+ */
+static void
+ch_quote_literal_internal(char *dst, const char *src, size_t len)
+{
+	*dst++ = '\'';
+	while (*src)
+	{
+		if (SQL_STR_DOUBLE(*src, true))
+			*dst++ = *src;
+		*dst++ = *src++;
+	}
+	*dst++ = '\'';
+	*dst++ = '\0';
+}
+
+/*
+ * Convenience function to escape and return a string as a ClickHouse literal.
+ * Returns a palloc'd string.
+ */
+char	   *
+ch_quote_literal(const char *rawstr)
+{
+	char	   *result;
+	int			len;
+
+	len = strlen(rawstr);
+	/* We make a worst-case result area; wasting a little space is OK */
+	result = palloc(
+					(len * 2)	/* doubling for every character if each one is
+								 * a quote */
+					+ 2			/* two outer quotes */
+					+ 1			/* null terminator */
+		);
+
+	ch_quote_literal_internal(result, rawstr, len);
+	return result;
 }

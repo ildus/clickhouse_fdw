@@ -322,6 +322,7 @@ extern CustomObjectDef *chfdw_check_for_custom_operator(Oid opoid, Form_pg_opera
 extern Datum ch_timestamp_out(PG_FUNCTION_ARGS);
 extern Datum ch_date_out(PG_FUNCTION_ARGS);
 extern Datum ch_time_out(PG_FUNCTION_ARGS);
+extern char *ch_quote_literal(const char *rawstr);
 
 extern bool chfdw_is_shippable(Oid objectId, Oid classId, CHFdwRelationInfo *fpinfo,
 		CustomObjectDef **outcdef);

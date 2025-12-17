@@ -10,7 +10,7 @@
  *
  *-------------------------------------------------------------------------
  */
-/* PosrgreSQL main header file */
+
 #include "postgres.h"
 
 #include <sys/time.h>

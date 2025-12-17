@@ -4,9 +4,7 @@
  *		  Query deparser for clickhousedb_fdw
  *
  * Portions Copyright (c) 2012-2019, PostgreSQL Global Development Group
- *
- * IDENTIFICATION
- *		  contrib/postgres_fdw/clickhousedb_deparse.c
+ * Portions Copyright (c) 2025, ClickHouse
  *
  *-------------------------------------------------------------------------
  */
@@ -1792,34 +1790,11 @@ deparseRelation(StringInfo buf, Relation rel)
  * Append a SQL string literal representing "val" to buf.
  */
 static void
-deparseStringLiteral(StringInfo buf, const char *val, bool quote)
+deparseStringLiteral(StringInfo buf, const char *val)
 {
-	const char *valptr;
-
-	/*
-	 * Rather than making assumptions about the remote server's value of
-	 * standard_conforming_strings, always use E'foo' syntax if there are any
-	 * backslashes.  This will fail on remote servers before 8.1, but those
-	 * are long out of support.
-	 */
-	if (strchr(val, '\\') != NULL)
-	{
-		appendStringInfoChar(buf, ESCAPE_STRING_SYNTAX);
-	}
-	if (quote)
-		appendStringInfoChar(buf, '\'');
-	for (valptr = val; *valptr; valptr++)
-	{
-		char		ch = *valptr;
-
-		if (SQL_STR_DOUBLE(ch, true))
-		{
-			appendStringInfoChar(buf, ch);
-		}
-		appendStringInfoChar(buf, ch);
-	}
-	if (quote)
-		appendStringInfoChar(buf, '\'');
+    char    *quoted = ch_quote_literal(val);
+    appendStringInfoString(buf, quoted);
+    pfree(quoted);
 }
 
 /*
@@ -2108,7 +2083,7 @@ deparseArray(Datum arr, deparse_expr_cxt *context)
 					appendStringInfoString(buf, "false");
 				break;
 			default:
-				deparseStringLiteral(buf, extval, true);
+				deparseStringLiteral(buf, extval);
 				break;
 			}
 			pfree(extval);
@@ -2247,7 +2222,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 			appendStringInfoString(buf, "0");
 		break;
 	default:
-		deparseStringLiteral(buf, extval, true);
+		deparseStringLiteral(buf, extval);
 		break;
 	}
 
