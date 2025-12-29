@@ -1,6 +1,11 @@
 `clickhouse_fdw` - ClickHouse Foreign Data Wrapper for PostgreSQL
 =================================================================
 
+The project is currently archived.
+
+I recommend to switch to : [https://github.com/clickhouse/pg_clickhouse](https://github.com/clickhouse/pg_clickhouse),
+which is basically a continuation of this project.
+
 The `clickhouse_fdw` is open-source. It is a Foreign Data Wrapper (FDW) for `ClickHouse` column oriented database.
 
 Supported PostgreSQL Versions
