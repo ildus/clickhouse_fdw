@@ -744,7 +744,7 @@ static char *str_types_map[][2] = {
 	{"Float32", "REAL"},
 	{"Float64", "DOUBLE PRECISION"},
 	{"Decimal", "NUMERIC"},
-	{"Boolean", "BOOLEAN"},
+	{"Bool", "BOOLEAN"},
 	{"String", "TEXT"},
 	{"DateTime", "TIMESTAMP"},
 	{"Date", "DATE"}, // important that this one is after other Date types
